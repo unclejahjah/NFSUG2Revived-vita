@@ -181,6 +181,8 @@ target_link_libraries(NFSU2VITA.elf
   SceAudiodec_stub
   SceVideodec_stub
   SceSysmodule_stub
+  SceNet_stub
+  SceNetCtl_stub
   ScePower_stub
   SceRtc_stub
   SceLibKernel_stub

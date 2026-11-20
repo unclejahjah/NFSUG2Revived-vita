@@ -57,6 +57,13 @@ const char DefaultSettingsFile[] =
     "# every sound. -60 is inaudible; louder values such as -40 save more.\n"
     "#audio_silence_db=-60\n"
     "\n"
+    "# Network play (the game's LAN and Online menus) over the Vita's Wi-Fi: on or off. off keeps the game offline.\n"
+    "#network=on\n"
+    "\n"
+    "# The community server the Online menu connects to in place of EA's closed servers (every *.ea.com name\n"
+    "# goes there), as the PC game's eanationhub mod and the NFSU2 Revived ports do. off: no Online play.\n"
+    "#online_server=eahub.eu\n"
+    "\n"
     "# on writes a detailed log to NeedForSpeedUnderground2.log, useful when reporting a problem. Errors\n"
     "# are logged either way.\n"
     "#log_info=off\n";
