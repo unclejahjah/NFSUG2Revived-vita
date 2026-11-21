@@ -24,35 +24,33 @@ def dxt3(buf,w,h):
 NEWHASH=0x5654A1C0
 W,H=128,64
 def art(template):
-    """White with alpha levels, as the game's options icons are (the menu tints them): a tile at 1/3, the glyph at
-    4/5 with a clear gap around it, the carousel arrows kept from the template."""
+    """White with alpha, as the game's options icons are (the menu tints them): a PS Vita outline at 4/5, its
+    screen, sticks and buttons cut out."""
     S=8
     def mask(draw):
         im=Image.new('L',(W*S,H*S),0); draw(ImageDraw.Draw(im)); return np.array(im.resize((W,H),Image.LANCZOS)).astype(int)
     # the glyph sits in the tile and runs past its foot, as the game's do
-    L,T,R,B=49,27,79,48
+    L,T,R,B=36,17,92,47
     def body(dr,grow=0):
         g=grow*S
-        dr.rounded_rectangle((L*S-g,T*S-g,R*S+g,B*S+g),radius=(B-T)*S//2+g,fill=255)
+        dr.rounded_rectangle((L*S-g,T*S-g,R*S+g,B*S+g),radius=12*S+g,fill=255)
     def holes(dr):
-        dr.rectangle(((L+10)*S,(T+4)*S,(R-10)*S,(B-5)*S),fill=255)                        # screen
-        lx,rx,my=(L+5)*S,(R-5)*S,(T+7.5)*S
-        a,b=0.9*S,2.8*S                                                                   # d-pad
+        dr.rectangle(((L+15)*S,(T+5)*S,(R-15)*S,(B-5)*S),fill=255)                        # screen
+        lx,rx,my=(L+7.5)*S,(R-7.5)*S,(T+10)*S
+        a,b=1.4*S,4.2*S                                                                   # d-pad
         dr.rectangle((lx-a,my-b,lx+a,my+b),fill=255); dr.rectangle((lx-b,my-a,lx+b,my+a),fill=255)
-        for dx,dy in ((0,-2),(0,2),(-2,0),(2,0)):                                         # face buttons
-            x,y=rx+dx*S,my+dy*S; r=0.9*S; dr.ellipse((x-r,y-r,x+r,y+r),fill=255)
+        for dx,dy in ((0,-3.2),(0,3.2),(-3.2,0),(3.2,0)):                                 # face buttons
+            x,y=rx+dx*S,my+dy*S; r=1.4*S; dr.ellipse((x-r,y-r,x+r,y+r),fill=255)
         for x in (lx,rx):                                                                 # sticks
-            y=(B-6)*S; r=1.8*S; dr.ellipse((x-r,y-r,x+r,y+r),fill=255)
+            y=(B-8)*S; r=2.6*S; dr.ellipse((x-r,y-r,x+r,y+r),fill=255)
     glyph=mask(lambda dr: body(dr))
     gap=mask(lambda dr: body(dr,2))
     hole=mask(holes)
     t=template.astype(int).copy()
     # tile: the template's, its old glyph painted over at the tile's own alpha
-    # the tile without the template's glyph: its edge profiles, taken beside and above the glyph
     ta=t[:,:,3]
-    tile=np.minimum(ta[:,48][:,None],ta[15,:][None,:])
-    tile[:,:44]=0; tile[:,86:]=0
-    a=np.where((np.arange(W)[None,:]<44)|(np.arange(W)[None,:]>85),ta,tile)
+    # no tile: only the carousel arrows are kept
+    a=np.where((np.arange(W)[None,:]<40)|(np.arange(W)[None,:]>88),ta,0)*0
     a=a*(255-gap)//255                                   # clear gap
     g=glyph*(255-hole)//255
     a=np.maximum(a,g*204//255)
