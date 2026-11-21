@@ -4,6 +4,7 @@
 #include "options_menu.h"
 #include "exopts.h"
 #include <platform/cfgfile.h>
+#include <platform/cloud_saves.h>
 #include <platform/config.h>
 #include <platform/log.h>
 #include <platform/settings.h>
@@ -26,7 +27,7 @@ namespace
 // ---- The settings ---------------------------------------------------------------------------------------------------
 
 enum Store { Cfg, Ini, Extra };     // NeedForSpeedUnderground2.cfg, scripts/NFSU2FreeRoam.ini's [FreeRoam], or Extra Options' [Gameplay]
-enum Kind { Choice, Text, Secret };
+enum Kind { Choice, Text, Secret, Action };     // Action: a row that does something (the cloud saves')
 
 struct Option
 {
@@ -82,6 +83,18 @@ const Option MixRate[] = { { "0", "Game's own" }, { "44100", "44100 Hz" }, { "32
 const Option Silence[] = { { "-60", "-60 dB" }, { "-50", "-50 dB" }, { "-40", "-40 dB" }, { "off", "Off" } };
 const Option DeadZone[] = { { "0", "0%" }, { "10", "10%" }, { "20", "20%" }, { "30", "30%" }, { "40", "40%" },
                             { "50", "50%" } };
+
+// The cloud saves (nfsu2.xyz keeps them under the passphrase of Multiplayer's Passphrase). The value of the row last
+// used is how it went.
+const Item Saves[] = {
+    { "Sync with the cloud", Cfg, "sync", Action, nullptr, 0, "", 0, nullptr,
+      "Sends the saves here when they are newer and takes the cloud's when those are, as the browser does. When both "
+      "changed it asks you to pick Upload or Download." },
+    { "Upload saves", Cfg, "upload", Action, nullptr, 0, "", 0, nullptr,
+      "The saves here replace the cloud's. The server keeps its copy of an earlier day." },
+    { "Download saves", Cfg, "download", Action, nullptr, 0, "", 0, nullptr,
+      "The cloud's saves replace the ones here. The saves here are kept first in save_backups, the last five." },
+};
 
 const Item Mods[] = {
     { "NFSU2 Revived", Cfg, "network", Choice, OPTIONS(Network), "revived", 0, nullptr,
@@ -220,6 +233,7 @@ const Page Pages[] = {
     { "Performance", OPTIONS(Performance) },
     { "Worlds", OPTIONS(WorldsPage) },
     { "Friends and crews", OPTIONS(FriendsPage) },
+    { "Saves", OPTIONS(Saves) },
     { "Mods", OPTIONS(Mods) },
 };
 const int PageCount = int(sizeof(Pages) / sizeof(Pages[0]));
@@ -476,6 +490,7 @@ int optionIndex(const Item& item, const std::string& value)
 // ---- The settings now --------------------------------------------------------------------------------------------------
 
 std::string s_cfgPath, s_iniPath, s_extraPath;
+const Item* s_lastAction = nullptr;       // the cloud saves row used last
 bool s_enabled = false, s_loaded = false;
 // Per page and item: the value in the file (or the default) and the value now.
 std::vector<std::vector<std::string>> s_saved, s_values;
@@ -493,6 +508,7 @@ void configure(const char* settingsPath, const char* gameFolder)
     s_cfgPath = settingsPath;
     s_iniPath = std::string(gameFolder) + "/scripts/NFSU2FreeRoam.ini";
     s_extraPath = std::string(gameFolder) + "/" + exopts::IniPath;
+    pf::cloud::configure(gameFolder);
     pf::logInfo("options menu: %s", s_enabled ? "the main menu's Vita Settings" : "off (options_menu=off)");
 }
 
@@ -577,6 +593,8 @@ bool save()
                     iniSet(ini, FreeRoamSection, "Name", s_values[p][i]);
                     iniChanged = true;
                 }
+                if (!strncmp(it.key, "revived_", 8))
+                    pf::Config::set(it.key, s_values[p][i].c_str());    // the cloud saves read them from there
                 pf::cfgfile::Change change;
                 change.key = it.key;
                 change.value = s_values[p][i];
@@ -663,7 +681,29 @@ const char* itemLabel(int g, int i)
 
 bool itemIsText(int g, int i)
 {
-    return item(g, i).kind != Choice;
+    const Kind kind = item(g, i).kind;
+    return kind == Text || kind == Secret;
+}
+
+bool itemIsAction(int g, int i)
+{
+    return item(g, i).kind == Action;
+}
+
+void runAction(int g, int i)
+{
+    const Item& it = item(g, i);
+    if (it.kind != Action)
+        return;
+    const pf::cloud::Action action = !strcmp(it.key, "upload") ? pf::cloud::Action::Upload
+                                   : !strcmp(it.key, "download") ? pf::cloud::Action::Download : pf::cloud::Action::Sync;
+    if (pf::cloud::start(action))
+        s_lastAction = &it;
+}
+
+unsigned actionVersion()
+{
+    return pf::cloud::version();
 }
 
 bool itemIsSecret(int g, int i)
@@ -682,6 +722,8 @@ std::string itemValue(int g, int i)
         load();
     const Item& it = item(g, i);
     const std::string& v = s_values[g][i];
+    if (it.kind == Action)
+        return s_lastAction == &it ? pf::cloud::status() : std::string("Press Cross");
     if (it.kind == Secret)
         return v.empty() ? "Not set" : "Set";
     if (it.kind == Text)
@@ -729,7 +771,7 @@ void setText(int g, int i, const std::string& text)
     if (!s_loaded)
         load();
     const Item& it = item(g, i);
-    if (it.kind == Choice || (it.kind == Secret && text.empty()))
+    if ((it.kind != Text && it.kind != Secret) || (it.kind == Secret && text.empty()))
         return;
     std::string v = trimmed(text);
     if (int(v.size()) > it.maxLength)

@@ -33,6 +33,11 @@ int itemMaxLength(int g, int i);
 std::string itemValue(int g, int i);
 // A text item's text to edit (empty for a secret).
 std::string itemText(int g, int i);
+// A row that does something (the cloud saves): Cross runs it, its value says how it went, and actionVersion changes
+// with each new status.
+bool itemIsAction(int g, int i);
+void runAction(int g, int i);
+unsigned actionVersion();
 // The next or previous option of a choice.
 void cycle(int g, int i, int delta);
 // A text item's new text; an empty one leaves a secret as it was.

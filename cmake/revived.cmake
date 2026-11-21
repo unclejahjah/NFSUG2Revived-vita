@@ -61,6 +61,7 @@ function(nfsu_revived_libraries out_var)
     ${dir}/revived_bridge.cpp
     ${dir}/revived_link.cpp
     src/platform/tls.cpp
+    src/platform/cloud_saves.cpp
     "${cacert_c}")
   target_compile_options(nfsu_revived PRIVATE ${NFSU_COMMON_FLAGS} -O2)
   target_compile_definitions(nfsu_revived PRIVATE ${NFSU_RUNTIME_DEFINES})

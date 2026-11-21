@@ -120,6 +120,8 @@ std::vector<reg32> s_groupItems;        // UI_OptionsMain's icons, by group; the
 int s_group = 0;
 reg32 s_options = 0;                    // UI_Options
 reg32 s_rowClass = 0;
+std::vector<reg32> s_rows;               // the rows of the open page
+unsigned s_cloudVersion = 0;
 reg32 s_editRow = 0;                    // the row whose text the keyboard edits
 std::map<reg32, reg32> s_texts;         // our hashes' texts in guest memory, 128 bytes each
 std::map<reg32, std::string> s_shown;   // the value each row shows, by (group, item) hash
@@ -240,7 +242,15 @@ void rowReact(win32::WinApplication* app, x86::CPU& cpu)
     const reg32 row = cpu.ecx;
     const reg32 message = rc::ld32(cpu.esp + 8);
     const int g = s_group, i = rowItem(row);
-    if ((message == Left || message == Right) && g >= 0 && i >= 0 && i < options::itemCount(g) && !options::itemIsText(g, i))
+    if (g >= 0 && i >= 0 && i < options::itemCount(g) && options::itemIsAction(g, i))
+    {
+        if (message == Accept)
+        {
+            options::runAction(g, i);
+            setRowTexts(app, cpu, row);
+        }
+    }
+    else if ((message == Left || message == Right) && g >= 0 && i >= 0 && i < options::itemCount(g) && !options::itemIsText(g, i))
     {
         options::cycle(g, i, message == Right ? 1 : -1);
         callGuest(app, cpu, rc::ld32(rc::ld32(row) + 0x40), row, { message });    // the game's blink
@@ -398,6 +408,14 @@ void peekMessageHook(win32::WinApplication* app, x86::CPU& cpu)
     s_peekMessage(app, cpu);
     if (win32::Gamepad::takeSettingsRequest())
         openFromHotkey(app, cpu);
+    const unsigned actionVersion = options::actionVersion();
+    if (actionVersion != s_cloudVersion)
+    {
+        s_cloudVersion = actionVersion;
+        if (s_options && s_vita && s_group >= 0)
+            for (const reg32 row : s_rows)
+                setRowTexts(app, cpu, row);
+    }
     if (!s_editRow)
         return;
     char text[256];
@@ -551,6 +569,7 @@ void sub_4b8470(win32::WinApplication* app, x86::CPU& cpu)
     ensureRowClass(app, cpu);
     s_options = screen;
     s_editRow = 0;
+    s_rows.clear();
     s_restartShown = false;
     const int count = s_group < options::groupCount() ? options::itemCount(s_group) : 0;
     for (int i = 0; s_rowClass && i < count; ++i)
@@ -562,6 +581,7 @@ void sub_4b8470(win32::WinApplication* app, x86::CPU& cpu)
         rc::st32(row, s_rowClass);
         rc::st32(row + 0x54, reg32(i));
         callGuest(app, cpu, AddRow, screen, { row, 1 });
+        s_rows.push_back(row);
     }
     callGuest(app, cpu, SelectRow, screen, { 0 });
     pf::logInfo("menu entry: %s, %d settings", options::groupTitle(s_group), count);
