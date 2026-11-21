@@ -125,7 +125,7 @@ controller (Cross is shown as Button 3), and the tables below are the defaults.
 | Left stick | Steer |
 | Cross | Handbrake |
 | Circle | Nitrous |
-| Triangle / Square | Shift up / down |
+| Triangle / Square | Change camera / look back |
 | Rear touch corners | Not bound; set them in Options > Controls |
 | Select | Reset car to the road |
 | Start | Pause |

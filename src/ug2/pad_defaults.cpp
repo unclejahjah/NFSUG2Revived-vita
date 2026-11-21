@@ -18,7 +18,7 @@ const reg32 EmsMenu = EmsEntry + 0x60;
 // By EMS button: Triangle, Circle, Cross, Square, L2, R2, L1, R1, Select, Start, L3, R3, d-pad up, right, down,
 // left, then the four hat directions (the adapter has no hat).
 const reg32 Race[20] = {
-    7,  6,  5,  8,      // shift up, nitrous, handbrake, shift down
+    10, 6,  5,  9,      // camera, nitrous, handbrake, look back
     0,  0,  2,  1,      // L2 and R2 (rear touch) unbound, brake/reverse, throttle
     14, 12, 0,  0,      // reset car, pause, L3 and R3 (rear touch) unbound
     15, 17, 18, 16,     // enter race/shop, read SMS, career statistics, world map
