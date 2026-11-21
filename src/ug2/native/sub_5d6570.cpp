@@ -143,22 +143,24 @@ void body(win32::WinApplication* app, x86::CPU& cpu)
     const int other = camera != 0x832e50 && camera != 0x832ec0;
     const float minPixels = other ? set.otherMinPixels : set.mainMinPixels;
     float width = 0;
-    if (minPixels > 0 || set.lodPixels > 0 || set.log)
+    if (minPixels > 0 || set.lodPixels > 0 || scenery::logging())
     {
         width = onScreenWidth(inst + 0x20, ci, rc::ldf32(info + 0x3c));
-        if (set.log)
-        {
-            ++scenery::g_counters.tested[other];
-            if (!other)
-                scenery::g_counters.scale = rc::ldf32(ci + 0x80);
-        }
+        SCENE_STATS(
+            if (scenery::logging())
+            {
+                ++scenery::g_counters.tested[other];
+                if (!other)
+                    scenery::g_counters.scale = rc::ldf32(ci + 0x80);
+            })
         if (width < minPixels && !(set.keepLights && hasLights(info)))
         {
-            if (set.log)
-            {
-                ++scenery::g_counters.smallCulled[other];
-                scenery::g_counters.smallPolys[other] += polys(rc::ld32(info + 0x34));
-            }
+            SCENE_STATS(
+                if (scenery::logging())
+                {
+                    ++scenery::g_counters.smallCulled[other];
+                    scenery::g_counters.smallPolys[other] += polys(rc::ld32(info + 0x34));
+                })
             return leave();
         }
     }
@@ -171,16 +173,17 @@ void body(win32::WinApplication* app, x86::CPU& cpu)
         bool drawn = false;
         ~Tally()
         {
-            if (!set.log)
-                return;
-            if (!drawn)
-            {
-                ++scenery::g_counters.engineCulled[other];
-                return;
-            }
-            const int band = scenery::widthBand(width);
-            ++scenery::g_counters.drawn[other][band];
-            scenery::g_counters.polys[other][band] += polys(model);
+            SCENE_STATS(
+                if (!scenery::logging())
+                    return;
+                if (!drawn)
+                {
+                    ++scenery::g_counters.engineCulled[other];
+                    return;
+                }
+                const int band = scenery::widthBand(width);
+                ++scenery::g_counters.drawn[other][band];
+                scenery::g_counters.polys[other][band] += polys(model);)
         }
     } tally{set, other, width};
 
@@ -241,12 +244,13 @@ void body(win32::WinApplication* app, x86::CPU& cpu)
         const x86::reg32 low = rc::ld32(info + 0x38);
         if (low != 0 && low != model && worthLowering(set, info, model, low))
         {
-            if (set.log)
-            {
-                ++scenery::g_counters.lowered;
-                scenery::g_counters.loweredFrom += polys(model);
-                scenery::g_counters.loweredTo += polys(low);
-            }
+            SCENE_STATS(
+                if (scenery::logging())
+                {
+                    ++scenery::g_counters.lowered;
+                    scenery::g_counters.loweredFrom += polys(model);
+                    scenery::g_counters.loweredTo += polys(low);
+                })
             model = low;
         }
     }

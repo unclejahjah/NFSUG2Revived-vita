@@ -1,16 +1,26 @@
 #ifndef UG2_HITCH_H_
 #define UG2_HITCH_H_
 
-#include <lib/winapp.h>
+// Hitch log (hitch_log=on), a development tool: compiled in only with DEV_TOOLS, a no-op otherwise.
 
-// Hitch log (hitch_log=on): a line per present over 41.7 ms with its dominant cause, 5 s window totals while racing,
-// a summary per race. Kept in memory, written outside races.
+#ifdef DEV_TOOLS
+#include "../dev/hitch.h"
+#else
+#include <lib/winapp.h>
+#include <platform/perf.h>
 
 namespace ug2 { namespace hitch {
 
-// Before guest code runs, on the game thread: hooks the frame and the timed load calls.
-void configure(win32::WinApplication& app);
+inline bool enabled() { return false; }
+inline void configure(win32::WinApplication&) {}
+
+template <pf::perf::Event Calls, typename Body>
+inline void timed(Body body)
+{
+    body();
+}
 
 }}
+#endif
 
 #endif /* !UG2_HITCH_H_ */

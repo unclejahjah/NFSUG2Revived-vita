@@ -19,6 +19,63 @@ namespace win32 { namespace d3d9
 
 static_assert(sizeof(DrawRecord) % 4 == 0, "DrawRecord is whole words");
 static_assert(sizeof(FixedState) % 4 == 0, "FixedState is whole words");
+static_assert(sizeof(render::DrawCall) % 4 == 0, "DrawCall is whole words");
+static_assert(sizeof(SpliceRecord) % 4 == 0, "SpliceRecord is whole words");
+
+// One segment of a frame: its commands and the stream it was opened in.
+struct SegmentBuf
+{
+    Stream          stream;
+    Segment         segment;
+    Stream*         parent = nullptr;
+    RecordContext::Saved saved;     // the parent's recorder words at the marker, put back at the end
+    ValuesShadow*   shadow = nullptr;   // the effect values of the open segment
+    bool            published = false;
+};
+
+uint64_t g_extraStateWords[2] = {};
+
+namespace
+{
+std::vector<ValuesShadow*> s_freeShadows;   // one serves one open segment
+
+ValuesShadow* takeShadow()
+{
+    if (s_freeShadows.empty())
+        return new ValuesShadow;
+    ValuesShadow* shadow = s_freeShadows.back();
+    s_freeShadows.pop_back();
+    return shadow;
+}
+}
+
+namespace bridge
+{
+
+uint64_t extraStateWords(int segment)
+{
+    return g_extraStateWords[segment];
+}
+
+#ifdef DEV_TOOLS
+static ResolveTotals s_totals = {};
+static uint64_t (*s_clock)() = nullptr;
+
+ResolveTotals resolveTotals()
+{
+    return s_totals;
+}
+
+void setResolveClock(uint64_t (*clock)())
+{
+    s_clock = clock;
+}
+#else
+ResolveTotals resolveTotals() { return ResolveTotals{}; }
+void setResolveClock(uint64_t (*)()) {}
+#endif
+
+}
 
 namespace
 {
@@ -37,6 +94,12 @@ const float s_identity[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
 const uint32_t StreamCount = 4;
 Stream s_streams[StreamCount];
 std::atomic<uint32_t> s_resolved{0};
+
+// Segments of each stream slot's frame in the order opened; reused once the frame is resolved.
+const uint32_t SegmentWords = 2048;     // first allocation of a segment's stream
+std::vector<SegmentBuf*> s_segments[StreamCount];
+uint32_t s_segmentsUsed[StreamCount] = {};
+uint32_t s_serial = 1, s_mainSerial = 1;
 
 void color(DWORD argb, float out[4])
 {
@@ -83,10 +146,35 @@ public:
     void frame(const render::Frame& f)
     {
         uint32_t h = 2166136261u;
+        static const int first = pf::Config::getInt("debug_draw_hash_from", -1);
+        const uint32_t frameNumber = m_first + m_count;
+        const bool each = first >= 0 && frameNumber >= uint32_t(first) && frameNumber < uint32_t(first) + 40;
         for (uint32_t i = 0; i < f.drawCount; ++i)
         {
             const render::DrawCall& d = f.draws[i];
             const render::DrawState& s = d.state;
+            if (each)
+            {
+                const uint32_t vf = render::vertexProgram(render::VertexProgram(s.vertexProgram)).constantFloats;
+                const uint32_t ff = render::fragmentProgram(render::FragmentProgram(s.fragmentProgram)).constantFloats;
+                render::DrawState copy = s;
+                copy.layout = 0;
+                pf::logInfo("drawhash %u.%u: vp %u fp %u count %u state %08x vc %08x fc %08x tex %u", unsigned(frameNumber), unsigned(i),
+                            unsigned(s.vertexProgram), unsigned(s.fragmentProgram), unsigned(d.count),
+                            unsigned(mix(1, copy.samplers, sizeof(copy) - offsetof(render::DrawState, samplers))),
+                            unsigned(d.count && d.vertexConstants != render::NoConstants ? mix(1, f.constants + d.vertexConstants, vf * 4) : 0),
+                            unsigned(d.count && d.fragmentConstants != render::NoConstants ? mix(1, f.constants + d.fragmentConstants, ff * 4) : 0),
+                            unsigned(s.textures[0] ? s.textures[0]->desc.width : 0));
+                if (d.count && d.fragmentConstants != render::NoConstants && (s.fragmentProgram == 9 || s.fragmentProgram == 10 || s.fragmentProgram == 13))
+                {
+                    char text[700];
+                    int length = snprintf(text, sizeof(text), "drawfc %u.%u:", unsigned(frameNumber), unsigned(i));
+                    const uint32_t* c = reinterpret_cast<const uint32_t*>(f.constants + d.fragmentConstants);
+                    for (uint32_t k = 0; k < ff && k < 40 && length < 680; ++k)
+                        length += snprintf(text + length, sizeof(text) - length, " %08x", unsigned(c[k]));
+                    pf::logInfo("%s", text);
+                }
+            }
             for (const render::TextureStorage* t : s.textures)
             {
                 const uint32_t id = t ? 1u + t->desc.width + (uint32_t(t->desc.height) << 16) : 0u;
@@ -144,6 +232,17 @@ public:
     void resolve(render::Frame& frame);
 
 private:
+    void run(render::Frame& frame, const uint32_t* w, const uint32_t* end, uint32_t depth);
+    void splice(render::Frame& frame, const SpliceRecord& record, uint32_t depth);
+    render::DrawCall& moved(render::Frame& frame, uint32_t slot);
+    // Logs m_state words a segment overwrites.
+    void logWords(const void* at, uint32_t words)
+    {
+        const uint32_t first = uint32_t(static_cast<const uint32_t*>(at) - reinterpret_cast<const uint32_t*>(&m_state));
+        for (uint32_t i = 0; i < words; ++i)
+            m_undo.push_back(uint64_t(first + i) << 32 | static_cast<const uint32_t*>(at)[i]);
+    }
+
     bool fillState(render::Frame& frame, const DrawRecord& record, render::DrawCall& draw);
     AlphaResult alphaTestResult(const DrawRecord& record, const render::DrawCall& draw, const float test[2],
                                 const float* own, const float* shared, const EffectBinding* binding) const;
@@ -162,6 +261,12 @@ private:
     ConstantsKey                    m_key = {};
     uint32_t                        m_vertexConstants = render::NoConstants;
     uint32_t                        m_fragmentConstants = render::NoConstants;
+    uint32_t                        m_shift = 0;                // reserved slots segments left unused so far
+    uint32_t                        m_skip = 0;                 // CmdSkipIf flags set
+    std::vector<uint64_t>           m_undo;                     // m_state words (index << 32) and what they were
+    bool                            m_logging = false;          // inside a segment
+    uint32_t                        m_touched = 0;              // transforms (bits 0-3) and viewport (bit 4) logged
+    bool                            m_full = false;             // the constant arena ran out
     uint32_t                        m_alphaFrames = 0;
     uint32_t                        m_alphaCounts[AlphaResultCount] = {};   // timing_log: alpha-tested draws
 };
@@ -451,6 +556,17 @@ bool Resolver::fillState(render::Frame& f, const DrawRecord& record, render::Dra
         return false;
     if (fragmentFloats && !(fc = render::allocateConstants(f, fragmentFloats, &draw.fragmentConstants)))
         return false;
+#ifdef DEV_TOOLS
+    // Unwritten constant floats (alpha row 2-3, unused blend factor) would make the draw hash depend on arena reuse.
+    static const bool s_zero = pf::Config::getBool("debug_constants_zero", false);
+    if (s_zero)
+    {
+        if (vc)
+            memset(vc, 0, vertexFloats * 4);
+        if (fc)
+            memset(fc, 0, fragmentFloats * 4);
+    }
+#endif
 
     if (programs)
     {
@@ -504,12 +620,120 @@ bool Resolver::fillState(render::Frame& f, const DrawRecord& record, render::Dra
     return true;
 }
 
+// Moves a draw's geometry down over unused reserved slots.
+__attribute__((noinline)) render::DrawCall& Resolver::moved(render::Frame& f, uint32_t slot)
+{
+    const render::DrawCall& from = f.draws[slot];
+    render::DrawCall& to = f.draws[slot - m_shift];
+    to.vertices = from.vertices;
+    to.indices = from.indices;
+    to.count = from.count;
+    to.vertexCount = from.vertexCount;
+    to.viewport = from.viewport;
+    to.tag = from.tag;
+#ifdef DEV_TOOLS
+    if (bridge::s_clock)
+        ++bridge::s_totals.shifted;
+#endif
+    return to;
+}
+
+void Resolver::splice(render::Frame& f, const SpliceRecord& record, uint32_t depth)
+{
+    if (depth > 8)
+        pf::fatal("d3d9: frame %u: segments nested too deep", f.index);
+    const Segment& segment = *record.segment;
+    if (__builtin_expect(segment.ready.load(std::memory_order_acquire) == 0, 0))
+    {
+#ifdef DEV_TOOLS
+        const uint64_t start = bridge::s_clock ? bridge::s_clock() : 0;
+#endif
+        segment.await(segment.job);
+#ifdef DEV_TOOLS
+        if (bridge::s_clock)
+            bridge::s_totals.waitInstructions += bridge::s_clock() - start;
+#endif
+        if (segment.ready.load(std::memory_order_acquire) == 0)
+            pf::fatal("d3d9: frame %u: a pending segment was not finished", f.index);
+    }
+    const uint32_t saved = m_skip;
+    const size_t base = m_undo.size();
+    const bool logging = m_logging;
+    const uint32_t touched = m_touched;
+    m_skip = record.flags;
+    m_logging = true;
+    m_touched = 0;
+    run(f, segment.words, segment.words + segment.size, depth + 1);
+    m_skip = saved;
+    m_logging = logging;
+    m_touched = touched;
+#ifdef DEV_TOOLS
+    if (bridge::s_clock)
+    {
+        ++bridge::s_totals.splices;
+        bridge::s_totals.segmentWords += segment.size;
+        bridge::s_totals.restoreWords += m_undo.size() - base;
+    }
+#endif
+    uint32_t* words = reinterpret_cast<uint32_t*>(&m_state);
+    for (size_t i = m_undo.size(); i > base; --i)
+        words[m_undo[i - 1] >> 32] = uint32_t(m_undo[i - 1]);
+    m_undo.resize(base);
+    if (__builtin_expect(segment.drawCount != record.reserved, 0))
+    {
+        if (segment.drawCount > record.reserved || record.scene >= f.sceneCount)
+            pf::fatal("d3d9: frame %u: a segment drew %u in %u slots", f.index, segment.drawCount, record.reserved);
+        const uint32_t unused = record.reserved - segment.drawCount;
+        f.scenes[record.scene].drawCount -= unused;
+        for (uint32_t i = record.scene + 1; i < f.sceneCount; ++i)
+            f.scenes[i].firstDraw -= unused;
+        m_shift += unused;
+    }
+    ++m_fixedVersion;
+    ++m_bindingVersion;
+}
+
 void Resolver::resolve(render::Frame& f)
 {
     m_keyValid = false;
-    bool full = false;
-    const uint32_t* w = f.commands;
-    const uint32_t* end = w + f.commandCount;
+    m_full = false;
+    m_shift = 0;
+    m_skip = 0;
+#ifdef DEV_TOOLS
+    const uint64_t start = bridge::s_clock ? bridge::s_clock() : 0;
+#endif
+    run(f, f.commands, f.commands + f.commandCount, 0);
+    f.drawCount -= m_shift;
+#ifdef DEV_TOOLS
+    if (bridge::s_clock)
+    {
+        bridge::ResolveTotals& t = bridge::s_totals;
+        t.instructions += bridge::s_clock() - start;
+        ++t.frames;
+        t.draws += f.drawCount;
+        t.words += f.commandCount;
+    }
+#endif
+    if (pf::perf::enabled() && ++m_alphaFrames == 300)
+    {
+        char line[256];
+        int length = snprintf(line, sizeof(line), "perf: alpha-tested draws per frame:");
+        for (uint32_t i = 0; i < AlphaResultCount && length > 0 && length < int(sizeof(line)); ++i)
+            length += snprintf(line + length, sizeof(line) - length, " %s %.1f", s_alphaNames[i],
+                               double(m_alphaCounts[i]) / m_alphaFrames);
+        pf::logInfo("%s", line);
+        m_alphaFrames = 0;
+        memset(m_alphaCounts, 0, sizeof(m_alphaCounts));
+    }
+    effectFrameStats();
+    static const bool s_hash = pf::Config::getBool("debug_draw_hash", false);
+    if (s_hash)
+        s_drawHash.frame(f);
+    s_resolved.store(f.index, std::memory_order_release);
+}
+
+void Resolver::run(render::Frame& f, const uint32_t* w, const uint32_t* end, uint32_t depth)
+{
     while (w < end)
     {
         const uint32_t header = *w++;
@@ -517,31 +741,52 @@ void Resolver::resolve(render::Frame& f)
         switch (Command(header & 0xff))
         {
         case CmdRenderState:
+            if (m_logging)
+                logWords(&m_state.renderStates[header >> 8 & 0xff], 1);
             m_state.renderStates[header >> 8 & 0xff] = *w++;
             ++m_fixedVersion;
             ++m_bindingVersion;
             break;
         case CmdStageState:
+            if (m_logging)
+                logWords(&m_state.stageStates[a & 7][b < 33 ? b : 0], 1);
             m_state.stageStates[a & 7][b < 33 ? b : 0] = *w++;
             ++m_fixedVersion;
             ++m_bindingVersion;
             break;
         case CmdSamplerState:
+            if (m_logging)
+                logWords(&m_state.samplerStates[a & 15][b < 14 ? b : 0], 1);
             m_state.samplerStates[a & 15][b < 14 ? b : 0] = *w++;
             ++m_fixedVersion;
             ++m_bindingVersion;
             break;
         case CmdTransform:
+            if (m_logging && !(m_touched >> (a & 3) & 1))
+            {
+                m_touched |= 1u << (a & 3);
+                logWords(&m_state.transforms[a < TransformCount ? a : 0], sizeof(D3DMATRIX) / 4);
+            }
             memcpy(&m_state.transforms[a < TransformCount ? a : 0], w, sizeof(D3DMATRIX));
             w += 16;
             ++m_fixedVersion;
             break;
         case CmdViewport:
+            if (m_logging && !(m_touched >> 4 & 1))
+            {
+                m_touched |= 1u << 4;
+                logWords(&m_state.viewport, sizeof(D3DVIEWPORT9) / 4);
+            }
             memcpy(&m_state.viewport, w, sizeof(D3DVIEWPORT9));
             w += sizeof(D3DVIEWPORT9) / 4;
             ++m_fixedVersion;
             break;
         case CmdFixedState:
+            if (m_logging)
+            {
+                m_touched = 31;
+                logWords(&m_state, sizeof(FixedState) / 4);
+            }
             memcpy(&m_state, w, sizeof(FixedState));
             w += sizeof(FixedState) / 4;
             ++m_fixedVersion;
@@ -581,49 +826,60 @@ void Resolver::resolve(render::Frame& f)
         }
         case CmdDraw:
         {
-            DrawRecord r;
-            memcpy(&r, w, sizeof(r));
+            const DrawRecord& r = *reinterpret_cast<const DrawRecord*>(w);
             w += sizeof(r) / 4;
-            render::DrawCall& d = f.draws[r.draw];
-            if (!full && !fillState(f, r, d))
+            render::DrawCall& d = __builtin_expect(m_shift != 0, 0) ? moved(f, r.draw) : f.draws[r.draw];
+            if (!m_full && !fillState(f, r, d))
             {
                 pf::logError("d3d9: frame %u: constant arena full, draws dropped", f.index);
-                full = true;
+                m_full = true;
             }
-            if (full)
+            if (m_full)
             {
                 memset(&d.state, 0, sizeof(d.state));
                 d.count = 0;
             }
             break;
         }
+        case CmdDrawCall:
+            if (m_shift)
+                f.draws[*w - m_shift] = f.draws[*w];
+            ++w;
+            break;
+        case CmdSplice:
+        {
+            SpliceRecord r;
+            memcpy(&r, w, sizeof(r));
+            w += sizeof(r) / 4;
+            splice(f, r, depth);
+            break;
+        }
+        case CmdSkipIf:
+        {
+            const uint32_t words = *w++;
+            if ((m_skip >> (a & 31)) & 1)
+                w += words;
+            break;
+        }
         default:
             pf::fatal("d3d9: frame %u: bad command 0x%08x", f.index, header);
         }
     }
-    if (pf::perf::enabled() && ++m_alphaFrames == 300)
-    {
-        char line[256];
-        int length = snprintf(line, sizeof(line), "perf: alpha-tested draws per frame:");
-        for (uint32_t i = 0; i < AlphaResultCount && length > 0 && length < int(sizeof(line)); ++i)
-            length += snprintf(line + length, sizeof(line) - length, " %s %.1f", s_alphaNames[i],
-                               double(m_alphaCounts[i]) / m_alphaFrames);
-        pf::logInfo("%s", line);
-        m_alphaFrames = 0;
-        memset(m_alphaCounts, 0, sizeof(m_alphaCounts));
-    }
-    effectFrameStats();
-    static const bool s_hash = pf::Config::getBool("debug_draw_hash", false);
-    if (s_hash)
-        s_drawHash.frame(f);
-    s_resolved.store(f.index, std::memory_order_release);
 }
 
+}
+
+void ValuesShadow::grow(uint32_t block, uint32_t floats)
+{
+    if (block >= m_blocks.size())
+        m_blocks.resize(block + 1);
+    std::vector<Entry>& b = m_blocks[block];
+    b.resize(std::max(effectBlockFloats(), floats), Entry{ 0, 0 });
 }
 
 void Stream::grow(uint32_t words)
 {
-    uint32_t capacity = this->capacity ? this->capacity : 64 * 1024;
+    uint32_t capacity = this->capacity ? this->capacity : minimum;
     while (capacity < size + words)
         capacity *= 2;
     uint32_t* grown = static_cast<uint32_t*>(realloc(data, capacity * 4));
@@ -639,12 +895,115 @@ Stream& frameStream(uint32_t frameIndex)
         pf::fatal("d3d9: frame %u begun before frame %u was resolved", frameIndex, frameIndex - StreamCount);
     Stream& s = s_streams[frameIndex % StreamCount];
     s.size = 0;
+    s_segmentsUsed[frameIndex % StreamCount] = 0;
     return s;
+}
+
+void beginSegment(RecordContext& ctx, uint32_t frameIndex)
+{
+    std::vector<SegmentBuf*>& list = s_segments[frameIndex % StreamCount];
+    uint32_t& used = s_segmentsUsed[frameIndex % StreamCount];
+    if (used == list.size())
+        list.push_back(new SegmentBuf);
+    SegmentBuf& buf = *list[used++];
+    buf.stream.size = 0;
+    buf.stream.minimum = SegmentWords;
+    buf.shadow = takeShadow();
+    buf.stream.shadow = buf.shadow;
+    buf.shadow->begin(++s_serial);
+    buf.parent = ctx.stream;
+    ctx.open(buf.saved);
+    buf.segment.ready.store(1, std::memory_order_relaxed);
+    buf.segment.await = nullptr;
+    buf.segment.drawCount = 0;
+    SpliceRecord r{ &buf.segment, 0, 0, 0 };
+    uint32_t* w = ctx.stream->append(1 + sizeof(r) / 4);
+    w[0] = CmdSplice;
+    memcpy(w + 1, &r, sizeof(r));
+    ctx.stream = &buf.stream;
+    ctx.segment = &buf;
+}
+
+void endSegment(RecordContext& ctx)
+{
+    SegmentBuf& buf = *ctx.segment;
+    buf.segment.words = buf.stream.data;
+    buf.segment.size = buf.stream.size;
+    ctx.stream = buf.parent;
+    ctx.segment = nullptr;
+    ctx.close(buf.saved);
+    s_mainSerial = ++s_serial;
+    s_freeShadows.push_back(buf.shadow);
+    buf.shadow = buf.stream.shadow = nullptr;
+}
+
+void beginSegmentClone(RecordContext& parent, RecordContext& clone, uint32_t frameIndex, void (*await)(void*),
+                       void* job, uint32_t scene, uint32_t reserved)
+{
+    std::vector<SegmentBuf*>& list = s_segments[frameIndex % StreamCount];
+    uint32_t& used = s_segmentsUsed[frameIndex % StreamCount];
+    if (used == list.size())
+        list.push_back(new SegmentBuf);
+    SegmentBuf& buf = *list[used++];
+    buf.stream.size = 0;
+    buf.stream.minimum = SegmentWords;
+    buf.shadow = takeShadow();
+    buf.stream.shadow = buf.shadow;
+    buf.shadow->begin(++s_serial);
+    buf.parent = parent.stream;
+    s_mainSerial = ++s_serial;
+    clone.openClone(parent);
+    buf.published = false;
+    buf.segment.words = nullptr;
+    buf.segment.size = 0;
+    buf.segment.drawCount = reserved;
+    buf.segment.await = await;
+    buf.segment.job = job;
+    buf.segment.ready.store(await ? 0 : 1, std::memory_order_release);
+    SpliceRecord r{ &buf.segment, 0, scene, reserved };
+    uint32_t* w = parent.stream->append(1 + sizeof(r) / 4);
+    w[0] = CmdSplice;
+    memcpy(w + 1, &r, sizeof(r));
+    clone.stream = &buf.stream;
+    clone.segment = &buf;
+}
+
+void publishSegmentClone(RecordContext& clone, uint32_t draws)
+{
+    SegmentBuf& buf = *clone.segment;
+    buf.segment.words = buf.stream.data;
+    buf.segment.size = buf.stream.size;
+    buf.segment.drawCount = draws;
+    buf.published = true;
+    buf.segment.ready.store(1, std::memory_order_release);
+}
+
+void endSegmentClone(RecordContext& clone, uint32_t draws)
+{
+    if (!clone.segment->published)
+        publishSegmentClone(clone, draws);
+    SegmentBuf& buf = *clone.segment;
+    clone.stream = nullptr;
+    clone.segment = nullptr;
+    s_mainSerial = ++s_serial;
+    s_freeShadows.push_back(buf.shadow);
+    buf.shadow = buf.stream.shadow = nullptr;
+}
+
+uint32_t effectRecordSerial(const Stream* stream)
+{
+    return stream && stream->shadow ? stream->shadow->serial : s_mainSerial;
 }
 
 void resolveFrame(render::Frame& frame)
 {
     s_resolver.resolve(frame);
+}
+
+void resetResolver()
+{
+    s_resolver = Resolver();
+    s_resolved.store(0xffffffffu, std::memory_order_release);
 }
 
 }}

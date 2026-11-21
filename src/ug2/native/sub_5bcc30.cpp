@@ -2,8 +2,10 @@
 // texture_retry: a record whose texture creation failed is created again and drawn black meanwhile.
 
 #include "textures.h"
+#include "offload.h"
 
 #include <native/common.h>
+#include <native/flush_context.h>
 #include <native/shadow.h>
 #include <platform/switches.h>
 #include <platform/cached.h>
@@ -67,7 +69,7 @@ bool retrying()
 [[gnu::noinline]] x86::reg32 retry(win32::WinApplication* app, x86::CPU& cpu, x86::reg32 tex)
 {
     static x86::reg32 s_next = 0;
-    const x86::reg32 frame = rc::ld32(0x86514c);
+    const x86::reg32 frame = flush::ld32<0x86514c>(cpu);
     if (x86::sreg32(frame - s_next) < 0)
         return 0;
     const x86::reg32 esp = cpu.esp;
@@ -87,20 +89,21 @@ bool retrying()
     namespace br = win32::d3d9::bridge;
     // Read before the stores below: tex may point at them.
     const x86::reg32 plat = rc::ld32(tex);
-    rc::st32(0x872f10, rc::ld32(0x872f10) + 1);
-    rc::st32(0x870940, tex);
-    rc::st32(0x870944, group);
+    flush::st32<0x872f10>(cpu, flush::ld32<0x872f10>(cpu) + 1);
+    flush::st32<0x870940>(cpu, tex);
+    flush::st32<0x870944>(cpu, group);
     x86::reg32 texture = rc::ld32(plat + 0x18);
     if (texture == 0 && group != 0 && rc::ld32(tex + 0x70) != 0 && retrying())
     {
-        texture = retry(app, cpu, tex);
+        if (!cpu.og)
+            texture = retry(app, cpu, tex);
         if (cpu.terminate)
             return;
         if (texture == 0)
         {
             // The original binds nothing and draws with the previous bucket's texture: black instead, not cached.
             br::effectSetTexture(app, cpu, rc::ld32(group + 0x20), rc::ld32(rc::ld32(group + 0x1c) + 0x13c), 0);
-            rc::st32(0x870940, 0);
+            flush::st32<0x870940>(cpu, 0);
             cpu.esp += 4;
             return;
         }
@@ -118,8 +121,8 @@ bool retrying()
     calls.setEffectTexture(effect, rc::ld32(desc + 0x13c), texture);
 
     const bool alphaTest = rc::ld8(tex + 0x55) == 1;
-    rc::st32(0x86ead8, alphaTest ? 1 : 0);
-    rc::st32(0x86eadc, alphaTest ? 0x5f : 0);
+    flush::st32<0x86ead8>(cpu, alphaTest ? 1 : 0);
+    flush::st32<0x86eadc>(cpu, alphaTest ? 0x5f : 0);
     const x86::sreg8 mode = x86::sreg8(rc::ld8(tex + 0x56));
     x86::reg32 source = 5, destination = 6;
     if (mode == 2 || mode == 6)
@@ -128,9 +131,9 @@ bool retrying()
         source = 7;
     if (mode == 5)
         destination = 8;
-    rc::st32(0x86eae0, mode != 0 ? 1 : 0);
-    rc::st32(0x86eae4, source);
-    rc::st32(0x86eae8, destination);
+    flush::st32<0x86eae0>(cpu, mode != 0 ? 1 : 0);
+    flush::st32<0x86eae4>(cpu, source);
+    flush::st32<0x86eae8>(cpu, destination);
 
     const bool opaque = mode == 0;
     if (rc::ld32(group + 4) == 5)
@@ -138,15 +141,15 @@ bool retrying()
     calls.setRenderState(device, 0xe, opaque ? 1 : 0);
     calls.queue();
     br::effectSetIntArray(app, cpu, effect, rc::ld32(desc + 0x74),
-                          reinterpret_cast<const x86::sreg32*>(::native::host(0x86ead8)), 5);
+                          static_cast<const x86::sreg32*>(flush::hostPointer<0x86ead8>(cpu)), 5);
 
     const x86::reg32 uploads = rc::ld32(desc + 0x8bc);
     if (uploads != 0)
     {
         float v0 = 0.0f, v1 = 0.0f;
-        if (rc::ld32(0x870ce8) != 0)
+        if (flush::ld32<0x870ce8>(cpu) != 0)
         {
-            const float time = float(Real(x86::sreg32(rc::ld32(0x86518c))) * ld(0x784268));
+            const float time = float(Real(x86::sreg32(flush::ld32<0x86518c>(cpu))) * ld(0x784268));
             const x86::reg32 kind = rc::ld8(tex + 0x52);
             if (kind == 3)
             {
@@ -155,7 +158,7 @@ bool retrying()
             }
             else
             {
-                const Real divisor0 = ld(0x870924), divisor1 = ld(0x870928);
+                const Real divisor0 = Real(flush::ldf32<0x870924>(cpu)), divisor1 = Real(flush::ldf32<0x870928>(cpu));
                 if (divisor0 == 0.0 && divisor1 == 0.0)
                 {
                     const x86::sreg32 type = x86::sreg8(kind);
@@ -169,14 +172,14 @@ bool retrying()
                 {
                     const float speed0 = float(divisor0 / Real(x86::sreg16(rc::ld16(tex + 0x44))));
                     const float speed1 = float(divisor1 / Real(x86::sreg16(rc::ld16(tex + 0x46))));
-                    const x86::sreg32 type = x86::sreg32(rc::ld32(0x800504));
-                    const float stride = rc::ldf32(0x800508);
+                    const x86::sreg32 type = x86::sreg32(flush::ld32<0x800504>(cpu));
+                    const float stride = flush::ldf32<0x800508>(cpu);
                     v0 = float(scroll(time, speed0, type, stride));
                     v1 = float(scroll(time, speed1, type, stride));
                 }
             }
         }
-        rc::st32(0x870948, 1);
+        flush::st32<0x870948>(cpu, 1);
         x86::reg32 matrix[16];
         x86::reg32 v[4];
 #if defined(__ARM_NEON) && !defined(NFSU_FPU_DOUBLE)
@@ -196,7 +199,7 @@ bool retrying()
         calls.setVector(effect, uploads, reinterpret_cast<const float*>(v));
     }
     if (rc::ld8(tex + 0x52) == 0)
-        rc::st32(0x870948, 0);
+        flush::st32<0x870948>(cpu, 0);
     cpu.esp += 4;
 }
 
@@ -208,8 +211,10 @@ void body(win32::WinApplication* app, x86::CPU& cpu)
         return;
     }
     const x86::reg32 tex = argument(cpu, 0);
-    const x86::reg32 group = rc::ld32(0x870910);
-    if (rc::ld32(0x870940) == tex && rc::ld32(0x870944) == group)
+    const x86::reg32 group = flush::ld32<0x870910>(cpu);
+    const bool hit = flush::ld32<0x870940>(cpu) == tex && flush::ld32<0x870944>(cpu) == group;
+    offload::textureStep(hit, tex, group);
+    if (hit)
     {
         cpu.esp += 4;
         return;
@@ -227,6 +232,16 @@ void declare(x86::CPU&, shadow::Spans& spans)
 // eax, ecx, edx are dead after all seven call sites.
 const shadow::Spec spec = {"sub_5bcc30", shadow::Ebx | shadow::Esp | shadow::Ebp | shadow::Esi | shadow::Edi, 0, false, true};
 
+}
+
+bool textureRetryWanted(x86::reg32 tex)
+{
+    return rc::ld32(rc::ld32(tex) + 0x18) == 0 && rc::ld32(tex + 0x70) != 0 && retrying();
+}
+
+void textureRetry(win32::WinApplication* app, x86::CPU& cpu, x86::reg32 tex)
+{
+    retry(app, cpu, tex);
 }
 
 void sub_5bcc30(win32::WinApplication* app, x86::CPU& cpu)

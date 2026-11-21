@@ -45,14 +45,20 @@ NATIVE_OVERRIDES = [
     0x5a38e0, 0x440d40, 0x4275e0, 0x401aa0, 0x5d6240, 0x620ae0,
     0x5d6ad0, 0x59bb00, 0x5a8790, 0x5bd140, 0x595040, 0x5114f0,
     0x5dd360, 0x5abdf0,
+    # Offload counters: category wrappers (src/ug2/native/sub_61d4b0.cpp, sub_6316d0.cpp, sub_631250.cpp)
+    0x61d4b0, 0x6316d0, 0x631250,
     # Garage camera orbit with the right stick (src/ug2/native/sub_4a5d90.cpp)
     0x4a5d90,
+    # Menu up/down ignore the right stick (src/ug2/native/sub_571d50.cpp)
+    0x571d50,
     # Medium graphics features: flares, shadow hull, headlight pass, particles
     0x490920, 0x5c5580, 0x60cee0, 0x5bdaa0, 0x48bdf0, 0x492e10,
     0x5c0e10, 0x4881d0, 0x5bb430, 0x61e700,
     # Medium helpers: shadow outline buffer, vector/box helpers, flare and car-render callees, post/fog
     0x5be130, 0x5be0f0, 0x487210, 0x487270, 0x43d610, 0x5bc450, 0x5c7470, 0x5dbb00,
     0x5bc4a0, 0x5ba8b0, 0x5be060, 0x5bdfe0, 0x5be180, 0x401650, 0x5aad20, 0x43d0c0,
+    # Animation: scene node hierarchy, matrix multiply wrapper, object update, pose build, keyframe sampling, time index
+    0x60bb10, 0x43c990, 0x4316b0, 0x6e3b10, 0x6e5570, 0x6e4900, 0x6e82d0, 0x6e9780,
     # Car physics: drivetrain (src/ug2/native/sub_594300.cpp)
     0x594300, 0x594840, 0x594a30, 0x594da0,
     # Car physics: one wheel's contact and tyre forces (src/ug2/native/sub_5a8280.cpp, sub_59d600.cpp)
@@ -90,6 +96,8 @@ NATIVE_OVERRIDES = [
     # Hitch log timing (src/ug2/hitch.cpp)
     0x574670,   # decompression dispatcher (cdecl; source, destination)
     0x5ce170,   # texture creation of a texture record (thiscall)
+    # Draw flush helpers: group begin virtuals, skinning palette upload, texture lookup (src/ug2/native/sub_5bc6f0.cpp ...)
+    0x5bc6f0, 0x5bc7b0, 0x5bc890, 0x5bcad0, 0x5bcb10, 0x5bdcd0, 0x4901d0,
 ]
 
 # Calls emitted inline with generate.py --inline-ftol2 (codegen/control.py INLINE): address -> helper.

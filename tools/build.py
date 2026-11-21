@@ -146,6 +146,12 @@ def main():
     else:
         print('Game folder not known: building the code translated earlier.')
 
+    # The script rebuilds only when the installed copy lacks the current patches.
+    step('FFmpeg for native VP6 movies (optional)')
+    if run(python() + ['-I', os.path.join(HERE, 'vita', 'build_ffmpeg_vp6.py'), '--vitasdk', vitasdk,
+                       '--jobs', str(args.jobs)], env=dict(os.environ)) != 0:
+        print('FFmpeg did not build: the port is built without native VP6 movies (movies=vp6).')
+
     use_art = os.path.isfile(GAME_ART) and not args.no_game_art
     build = os.path.abspath(args.build_dir)
     if args.clean and os.path.isdir(build):

@@ -44,6 +44,10 @@ int core(Role role);
 int mask(Role role);
 const char* name(Role role);
 
+// The offload renderer's flush worker (NFSU_OFFLOAD_CORE 2): always core 2.
+int producerCore();
+int producerMask();
+
 // The GXM render thread's affinity.
 inline int renderCore() { return core(Render); }
 inline int renderMask() { return mask(Render); }

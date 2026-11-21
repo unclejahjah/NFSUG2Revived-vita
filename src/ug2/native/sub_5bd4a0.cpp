@@ -1,6 +1,7 @@
 // Native replacement of sub_5bd4a0: draw queue material setup (cdecl: material, packet flags).
 
 #include <native/common.h>
+#include <native/flush_context.h>
 #include <native/shadow.h>
 #include <platform/switches.h>
 #include <platform/cached.h>
@@ -148,7 +149,7 @@ void body(win32::WinApplication* app, x86::CPU& cpu)
         sub_5bd4a0_guest(app, cpu);
         return;
     }
-    const x86::reg32 group = rc::ld32(0x870910);
+    const x86::reg32 group = flush::ld32<0x870910>(cpu);
     const x86::reg32 kind = rc::ld32(group + 4);
     if (kind != 5 && kind != 4)
     {
@@ -158,7 +159,7 @@ void body(win32::WinApplication* app, x86::CPU& cpu)
     }
     const x86::reg32 material = argument(cpu, 0);
     const x86::reg32 flags = argument(cpu, 1);
-    const bool lit = (flags & 0x100) && rc::ld32(0x870cb8) != 0;
+    const bool lit = (flags & 0x100) && flush::ld32<0x870cb8>(cpu) != 0;
     const bool all = kind == 5;
     const Material m(material);
     const Real half = ld(0x784260);
@@ -208,7 +209,7 @@ void body(win32::WinApplication* app, x86::CPU& cpu)
         }
         if (rc::ld8(group + 0x18) == 0)
         {
-            fixedFunction(app, cpu, c, half, mul(ld(0x80051c), m(0x58)));
+            fixedFunction(app, cpu, c, half, mul(Real(flush::ldf32<0x80051c>(cpu)), m(0x58)));
             cpu.esp += 4;
             return;
         }
@@ -224,7 +225,7 @@ void body(win32::WinApplication* app, x86::CPU& cpu)
         calls.setVector(effect, rc::ld32(table + 0x81c), c.d3);
         calls.setVector(effect, rc::ld32(table + 0x2a4), c.d4);
         calls.setVector(effect, rc::ld32(table + 0x27c), c.d5);
-        calls.setFloat(effect, rc::ld32(table + 0x7f4), float(mul(ld(0x800b94), m(0x58))));
+        calls.setFloat(effect, rc::ld32(table + 0x7f4), float(mul(Real(flush::ldf32<0x800b94>(cpu)), m(0x58))));
         result = calls.setFloat(effect, rc::ld32(table + 0x2cc), float(m(0x7c)));
     }
     cpu.eax = result;

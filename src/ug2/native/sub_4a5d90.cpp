@@ -1,17 +1,16 @@
-// Garage camera orbit (sub_4a5d90): the right stick past its dead zone stands in for a middle-button mouse drag.
+// Garage camera orbit (sub_4a5d90): the right stick reaches the garage screen as the game's own car orbit
+// events, through its handler 0x4A5740.
 
+#include "../garage_stick.h"
 #include <native/common.h>
 #include <lib/gamepad.h>
-#include <platform/cached.h>
 #include <platform/config.h>
-
-#include <algorithm>
-#include <cmath>
 
 namespace ug2
 {
 
 void sub_4a5d90_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_4a5740(win32::WinApplication* app, x86::CPU& cpu);
 
 namespace native
 {
@@ -19,39 +18,35 @@ namespace native
 namespace
 {
 
-const x86::reg32 MouseMiddle = 0x008763F7, MouseDx = 0x008763E4, MouseDy = 0x008763E8;
+const x86::reg32 OrbitInput = 0x23C;        // the garage screen's orbit object; its +4 is the handler's gate
+const x86::reg32 Busy = 0x00838578;         // the handler's other gate
+const x86::reg32 IdleSpin = 0x008363FC, IdleSince = 0x00837AA0, Ticks = 0x008651AC;
 
 struct GarageStick
 {
     bool  enabled;
-    float deadZone;     // 0..1 of full deflection
-    float speed;        // mouse counts per frame at full deflection
+    float deadZone;
 };
 
 const GarageStick& settings()
 {
-    static const GarageStick s = [] {
-        GarageStick g;
-        g.enabled = pf::Config::getBool("garage_stick", true);
-        g.deadZone = std::min(std::max(pf::Config::getInt("garage_stick_deadzone", 20), 0), 99) / 100.0f;
-        g.speed = float(pf::Config::getInt("garage_stick_speed", 4));
-        return g;
-    }();
+    static const GarageStick s = { pf::Config::getBool("garage_stick", true),
+                                   garage_stick::deadZone(pf::Config::getInt("garage_stick_deadzone",
+                                                                             garage_stick::DefaultDeadZonePercent)) };
     return s;
 }
 
-// One camera step as a middle-button drag of (moveX, moveY).
-void dragStep(win32::WinApplication* app, x86::CPU& cpu, long moveX, long moveY)
+// Sends one joy event to the screen's orbit handler.
+void orbitEvent(win32::WinApplication* app, x86::CPU& cpu, x86::reg32 screen, x86::reg32 event, uint8_t value)
 {
-    const x86::reg32 middle = rc::ld8(MouseMiddle), dx = rc::ld32(MouseDx), dy = rc::ld32(MouseDy);
-    // The camera reads the mouse state only inside this call, so the real values are put back after it.
-    rc::st8(MouseMiddle, 1);
-    rc::st32(MouseDx, x86::reg32(x86::sreg32(moveX)));
-    rc::st32(MouseDy, x86::reg32(x86::sreg32(moveY)));
-    sub_4a5d90_guest(app, cpu);
-    rc::st8(MouseMiddle, middle);
-    rc::st32(MouseDx, dx);
-    rc::st32(MouseDy, dy);
+    const x86::reg32 esp = cpu.esp;
+    rc::st32(esp - 4, value);
+    rc::st32(esp - 8, event);
+    rc::st32(esp - 12, 0);
+    cpu.esp = esp - 16;
+    cpu.ecx = screen + OrbitInput;
+    sub_4a5740(app, cpu);
+    cpu.esp = esp;
 }
 
 }
@@ -59,30 +54,25 @@ void dragStep(win32::WinApplication* app, x86::CPU& cpu, long moveX, long moveY)
 void sub_4a5d90(win32::WinApplication* app, x86::CPU& cpu)
 {
     const GarageStick& g = settings();
+    const x86::reg32 screen = cpu.ecx;
     float x = 0.0f, y = 0.0f;
     if (g.enabled)
         win32::Gamepad::getRightStick(&x, &y);
-    const float length = std::hypot(x, y);
-    static float s_carry[2];
-    static bool s_dragging;
-    if (length <= g.deadZone)
+    const garage_stick::OrbitBytes orbit = garage_stick::orbitBytes(x, y, g.deadZone);
+    static bool s_held;
+    if (orbit.held || s_held)
     {
-        s_carry[0] = s_carry[1] = 0.0f;
-        // The camera keeps its last orbit rate after release, so end on a still frame as a mouse would.
-        if (s_dragging)
-            dragStep(app, cpu, 0, 0);
-        else
-            sub_4a5d90_guest(app, cpu);
-        s_dragging = false;
-        return;
+        orbitEvent(app, cpu, screen, garage_stick::OrbitLeftRight, orbit.leftRight);
+        orbitEvent(app, cpu, screen, garage_stick::OrbitUpDown, orbit.upDown);
+        if (orbit.held && rc::ld32(screen + OrbitInput + 4) && !rc::ld32(Busy))
+        {
+            rc::st8(IdleSpin, 0);
+            rc::st32(IdleSince, rc::ld32(Ticks));
+        }
+        s_held = orbit.held;
+        cpu.ecx = screen;
     }
-    const float push = std::min((length - g.deadZone) / (1.0f - g.deadZone), 1.0f) * g.speed / length;
-    const float wantX = x * push + s_carry[0], wantY = y * push + s_carry[1];
-    const long moveX = std::lround(wantX), moveY = std::lround(wantY);
-    s_carry[0] = wantX - float(moveX);
-    s_carry[1] = wantY - float(moveY);
-    dragStep(app, cpu, moveX, moveY);
-    s_dragging = true;
+    sub_4a5d90_guest(app, cpu);
 }
 
 }

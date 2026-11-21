@@ -103,6 +103,49 @@ bool effectCommitChanges(WinApplication* app, x86::CPU& cpu, reg32 effect);
 // EndPass run at once; false: call the vtable slot.
 bool effectEndPass(WinApplication* app, x86::CPU& cpu, reg32 effect);
 
+// ---- Segments ----
+
+// Opens a segment (offload): the device's draws and state changes until segmentEnd record into a stream spliced at
+// this point of the frame's. False, nothing opened, when no frame is open, a capture or a deferral window is active,
+// or a segment is open already.
+bool segmentBegin();
+void segmentEnd();
+// First member of the context cpu.og points to: the segment's device clone, routed to by the calls made with that cpu.
+struct SegmentRef
+{
+    void* device = nullptr;
+};
+// segmentBegin on a device clone with a vertex arena and room reserved for draws. await non-null: the flush runs on
+// another thread and the segment is ready only after segmentFinish; the resolver calls await(job) until then.
+bool segmentBegin(SegmentRef& ref, uint32_t arenaBytes, uint32_t draws, void (*await)(void*) = nullptr,
+                  void* job = nullptr);
+// Any thread, after the flush: the resolver may read the segment.
+void segmentFinish(SegmentRef& ref);
+// Game thread: closes the clone (after segmentFinish).
+void segmentEnd(SegmentRef& ref);
+// Game thread, after segmentBegin: the effect's textures the segment reads and does not set are fixed to the ones now.
+void segmentSnapshotEffect(SegmentRef& ref, reg32 effect);
+// Of the effect's first passes, those whose draws are recorded.
+uint32_t effectDrawnPasses(reg32 effect, uint32_t passes);
+// Index of the frame the game thread records, 0 when none.
+uint32_t openFrameIndex();
+// Called by the game thread when a frame is opened.
+void setFrameHook(void (*hook)(uint32_t frame));
+// Game thread, at the marker: a vertex or index buffer's GPU copy is made current for the segment's draws.
+void segmentPrepareBuffer(reg32 buffer);
+// Guest pointers of up to max buffers whose GPU copy is stale (more are synced at once); returns their number.
+uint32_t segmentStaleBuffers(reg32* out, uint32_t max);
+// State words recorded only because a segment boundary left them unknown: 0 parent side, 1 segment side.
+uint64_t extraStateWords(int segment);
+// Render thread totals of resolving frames; counted once a clock is set (DEV_TOOLS).
+struct ResolveTotals
+{
+    uint64_t frames, draws, splices, words, segmentWords, restoreWords, shifted;
+    uint64_t instructions, waitInstructions;    // whole resolves; of them inside a segment's await
+};
+ResolveTotals resolveTotals();
+void setResolveClock(uint64_t (*clock)());
+
 // ---- Call groups ----
 
 // Device and effect calls in order: inside a window collected and queued as one record (queue(), or when a call has
@@ -450,7 +493,7 @@ HRESULT setMatrixArray(WinApplication* app, x86::CPU& cpu, reg32 effect, reg32 h
                        UINT count);
 HRESULT setTexture(WinApplication* app, x86::CPU& cpu, reg32 effect, reg32 handle, reg32 texture);
 // fpscr: the FPSCR the product is multiplied with.
-HRESULT setProduct(reg32 effect, reg32 handle, const float* const* matrices, UINT count, uint32_t fpscr);
+HRESULT setProduct(x86::CPU& cpu, reg32 effect, reg32 handle, const float* const* matrices, UINT count, uint32_t fpscr);
 // The pass count Begin stores.
 UINT passCount(reg32 effect);
 // Parameter types by handle - ParamHandleBase (ParamHandleCount entries) for an effect's kind; null for an object
@@ -464,7 +507,7 @@ HRESULT begin(WinApplication* app, x86::CPU& cpu, reg32 effect, UINT* passes, DW
 HRESULT pass(WinApplication* app, x86::CPU& cpu, reg32 effect, UINT pass);
 HRESULT end(WinApplication* app, x86::CPU& cpu, reg32 effect);
 // CommitChanges; true.
-bool commitChanges(reg32 effect);
+bool commitChanges(x86::CPU& cpu, reg32 effect);
 
 }
 
