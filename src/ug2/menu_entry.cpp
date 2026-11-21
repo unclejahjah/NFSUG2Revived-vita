@@ -1,5 +1,5 @@
-// Vita Settings in the game's own screens. The main menu gets one more icon, the first, to the left of Career, made
-// the way the game makes its own (as NFSU2 Revived's split screen adds its icon). It is an Options icon, so Cross
+// Vita Settings in the game's own screens. The main menu's Online icon becomes Vita Settings (Online is not offered;
+// LAN and free roam are unaffected). It is an Options icon, so Cross
 // on it opens the game's UI_OptionsMain carousel, which then shows the groups of options_menu.cpp instead of the
 // game's categories; a group opens the game's UI_Options list with that group's settings as its rows, changed with
 // left and right like the game's, and a text row opens the Vita keyboard on Cross. Leaving a list saves; the last
@@ -8,9 +8,8 @@
 // UI_Main's setup 0x4AEE30 (thiscall, the menu in ecx) makes its 7 icons in order: Career, Quick Race, Online, LAN,
 // Customize, Profile Manager and Options, each a 0x48-byte item from 0x51F670 (icon texture hash, label hash, 0)
 // with the item's own class, added with the menu's method 0x18 (0x50DAB0: the icon scroller's 0x543C10 gives it the
-// package's next free icon object, "%s%d"). Then it selects the icon the package last had (0x50B8A0), 2 the first
-// time (0x50B8C0), through the scroller's method 0x20 (0x538A30, from 1). Ours is added before the game's, so the
-// game's icons and the remembered one are each one further. UI_OptionsMain's setup 0x4B6230 makes its category
+// package's next free icon object, "%s%d"), which binds the item's texture (+0xC) and label (+0x2C); the Online
+// item is changed into ours just before. UI_OptionsMain's setup 0x4B6230 makes its category
 // icons the same way; each category's class sets the category (0x83AA04) that UI_Options's setup 0x4B8470 builds
 // rows for: 0x54-byte rows from 0x51E230, added with 0x54EF30 (row, 1), which binds their name (+0x2C) and value
 // (+0x30) text objects. A row's method 1 (thiscall (x, message), ret 8) takes left and right, method 3 sets its
@@ -56,6 +55,8 @@ const reg32 GameRowClass     = 0x00791C90;  // a toggle row's class: 18 methods,
 const reg32 SoundManager     = 0x0082B884;  // the front end's sounds (0x458520: thiscall (sound))
 const reg32 SoundPlay        = 0x00458520;
 const reg32 SoundTable       = 0x00837FE0;  // signed byte per event (0x1B apart) and menu style (menu +0x30)
+const reg32 OnlineItem       = 0x00790C38;  // the main menu's Online icon class, replaced by ours
+const reg32 AddOption        = 0x0050DAB0;  // an icon menu's method 0x18 (thiscall (item), ret 4)
 const reg32 OptionsItem      = 0x00790C40;  // the main menu's Options icon class: its React opens UI_OptionsMain
 const reg32 CategoryItem     = 0x007918C8;  // an options category class (category 2, a list of rows)
 const reg32 OptionsIcon      = 0x3058FE37;  // the main menu's Options icon texture
@@ -88,6 +89,8 @@ win32::MethodPtr s_mainReact = nullptr;
 win32::MethodPtr s_optionsMainReact = nullptr;
 win32::MethodPtr s_optionsReact = nullptr;
 win32::MethodPtr s_peekMessage = nullptr;
+win32::MethodPtr s_addOption = nullptr;
+bool s_inMainSetup = false;
 
 reg32 s_menu = 0, s_item = 0;           // UI_Main and our icon
 bool s_vita = false;                    // UI_OptionsMain and UI_Options show ours
@@ -209,6 +212,21 @@ void rowTexts(win32::WinApplication* app, x86::CPU& cpu)
     cpu.esp += 4;
 }
 
+// A menu's AddOption (thiscall (item), ret 4): in UI_Main's setup, the Online icon becomes ours (an Options icon
+// with our texture and label), so Online is not offered.
+void addOption(win32::WinApplication* app, x86::CPU& cpu)
+{
+    const reg32 item = rc::ld32(cpu.esp + 4);
+    if (s_inMainSetup && cpu.ecx == s_menu && item && rc::ld32(item) == OnlineItem)
+    {
+        rc::st32(item, OptionsItem);
+        rc::st32(item + 0x0C, OptionsIcon);
+        rc::st32(item + 0x2C, LabelHash);
+        s_item = item;
+    }
+    s_addOption(app, cpu);
+}
+
 // UI_Main's React: Cross on our icon opens UI_OptionsMain (its class does) with our groups.
 void mainReact(win32::WinApplication* app, x86::CPU& cpu)
 {
@@ -303,6 +321,7 @@ void configure(win32::WinApplication& app)
     s_optionsMainReact = app.replaceMethod(OptionsMainReact, optionsMainReact);
     s_optionsReact = app.replaceMethod(OptionsReact, optionsReact);
     s_peekMessage = app.replaceMethod(rc::ld32(PeekMessageSlot), peekMessageHook);
+    s_addOption = app.replaceMethod(AddOption, addOption);
     app.registerMethod(RowReactAddress, { "vita settings row react", rowReact });
     app.registerMethod(RowTextsAddress, { "vita settings row texts", rowTexts });
     pf::logInfo("menu entry: Vita Settings in the main menu");
@@ -313,37 +332,27 @@ void configure(win32::WinApplication& app)
 namespace native
 {
 
-// UI_Main's setup: ours first, then the game's.
+// UI_Main's setup: the game's, with our icon where Online was (addOption below).
 void sub_4aee30(win32::WinApplication* app, x86::CPU& cpu)
 {
     const reg32 menu = cpu.ecx;
     s_vita = false;
+    s_item = 0;
     if (!options::enabled())
     {
         sub_4aee30_guest(app, cpu);
         return;
     }
     setText(app, cpu, LabelHash, "Vita Settings");
+    // The icon remembered from a build that had 8 (ours added first) may be past the 7 there are now.
     const reg32 package = rc::ld32(menu + 4);
-    const reg32 remembered = callGuest(app, cpu, PackageIconGet, 0, { package });
-    reg32 item = s_texts[LabelHash] ? callGuest(app, cpu, OperatorNew, 0, { 0x48 }) : 0;
-    if (item)
-    {
-        callGuest(app, cpu, ItemConstructor, item, { OptionsIcon, LabelHash, 0 });
-        rc::st32(item, OptionsItem);
-        callGuest(app, cpu, rc::ld32(rc::ld32(menu) + 0x18), menu, { item });
-    }
+    if (callGuest(app, cpu, PackageIconGet, 0, { package }) > 7)
+        callGuest(app, cpu, PackageIconSet, 0, { package, 1 });
     s_menu = menu;
-    s_item = item;
+    s_inMainSetup = s_texts[LabelHash] != 0;
     sub_4aee30_guest(app, cpu);
-    // The first time, the game's choice (2) is the icon it meant, now one further.
-    if (item && !remembered)
-    {
-        callGuest(app, cpu, PackageIconSet, 0, { package, 3 });
-        const reg32 scroller = menu + 0x4C;
-        callGuest(app, cpu, rc::ld32(rc::ld32(scroller) + 0x20), scroller, { 3 });
-    }
-    pf::logInfo("menu entry: Vita Settings icon %s", item ? "added to the main menu" : "not added");
+    s_inMainSetup = false;
+    pf::logInfo("menu entry: Vita Settings icon %s", s_item ? "in Online's place" : "not added");
 }
 
 // UI_OptionsMain's setup: our groups, then Save and Restart, as the game adds its categories.

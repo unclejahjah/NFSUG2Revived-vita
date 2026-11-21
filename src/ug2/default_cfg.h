@@ -77,7 +77,7 @@ const char DefaultSettingsFile[] =
     "# *.ea.com name goes there), as the PC game's eanationhub mod does. off: no Online play.\n"
     "#online_server=eahub.eu\n"
     "\n"
-    "# The main menu's Vita Settings icon, left of Career: these settings in the game's own option screens.\n"
+    "# The main menu's Vita Settings icon, in Online's place: these settings in the game's own option screens.\n"
     "# off leaves it out.\n"
     "#options_menu=on\n"
     "\n"

@@ -146,7 +146,7 @@ Text fields, such as a profile name, open the Vita keyboard. To quit, use the PS
 
 ### Vita Settings
 
-**Vita Settings**, the first icon of the main menu (to the left of Career), opens the game's own Options screens
+**Vita Settings**, the main menu icon where Online was (Online is not offered), opens the game's own Options screens
 with the settings of the browser version's Settings page that the Vita has, in the same groups: Multiplayer, Free
 Roam, Display, Sound, Controller and Game. Pick a group, then change a setting with left and right as in the game's
 options; Cross on a text setting, such as a name or the passphrase, opens the Vita keyboard. Leaving a group saves

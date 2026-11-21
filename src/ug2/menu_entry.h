@@ -3,7 +3,7 @@
 
 #include <lib/winapp.h>
 
-// Vita Settings in the game's own screens: an icon left of Career on the main menu, the groups of options_menu.cpp in
+// Vita Settings in the game's own screens: the main menu icon in Online's place, the groups of options_menu.cpp in
 // the game's options carousel and their settings in its options list.
 
 namespace ug2 { namespace menu {
