@@ -1412,6 +1412,12 @@ static int group_max(const rc_session *s){
 }
 static int group_count(const rc_session *s){
     int n = 0;
+#ifdef ROAM_GROUP_CAP
+    /* (the Vita: every established peer counts, listed by the hub's latest list or not: with in_group the cap let
+     * 35 to 63 in, each list naming only some of them) */
+    for (int i = 0; i < RC_TABLE; i++) if (s->peer[i].state == RC_PS_EST) n++;
+    return n;
+#endif
     for (int i = 0; i < RC_TABLE; i++) if (s->peer[i].state == RC_PS_EST && in_group(s, &s->peer[i])) n++;
     return n;
 }
