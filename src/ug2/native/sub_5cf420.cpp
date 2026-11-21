@@ -915,11 +915,26 @@ uint32_t s_peak = 0;
 bool s_fencing = false;
 uint64_t s_fenceWaitUs = 0;
 
+std::atomic<uint32_t> s_waits{0}, s_waitedUs{0}, s_longestUs{0}, s_fences{0};
+std::atomic<bool> s_waitDue{false};
+
 // Unload notices no pending job was queued before are dropped.
 void retireNotices()
 {
-    if (unload::count() != 0)
-        unload::retire(s_pending.empty() ? ~0u : s_pending.front()->serial);
+    if (unload::count() == 0)
+        return;
+    unload::retire(s_pending.empty() ? ~0u : s_pending.front()->serial);
+#ifdef DEV_TOOLS
+    static uint32_t logged = 0;
+    if (unload::count() == 0 && logged < 200 && ++logged)
+    {
+        const unload::Stats t = unload::stats();
+        pf::logInfo("offload: unload notices retired at frame %u: %u notices so far (%u full), %u draws checked, %u cancelled, "
+                    "%u stale, %u waits (%u us, longest %u), %u fences", unsigned(rc::ld32(0x86514c)), unsigned(t.notices),
+                    unsigned(t.full), unsigned(t.steps), unsigned(t.skipped), unsigned(s_stale.load()), unsigned(s_waits.load()),
+                    unsigned(s_waitedUs.load()), unsigned(s_longestUs.load()), unsigned(s_fences.load()));
+    }
+#endif
 }
 
 // A job that is closed; null when all are pending.
@@ -1205,8 +1220,6 @@ uint32_t awaitStep()
     return pf::perf::now() - start;
 }
 
-std::atomic<uint32_t> s_waits{0}, s_waitedUs{0}, s_longestUs{0}, s_fences{0};
-std::atomic<bool> s_waitDue{false};
 
 void unloadSettle()
 {
