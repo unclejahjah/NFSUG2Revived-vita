@@ -57,6 +57,14 @@ controls::State         s_state;
 uint32_t                s_keysDown;         // controls::Key bits posted down
 bool                    s_imeOpen;          // on-screen keyboard requested or shown
 bool                    s_imeForField;      // ... for s_field
+bool                    s_imeForHost;       // ... for requestText
+bool                    s_hostPending;      // requestText asked, keyboard not opened yet
+char16_t                s_hostTitle[pf::ime::MaxTitleLength + 1];
+char16_t                s_hostText[pf::ime::MaxTextLength + 1];
+uint32_t                s_hostMaxLength;
+bool                    s_hostSecret;
+int                     s_hostResult;       // Gamepad::TextResult
+char                    s_hostTyped[pf::ime::MaxTextLength + 1];
 uint32_t                s_releaseWait;      // buttons held at the end of the keyboard and its typing, until released
 uint32_t                s_padInputs;        // inputs of the last pump
 Field                   s_field;
@@ -215,6 +223,7 @@ void openIme(bool forField)
     else
         s_imeOpen = pf::ime::requestOpen(u"Text", u"", TextLength);
     s_imeForField = s_imeOpen && forField;
+    s_imeForHost = false;
 }
 
 void updateIme()
@@ -224,8 +233,17 @@ void updateIme()
     if (result == pf::ime::ResultPending)
         return;
     const bool field = s_imeForField;
+    const bool host = s_imeForHost;
     s_imeOpen = false;
     s_imeForField = false;
+    s_imeForHost = false;
+    if (host)
+    {
+        if (result == pf::ime::ResultConfirmed)
+            snprintf(s_hostTyped, sizeof(s_hostTyped), "%s", text);
+        s_hostResult = result == pf::ime::ResultConfirmed ? Gamepad::TextConfirmed : Gamepad::TextCancelled;
+        return;
+    }
     if (field && !s_field.active)
         return;     // the field closed meanwhile
     if (result == pf::ime::ResultConfirmed)
@@ -284,7 +302,16 @@ void pump()
         s_releaseWait &= pad.inputs;
     const bool busy = s_imeOpen || !s_typing.empty() || s_releaseWait != 0;
     trackTouch(pad, busy);
-    if (!busy && s_field.active && !s_field.shown)
+    if (!busy && s_hostPending)
+    {
+        s_hostPending = false;
+        s_imeOpen = pf::ime::requestOpen(s_hostTitle, s_hostText, s_hostMaxLength, s_hostSecret);
+        s_imeForField = false;
+        s_imeForHost = s_imeOpen;
+        if (!s_imeOpen)
+            s_hostResult = Gamepad::TextCancelled;
+    }
+    else if (!busy && s_field.active && !s_field.shown)
     {
         openIme(true);
         s_field.shown = s_imeOpen;
@@ -521,6 +548,34 @@ void Gamepad::editText(const char* title, const char* text, uint32_t maxLength, 
     s_field.maxLength = maxLength;
     snprintf(s_field.extraChars, sizeof(s_field.extraChars), "%s", extraChars);
     s_field.cancellable = cancellable;
+}
+
+bool Gamepad::requestText(const char* title, const char* text, uint32_t maxLength, bool secret)
+{
+    pf::LwLockGuard lock(s_mutex);
+    if (s_imeOpen || s_hostPending || s_field.active)
+        return false;
+    copyText(s_hostTitle, title, pf::ime::MaxTitleLength);
+    copyText(s_hostText, secret ? "" : text, pf::ime::MaxTextLength);
+    s_hostMaxLength = maxLength;
+    s_hostSecret = secret;
+    s_hostResult = TextPending;
+    s_hostTyped[0] = 0;
+    s_hostPending = true;
+    return true;
+}
+
+Gamepad::TextResult Gamepad::takeText(char* text, size_t size)
+{
+    pf::LwLockGuard lock(s_mutex);
+    const int result = s_hostResult;
+    if (result == TextPending || result == TextNone)
+        return TextResult(result);
+    if (text && size)
+        snprintf(text, size, "%s", result == TextConfirmed ? s_hostTyped : "");
+    memset(s_hostTyped, 0, sizeof(s_hostTyped));
+    s_hostResult = TextNone;
+    return TextResult(result);
 }
 
 void Gamepad::setTextAppendOnly(bool appendOnly)

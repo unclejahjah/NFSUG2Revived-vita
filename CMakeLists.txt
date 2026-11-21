@@ -182,6 +182,7 @@ target_link_libraries(NFSU2VITA.elf
   SceTouch_stub
   SceCommonDialog_stub
   SceAppUtil_stub
+  SceAppMgr_stub
   SceAudio_stub
   SceAudiodec_stub
   SceVideodec_stub

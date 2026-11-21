@@ -18,6 +18,8 @@
 #include "scenery.h"
 #include "padbind.h"
 #include "textentry.h"
+#include "options_menu.h"
+#include "menu_entry.h"
 
 #include <lib/file.h>
 #include <lib/memmap.h>
@@ -264,6 +266,8 @@ int main(int argc, char** argv)
         ug2::music::configure(app);
         ug2::boot::configure(app);
         ug2::textentry::configure(app);
+        ug2::options::configure(f.config.c_str(), f.game.c_str());
+        ug2::menu::configure(app);
         ug2::padbind::configure(app);
         ug2::hitch::configure(app);
         ug2::textures::configure(app);

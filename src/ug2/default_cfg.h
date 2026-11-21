@@ -77,6 +77,10 @@ const char DefaultSettingsFile[] =
     "# *.ea.com name goes there), as the PC game's eanationhub mod does. off: no Online play.\n"
     "#online_server=eahub.eu\n"
     "\n"
+    "# The main menu's Vita Settings icon, left of Career: these settings in the game's own option screens.\n"
+    "# off leaves it out.\n"
+    "#options_menu=on\n"
+    "\n"
     "# on writes a detailed log to NeedForSpeedUnderground2.log, useful when reporting a problem. Errors\n"
     "# are logged either way.\n"
     "#log_info=off\n";

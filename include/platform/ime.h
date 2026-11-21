@@ -25,7 +25,8 @@ enum Result
 // Input side, one caller at a time.
 // Asks the render thread to show the dialog. Title and text are null-terminated UTF-16, cut to MaxTitleLength and
 // maxLength; maxLength is clamped to 1..MaxTextLength. False while a dialog is requested, shown or its result not taken.
-bool requestOpen(const char16_t* title, const char16_t* text, uint32_t maxLength);
+// secret: a password box, and the text is never logged.
+bool requestOpen(const char16_t* title, const char16_t* text, uint32_t maxLength, bool secret = false);
 // Aborts a requested or shown dialog; it finishes with ResultFailed unless it already had a result.
 void requestClose();
 // Returns a finished dialog's result once and frees the dialog for the next request. Confirmed text is copied to text

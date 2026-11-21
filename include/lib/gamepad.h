@@ -113,6 +113,12 @@ public:
     // field and types Enter. Cross while the keyboard is closed opens it again.
     static void editText(const char* title, const char* text, uint32_t maxLength, const char* extraChars,
                          bool cancellable);
+    // Host code's own text entry (the options menu): the on-screen keyboard opens at the next pump with that text
+    // (none when secret, a password box then) and the pad holds idle while it is up, as for a field. False while
+    // a keyboard or a field is in use. takeText gives the result once, on any thread.
+    enum TextResult { TextNone, TextPending, TextConfirmed, TextCancelled };
+    static bool requestText(const char* title, const char* text, uint32_t maxLength, bool secret);
+    static TextResult takeText(char* text, size_t size);
     // For an editor that only appends and deletes at its end: clearing a field skips the End key.
     static void setTextAppendOnly(bool appendOnly);
     // Ends the edit of the field: a keyboard still open for it closes without typing.

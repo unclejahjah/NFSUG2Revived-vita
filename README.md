@@ -144,6 +144,18 @@ Text fields, such as a profile name, open the Vita keyboard. To quit, use the PS
 
 ## Settings
 
+### Vita Settings
+
+**Vita Settings**, the first icon of the main menu (to the left of Career), opens the game's own Options screens
+with the settings of the browser version's Settings page that the Vita has, in the same groups: Multiplayer, Free
+Roam, Display, Sound, Controller and Game. Pick a group, then change a setting with left and right as in the game's
+options; Cross on a text setting, such as a name or the passphrase, opens the Vita keyboard. Leaving a group saves
+it to the same files as a hand edit: `NeedForSpeedUnderground2.cfg` and free roam's `scripts/NFSU2FreeRoam.ini`.
+Settings apply when the game starts again: the last icon, **Save and Restart**, does that. The passphrase is never
+shown or logged once typed. `options_menu=off` leaves the icon out.
+
+### Settings file
+
 With nothing changed the game runs locked to 30 frames a second, in widescreen, with the touch screen on as a replacement for a mouse.
 
 The first time the game starts it writes a settings file, `ux0:data/NeedForSpeedUnderground2/NeedForSpeedUnderground2.cfg`.

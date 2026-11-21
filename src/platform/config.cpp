@@ -63,6 +63,8 @@ const char* const Known[] =
     "save_dir", "save_log", "save_sync", "save_atomic", "file_lazy_seek", "file_handle_cache",
     // Network play (src/lib/winapi/ws2_32.cpp, src/lib/winapi/revived).
     "network", "online_server", "revived_server", "revived_name", "revived_passphrase",
+    // Options menu (src/ug2/options_menu.cpp).
+    "options_menu",
     // Host build.
     "host_gpu_latency", "limiter_log", "debug_scene_finish", "display_vblank_wait", "wait_probe", "frame_stats", "d3d_fast_effects", "d3d_fast_draw", "d3d_fast_layer", "flush_direct", "host_check_ranges",
 };

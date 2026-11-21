@@ -56,6 +56,9 @@ NATIVE_OVERRIDES = [
     # GameLoop's debug hook (empty, ret), called at 0x581470 and 0x581475 between World::DoTimestep and the camera,
     # audio and render: the call at 0x581475 is where the PC's NFSU2FreeRoam.asi runs free roam (src/ug2/freeroam.cpp)
     0x4022c0,
+    # Vita Settings in the game's own screens (src/ug2/menu_entry.cpp): the setups of UI_Main, UI_OptionsMain and
+    # UI_Options (thiscall; their constructors call them directly) and the game's text of a label hash (edx)
+    0x4aee30, 0x4b6230, 0x4b8470, 0x4ff9d0,
     # Medium graphics features: flares, shadow hull, headlight pass, particles
     0x490920, 0x5c5580, 0x60cee0, 0x5bdaa0, 0x48bdf0, 0x492e10,
     0x5c0e10, 0x4881d0, 0x5bb430, 0x61e700,
