@@ -194,7 +194,9 @@ void Config::load(const char* path, const char* missingFileText)
         strcpy(entry.key, key);
         strcpy(entry.value, value);
         if (known)
-            logInfo("config %s=%s", entry.key, entry.value);
+            // A secret (revived_passphrase) is never logged.
+            const bool secret = strstr(entry.key, "passphrase") || strstr(entry.key, "password");
+            logInfo("config %s=%s", entry.key, secret ? (*entry.value ? "(set, not logged)" : "") : entry.value);
         else
             logError("config: unknown setting '%s'", entry.key);
     }
