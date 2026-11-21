@@ -31,8 +31,8 @@ endif()
 
 set(VITA_APP_NAME "NFS Underground 2")
 set(VITA_TITLEID  "NFSU2VITA")
-set(NFSU_VERSION  "0.8.3")
-set(VITA_VERSION  "00.83")
+set(NFSU_VERSION  "0.8.4")
+set(VITA_VERSION  "00.84")
 
 option(NFSU_LOG_DEBUG        "Verbose runtime logging" OFF)
 option(NFSU_ASSERT_SOFT      "Log failed assertions instead of trapping" OFF)
