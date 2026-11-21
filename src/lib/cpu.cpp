@@ -1,6 +1,7 @@
 #include <cpu.h>
 #include <recomp.h>
 #include <platform/log.h>
+#include <platform/crashlog.h>
 #include <platform/time.h>
 #include <atomic>
 #include <cstring>
@@ -65,6 +66,7 @@ void flagAuditFail(CPU& cpu, reg32 flags, uint32_t site)
 void guestTrap(uint32_t address, const char* reason)
 {
     pf::logError("guest trap at 0x%08x: %s", address, reason);
+    pf::crashlog::noteTrap(address, reason);
     __builtin_trap();
 }
 

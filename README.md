@@ -219,6 +219,7 @@ Delete the file to get a fresh copy on the next start.
 | `show_configurator_on_boot` | `on` (default), `off` | The start-up screen before the game boots (see above) |
 | `boot_race` | `off` (default), `on` | Skip the menus and start a test race |
 | `log_info` | `off` (default), `on` | Write a detailed log to `NeedForSpeedUnderground2.log`, useful when reporting a problem. Errors are logged either way |
+| `crash_report` | `on` (default), `off` | Write a crash report when the game crashes (see [Crash reports](#crash-reports)) |
 
 Settings that start with `dev_` are experiments that may change or go away. Their tuning keys were renamed too
 (`dev_world_lod_min_tris`, `dev_world_lod_max_percent`, `dev_world_lod_min_width`, `dev_world_lod_signs`,
@@ -250,6 +251,26 @@ game's asset files. They may cause crashes or major performance problems.
 
 The port does not check `SPEED2.EXE` on the Vita. A VPK is built from one particular executable, so a different one
 beside it may crash or misbehave.
+
+### Crash reports
+
+Each start keeps the last run's log as `NeedForSpeedUnderground2.previous.log`, so closing the game no longer loses it.
+When the game crashes with `kubridge.skprx` loaded (it is under `*KERNEL` in `ur0:tai/config.txt` on most setups that
+run Vita ports), it writes `crashes/crash-<date>-<time>.txt` in the game folder: what failed, the registers, the code
+addresses on the stack and the last log lines, info lines included even with `log_info` off. Without kubridge a guest
+trap or a fatal error still writes one, without the registers. The next start shows a notice naming the report, and
+copies the crashed run's log beside it as `crash-<date>-<time>.log`.
+
+The system's own crash dump (`ux0:data/psp2core-*-eboot.bin.psp2dmp`) holds the same last log lines. To read a report
+or a dump against the build that crashed:
+
+```sh
+python3 tools/vita/crashdump.py crash-20261121-233122.txt --elf build-vita/NFSU2VITA.elf
+python3 tools/vita/crashdump.py psp2core-1795202539-0x00002d2389-eboot.bin.psp2dmp --elf build-vita/NFSU2VITA.elf
+```
+
+`sub_XXXXXX` in its output is the translated `SPEED2.EXE` function at guest address `XXXXXX`. Keep the `.elf` of each
+build you hand out: the addresses only make sense with the matching one.
 
 ## Known issues / caveats
 
