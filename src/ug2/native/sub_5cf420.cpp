@@ -2,12 +2,14 @@
 
 #include <native/common.h>
 #include <native/flush_context.h>
+#include <native/unload_cancel.h>
 #include <platform/switches.h>
 #include <platform/cached.h>
 #include <platform/config.h>
 #include <platform/log.h>
 #include <platform/perf.h>
 #include <platform/sync.h>
+#include <platform/time.h>
 #include <algorithm>
 #include <atomic>
 #include <offload.h>
@@ -286,6 +288,96 @@ bool fadeParameters(win32::WinApplication* app, x86::CPU& cpu, State& s)
     return true;
 }
 
+enum UnloadMode : uint8_t { UnloadCancel, UnloadFence, UnloadOff };
+
+// offload_unload_mode; release builds cancel.
+UnloadMode unloadMode()
+{
+#ifdef DEV_SETTINGS
+    static const char* const names[] = {"cancel", "fence", "off"};
+    static const UnloadMode mode = UnloadMode(pf::Config::getChoice("offload_unload_mode", names, 3, 0));
+    return mode;
+#else
+    return UnloadCancel;
+#endif
+}
+
+std::atomic<uint32_t> s_stale{0};
+
+// A step found unloaded pointers; true: draw anyway (mode off).
+bool stepDead(const char* what, const reg32* pointers, const unload::Hit& hit)
+{
+#ifdef DEV_TOOLS
+    static std::atomic<uint32_t> logged{0};
+    if (logged.fetch_add(1) < 48)
+        pf::logError("offload: a queued %s points into unloaded memory: pointer %u 0x%08x (first 0x%08x) in 0x%08x+0x%x, unload kind %u",
+                     what, unsigned(hit.index), unsigned(pointers[hit.index]), unsigned(pointers[0]), unsigned(hit.base),
+                     unsigned(hit.size), unsigned(hit.tag));
+#else
+    (void)what;
+    (void)pointers;
+    (void)hit;
+#endif
+    if (unloadMode() == UnloadOff)
+    {
+        ++s_stale;
+        return true;
+    }
+    unload::end(true);
+    return false;
+}
+
+// Worker draw step over these pointers; false: cancelled.
+inline bool stepBegin(const x86::CPU& cpu, const char* what, const reg32* pointers, reg32 n)
+{
+    unload::Hit hit;
+    if (__builtin_expect(!unload::begin(flush::context(cpu)->serial, pointers, n, &hit), 1))
+        return true;
+    return stepDead(what, pointers, hit);
+}
+
+// Pointers read inside a step; false: cancelled.
+inline bool stepMore(const x86::CPU& cpu, const char* what, const reg32* pointers, reg32 n)
+{
+    unload::Hit hit;
+    if (__builtin_expect(!unload::dead(flush::context(cpu)->serial, pointers, n, &hit), 1))
+        return true;
+    return stepDead(what, pointers, hit);
+}
+
+inline void stepEnd(const x86::CPU& cpu)
+{
+    if (cpu.og)
+        unload::end();
+}
+
+// Worker: whether a queued entry's data is still loaded; opens its step.
+bool entryLive(const x86::CPU& cpu, reg32 entry)
+{
+    const reg32 p[6] = {rc::ld32(entry + 0x10), rc::ld32(entry + 8), rc::ld32(entry + 0x1c), rc::ld32(entry + 0x20),
+                        rc::ld32(entry + 0x24), rc::ld32(entry + 0x28)};
+    if (!stepBegin(cpu, "entry (solid, strip, light, material, matrix, skin)", p, 6))
+        return false;
+    if (__builtin_expect(unload::count() == 0, 1) || rc::ld32(entry + 0xc) != 0)
+        return true;
+    const reg32 mesh = rc::ld32(p[0]);
+    if (mesh < 0x10000)
+        return true;
+    const reg32 q[3] = {mesh, rc::ld32(mesh + 0x28), rc::ld32(mesh + 0x18)};
+    return stepMore(cpu, "entry's mesh (mesh, vertices, indices)", q, 3);
+}
+
+// Worker: whether a bucket's texture is still loaded; opens its step.
+bool bucketLive(const x86::CPU& cpu, reg32 tex)
+{
+    if (!stepBegin(cpu, "bucket (texture)", &tex, 1))
+        return false;
+    if (__builtin_expect(unload::count() == 0, 1))
+        return true;
+    const reg32 platform = rc::ld32(tex);
+    return stepMore(cpu, "bucket's texture platform record", &platform, 1);
+}
+
 // Indexed entry (edi strip, ebp entry): skinning, buffers, a DrawIndexedPrimitive per pass.
 bool drawIndexed(win32::WinApplication* app, x86::CPU& cpu, State& s)
 {
@@ -464,9 +556,22 @@ bool drawEntryBody(win32::WinApplication* app, x86::CPU& cpu, State& s, reg32 li
 
 bool drawEntry(win32::WinApplication* app, x86::CPU& cpu, State& s, reg32 list)
 {
-    offload::entryBegin(rc::ld32(list));
+    const reg32 entry = rc::ld32(list);
+    if (cpu.og && !entryLive(cpu, entry))
+    {
+        flush::Context& context = *static_cast<flush::Context*>(cpu.og);
+        const reg32 next = rc::ld32(entry), previous = rc::ld32(entry + 4);
+        rc::st32(previous, next);
+        rc::st32(next + 4, previous);
+        if (rc::ld32(entry + 0xc) != 0)
+            context.strips.push(rc::ld32(entry + 8));
+        context.entries.push(entry);
+        return true;
+    }
+    offload::entryBegin(entry);
     const bool ok = drawEntryBody(app, cpu, s, list);
     offload::entryEnd();
+    stepEnd(cpu);
     return ok;
 }
 
@@ -494,11 +599,18 @@ bool drawList(win32::WinApplication* app, x86::CPU& cpu, State& s)
             rc::st32(next + 4, previous);
             increment<0x872ed8>(cpu);
             offload::bucketBegin(bucket);
-            rc::st32(s.frame - 4, rc::ld32(bucket + 0x10));
-            if (!call(app, cpu, s, sub_5bcc30, s.frame - 8, 4))
-                return false;
+            const reg32 tex = rc::ld32(bucket + 0x10);
+            const bool live = !cpu.og || bucketLive(cpu, tex);
+            if (live)
+            {
+                rc::st32(s.frame - 4, tex);
+                const bool ok = call(app, cpu, s, sub_5bcc30, s.frame - 8, 4);
+                stepEnd(cpu);
+                if (!ok)
+                    return false;
+            }
             reg32 list = s.esi + 0x18;
-            if (rc::ld32(list) != list)
+            if (live && rc::ld32(list) != list)
             {
                 do
                 {
@@ -798,9 +910,17 @@ const uint32_t MaxJobs = 32;
 
 std::vector<flush::Context*> s_jobs;        // every job
 std::vector<flush::Context*> s_pending;     // jobs not closed yet, in marker order
+std::atomic<uint32_t> s_serial{0};          // jobs queued so far
 uint32_t s_peak = 0;
 bool s_fencing = false;
 uint64_t s_fenceWaitUs = 0;
+
+// Unload notices no pending job was queued before are dropped.
+void retireNotices()
+{
+    if (unload::count() != 0)
+        unload::retire(s_pending.empty() ? ~0u : s_pending.front()->serial);
+}
 
 // A job that is closed; null when all are pending.
 flush::Context* freeJob()
@@ -890,6 +1010,7 @@ bool runContext(win32::WinApplication* app, x86::CPU& cpu)
         if (const uint32_t frame = br::openFrameIndex())
             joinOlder(frame);
     }
+    retireNotices();
     flush::Context* job = freeJob();
     if (!job)
         return false;
@@ -912,6 +1033,7 @@ bool runContext(win32::WinApplication* app, x86::CPU& cpu)
     }
     lap(1);
     context.pending = true;
+    context.serial = s_serial.fetch_add(1) + 1;
     context.app = app;
     context.frame = br::openFrameIndex();
     context.ok = true;
@@ -1062,44 +1184,122 @@ void fence()
     s_fenceWaitUs += pf::perf::now() - start;
 }
 
-void unloadFence(const char* what, reg32 from, reg32 size)
+// Waits out the worker's draw step in progress; microseconds waited.
+uint32_t awaitStep()
 {
-#ifdef DEV_TOOLS
-    static uint32_t calls = 0, logged = 0, hitsLogged = 0;
-    uint32_t running = 0, hits = 0;
-    for (const Context* job : s_pending)
+    const uint32_t at = unload::step();
+    if (!(at & 1))
+        return 0;
+    const uint32_t start = pf::perf::now();
+    for (uint32_t spins = 0; unload::step() == at; ++spins)
     {
-        const bool unfinished = !queue::isDone(*job);
-        running += unfinished;
-        if (unfinished && size != 0)
-            for (const reg32 solid : job->solids)
-                hits += solid - from < size;
+        const uint32_t waited = pf::perf::now() - start;
+        if (waited > 200000)
+        {
+            pf::logError("offload: an unload gave up waiting for the flush worker's draw");
+            break;
+        }
+        if (spins > 2000)
+            pf::sleepUs(50);
     }
-    if (hits != 0 && hitsLogged < 64 && ++hitsLogged)
-        pf::logError("offload: %s unload of 0x%08x+0x%x at frame %u frees %u solids that unfinished flushes still draw", what,
-                     unsigned(from), unsigned(size), unsigned(rc::ld32(0x86514c)), unsigned(hits));
-    ++calls;
-    static uint32_t foreign = 0;
-    const int game = queue::gameThread(), self = pf::Thread::currentId();
-    const bool other = game != 0 && self != game;
-    foreign += other;
-    if ((running != 0 || other || calls <= 8 || (calls & (calls - 1)) == 0) && logged < 200 && ++logged)
-        pf::logInfo("offload: %s unload %u at frame %u: %u flushes pending, %u not finished; thread %d, game thread %d, "
-                    "%u calls off the game thread, %u jobs run so far", what, unsigned(calls), unsigned(rc::ld32(0x86514c)),
-                    unsigned(s_pending.size()), unsigned(running), self, game, unsigned(foreign),
-                    unsigned(queue::totals().runs));
-#endif
-    if (s_pending.empty() || !NFSU_SWITCH_CACHED("offload_unload_fence", 1))
+    return pf::perf::now() - start;
+}
+
+std::atomic<uint32_t> s_waits{0}, s_waitedUs{0}, s_longestUs{0}, s_fences{0};
+std::atomic<bool> s_waitDue{false};
+
+void unloadSettle()
+{
+    if (!s_waitDue.exchange(false))
         return;
-    if (pf::Thread::currentId() != queue::gameThread())
+    if (const uint32_t waited = awaitStep())
     {
-        // Jobs are closed on the game thread only; the worker's null mesh check still holds.
+        ++s_waits;
+        s_waitedUs += waited;
+        if (waited > s_longestUs.load())
+            s_longestUs.store(waited);
+    }
+}
+
+void unloadNotice(const char* what, reg32 from, reg32 size, uint32_t kind, bool settle)
+{
+    const uint32_t serial = s_serial.load();
+    if (serial == 0)
+        return;
+    const UnloadMode mode = unloadMode();
+    const bool game = pf::Thread::currentId() == queue::gameThread();
+    if (game)
+    {
+        retireNotices();
+        uint32_t running = 0;
+        for (const Context* job : s_pending)
+            running += !queue::isDone(*job);
+#ifdef DEV_TOOLS
+        static uint32_t calls = 0, logged = 0, hitsLogged = 0;
+        uint32_t hits = 0;
+        for (const Context* job : s_pending)
+            if (!queue::isDone(*job) && size != 0)
+                for (const reg32 solid : job->solids)
+                    hits += solid - from < size;
+        if (hits != 0 && hitsLogged < 64 && ++hitsLogged)
+            pf::logError("offload: %s unload of 0x%08x+0x%x at frame %u frees %u solids that unfinished flushes still draw",
+                         what, unsigned(from), unsigned(size), unsigned(rc::ld32(0x86514c)), unsigned(hits));
+        ++calls;
+        if ((running != 0 || calls <= 4 || (calls & (calls - 1)) == 0) && logged < 400 && ++logged)
+        {
+            const unload::Stats t = unload::stats();
+            pf::logInfo("offload: %s unload %u at frame %u: %u flushes pending, %u not finished | notices %u (%u joined, %u full, "
+                        "%u retired, %u live), draws checked %u, cancelled %u, stale %u, waits %u (%u us, longest %u), fences %u",
+                        what, unsigned(calls), unsigned(rc::ld32(0x86514c)), unsigned(s_pending.size()), unsigned(running),
+                        unsigned(t.notices), unsigned(t.joined), unsigned(t.full), unsigned(t.retired), unsigned(unload::count()),
+                        unsigned(t.steps), unsigned(t.skipped), unsigned(s_stale.load()), unsigned(s_waits.load()),
+                        unsigned(s_waitedUs.load()), unsigned(s_longestUs.load()), unsigned(s_fences.load()));
+        }
+#endif
+        if (running == 0)
+            return;
+        if (mode == UnloadFence)
+        {
+            ++s_fences;
+            fence();
+            return;
+        }
+    }
+    else
+    {
         static std::atomic<bool> told{false};
         if (!told.exchange(true))
-            pf::logError("offload: %s unload off the game thread, pending flushes not joined", what);
+            pf::logError("offload: %s unload off the game thread", what);
+    }
+    if (size == 0 || !unload::publish(from, size, serial, kind))
+    {
+        ++s_fences;
+        if (game)
+            fence();
+        else
+            pf::logError("offload: %s unload off the game thread could not be announced", what);
         return;
     }
-    fence();
+    if (mode == UnloadOff)
+        return;
+    s_waitDue.store(true);
+    if (settle)
+        unloadSettle();
+}
+
+void unloadPoison(uint32_t kind, reg32 from, reg32 size)
+{
+#ifdef DEV_TOOLS
+    static const uint32_t kinds = uint32_t(pf::Config::getInt("offload_unload_poison", 0));
+    if (!(kinds & kind) || s_serial.load() == 0)
+        return;
+    for (reg32 at = (from + 3) & ~3u; at + 4 <= from + size; at += 4)
+        rc::st32(at, 0xdeadbeefu);
+#else
+    (void)kind;
+    (void)from;
+    (void)size;
+#endif
 }
 
 Pending pendingStats()
@@ -1111,7 +1311,9 @@ Pending pendingStats()
 #else
 void closeDone() {}
 void fence() {}
-void unloadFence(const char*, reg32, reg32) {}
+void unloadNotice(const char*, reg32, reg32, uint32_t, bool) {}
+void unloadSettle() {}
+void unloadPoison(uint32_t, reg32, reg32) {}
 Pending pendingStats() { return Pending{}; }
 #endif
 

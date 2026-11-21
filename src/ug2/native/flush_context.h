@@ -171,6 +171,7 @@ struct Context : win32::d3d9::bridge::SegmentRef
     std::atomic<uint32_t> state{JobIdle};  // queued jobs: run by one thread, then done
     win32::WinApplication* app = nullptr;
     uint32_t    frame = 0;              // frame index at the marker
+    uint32_t    serial = 0;             // order queued; unload notices compare it
     bool        ok = true;              // the flush ran to its end
     uint32_t    fpscr = 0;              // the game thread's, set on the thread that runs the job
     void      (*run)(Context&) = nullptr;   // the flush on cpu, then the segment's publish
@@ -245,8 +246,13 @@ Pending pendingStats();
 void closeDone();
 // Waits for every job and closes it, game thread; fence: waits are counted as fence waits.
 void fence();
-// Fence before guest data (from, size if known) a pending flush reads is unloaded.
-void unloadFence(const char* what, reg32 from = 0, reg32 size = 0);
+// Before guest memory a queued flush may read is unloaded (size 0: range unknown): cancels its draws or fences;
+// kind tags the notice for logs.
+void unloadNotice(const char* what, reg32 from = 0, reg32 size = 0, uint32_t kind = 0, bool settle = true);
+// After notices sent with settle off: waits out the worker's draw in progress.
+void unloadSettle();
+// Dev check: fills an unloaded range with a poison word (offload_unload_poison, bit by kind).
+void unloadPoison(uint32_t kind, reg32 from, reg32 size);
 
 inline Context* context(const x86::CPU& cpu)
 {
