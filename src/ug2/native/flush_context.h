@@ -169,6 +169,7 @@ struct Context : win32::d3d9::bridge::SegmentRef
     x86::CPU    cpu;
     win32::MemMap* block = nullptr;        // the detached heads in guest memory
     std::atomic<uint32_t> state{JobIdle};  // queued jobs: run by one thread, then done
+    std::atomic<uint32_t> submits{0}, finishes{0};  // runs queued and finished: await compares them, closing resets neither
     win32::WinApplication* app = nullptr;
     uint32_t    frame = 0;              // frame index at the marker
     uint32_t    serial = 0;             // order queued; unload notices compare it

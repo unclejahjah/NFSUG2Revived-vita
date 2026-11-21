@@ -214,6 +214,7 @@ inline void writeFpscr(uint32_t) {}
 void finished(Context& job)
 {
     job.state.store(JobDone, std::memory_order_seq_cst);
+    job.finishes.fetch_add(1, std::memory_order_seq_cst);
     if (s_waiters.load(std::memory_order_seq_cst))
     {
         pf::LockGuard guard(*s_doneLock);
@@ -287,6 +288,7 @@ void submit(Context& job)
     (void)started;
     s_gameThread.store(pf::Thread::currentId(), std::memory_order_relaxed);
     job.fpscr = readFpscr();
+    job.submits.fetch_add(1, std::memory_order_seq_cst);
     job.state.store(JobQueued, std::memory_order_release);
     if (CoreMode == Mode::Worker)
     {
@@ -300,7 +302,9 @@ void submit(Context& job)
 void await(void* pointer)
 {
     Context& job = *static_cast<Context*>(pointer);
-    if (isDone(job))
+    // Not the state: the game thread may close the job (idle again) before a waiting render thread looks.
+    const uint32_t run = job.submits.load(std::memory_order_seq_cst);
+    if (job.finishes.load(std::memory_order_seq_cst) >= run)
         return;
     if (CoreMode == Mode::RenderThread && claim(job))
     {
@@ -311,7 +315,7 @@ void await(void* pointer)
     s_waiters.fetch_add(1, std::memory_order_seq_cst);
     {
         pf::LockGuard guard(*s_doneLock);
-        while (job.state.load(std::memory_order_seq_cst) != JobDone)
+        while (job.finishes.load(std::memory_order_seq_cst) < run)
             s_doneCond->wait();
     }
     s_waiters.fetch_sub(1, std::memory_order_seq_cst);
