@@ -7,6 +7,7 @@
 // - With kubridge.skprx (ur0:tai/config.txt *KERNEL), a CPU exception in any thread writes
 //   crashes/crash-<date>-<time>.txt at once: what failed, registers, the code addresses on the stack, the last log
 //   lines. The system then ends the process as before, with its dump. fatal() and std::terminate write one too.
+// - A freeze (stall_report) writes crashes/freeze-<date>-<time>.txt with the stall reports and the last log lines.
 // - Each start keeps the last run's log as NeedForSpeedUnderground2.previous.log. When the last run crashed (a report
 //   or a system dump newer than its start), its log is also copied beside the report and a notice says so.
 
@@ -29,6 +30,9 @@ void record(const char* text, unsigned length);
 void noteTrap(uint32_t guestAddress, const char* reason);
 // Writes a report now, for an end that is no CPU exception (fatal, std::terminate).
 void report(const char* reason);
+// The stall reporter found no frame for a while: writes (and on later calls rewrites) crashes/freeze-<stamp>.txt
+// with the last log lines, its report among them.
+void freeze(const char* what);
 // The run ended through the normal exit.
 void end();
 

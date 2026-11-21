@@ -293,6 +293,8 @@ void ringText()
     add("\n--- end of report ---\n");
 }
 
+char s_freezeName[64];
+
 // Writes s_text to crashes/crash-<stamp>.txt and names it in run.txt.
 void save()
 {
@@ -300,6 +302,7 @@ void save()
     char when[32];
     stamp(when, sizeof(when));
     snprintf(name, sizeof(name), "crash-%s.txt", when);
+    s_freezeName[0] = 0;
     snprintf(path, sizeof(path), "%s/%s", s_folder, name);
     writeFile(path, s_text, s_used, false);
     char line[96];
@@ -418,9 +421,9 @@ void begin(const char* dataFolder, const char* logPath, const char* version)
             const std::string log = std::string(s_folder) + "/" + base + ".log";
             if (!previous.empty())
                 copyFile(previous.c_str(), log.c_str());
-            std::string line = "The last run crashed.";
+            std::string line = report.compare(0, 7, "freeze-") == 0 ? "The last run froze." : "The last run crashed.";
             if (!report.empty())
-                line += " Crash report: " + std::string(s_folder) + "/" + report + ".";
+                line += " Report: " + std::string(s_folder) + "/" + report + ".";
             else
                 line += " No crash report (kubridge.skprx is needed for one).";
             if (!dump.empty())
@@ -515,6 +518,34 @@ void report(const char* reason)
     ringText();
     save();
     logFlush();
+}
+
+void freeze(const char* what)
+{
+    if (!s_runPath[0] || s_reporting.load() != 0)
+        return;
+    const bool first = !s_freezeName[0];
+    if (first)
+    {
+        char when[32];
+        stamp(when, sizeof(when));
+        snprintf(s_freezeName, sizeof(s_freezeName), "freeze-%s.txt", when);
+        char line[96];
+        const int n = snprintf(line, sizeof(line), "report=%s\n", s_freezeName);
+        writeFile(s_runPath, line, uint32_t(n), true);
+    }
+    s_used = 0;
+    header(what);
+    ringText();
+    char path[352];
+    snprintf(path, sizeof(path), "%s/%s", s_folder, s_freezeName);
+    writeFile(path, s_text, s_used, false);
+    if (first)
+    {
+        char tail[160];
+        const int m = snprintf(tail, sizeof(tail), "[error] crash: freeze report written to crashes/%s\n", s_freezeName);
+        logBlockUnlocked(tail, unsigned(m));
+    }
 }
 
 void end()

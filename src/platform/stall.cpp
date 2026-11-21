@@ -3,6 +3,7 @@
 #include <platform/stall.h>
 
 #include <platform/config.h>
+#include <platform/crashlog.h>
 #include <platform/log.h>
 #include <platform/sampler.h>
 #include <platform/sync.h>
@@ -592,6 +593,10 @@ void report(uint64_t stalledUs, uint32_t number)
          s_contexts ? (last ? "" : "; threads in a wait get registers in the last report")
                     : "; no thread registers (no VM thread functions)");
     flush();
+    char what[96];
+    snprintf(what, sizeof(what), "freeze: no frame for %u s (stall report %u of %u)", unsigned(stalledUs / 1000000),
+             unsigned(number), unsigned(MaxReports));
+    crashlog::freeze(what);
 }
 
 int reporterEntry(void*)

@@ -259,7 +259,8 @@ When the game crashes with `kubridge.skprx` loaded (it is under `*KERNEL` in `ur
 run Vita ports), it writes `crashes/crash-<date>-<time>.txt` in the game folder: what failed, the registers, the code
 addresses on the stack and the last log lines, info lines included even with `log_info` off. Without kubridge a guest
 trap or a fatal error still writes one, without the registers. The next start shows a notice naming the report, and
-copies the crashed run's log beside it as `crash-<date>-<time>.log`.
+copies the crashed run's log beside it as `crash-<date>-<time>.log`. When the game stops drawing frames for 8 seconds
+(`stall_seconds`), the stall reports go to `crashes/freeze-<date>-<time>.txt` in the same way.
 
 The system's own crash dump (`ux0:data/psp2core-*-eboot.bin.psp2dmp`) holds the same last log lines. To read a report
 or a dump against the build that crashed:
