@@ -2,6 +2,7 @@
 // settings of the browser version's Settings page that the Vita has, grouped as there, and their files.
 
 #include "options_menu.h"
+#include "exopts.h"
 #include <platform/cfgfile.h>
 #include <platform/config.h>
 #include <platform/log.h>
@@ -24,7 +25,7 @@ namespace
 
 // ---- The settings ---------------------------------------------------------------------------------------------------
 
-enum Store { Cfg, Ini };            // NeedForSpeedUnderground2.cfg, or scripts/NFSU2FreeRoam.ini's [FreeRoam]
+enum Store { Cfg, Ini, Extra };     // NeedForSpeedUnderground2.cfg, scripts/NFSU2FreeRoam.ini's [FreeRoam], or Extra Options' [Gameplay]
 enum Kind { Choice, Text, Secret };
 
 struct Option
@@ -51,7 +52,15 @@ struct Item
 
 const Option OnOff[] = { { "on", "On" }, { "off", "Off" } };
 const Option IniOnOff[] = { { "1", "On" }, { "0", "Off" } };
-const Option Network[] = { { "revived", "NFSU2 Revived" }, { "direct", "Local Wi-Fi" }, { "off", "Off" } };
+const Option Network[] = { { "revived", "On" }, { "direct", "Local Wi-Fi only" }, { "off", "Off" } };
+const Option Movies[] = { { "native", "Vita decoder" }, { "vp6", "Vita, else VP6" }, { "vp6only", "VP6 only" },
+                          { "game", "The game's own" } };
+const Option Core3Tasks[] = { { "helpers", "Helper threads" }, { "jobs", "Job workers" } };
+const Option TextureCache[] = { { "0", "0 MB" }, { "12", "12 MB" }, { "24", "24 MB" }, { "32", "32 MB" },
+                                { "48", "48 MB" }, { "64", "64 MB" } };
+const Option TextureHeap[] = { { "0", "No cap" }, { "128", "128 MB" }, { "192", "192 MB" }, { "256", "256 MB" },
+                               { "384", "384 MB" }, { "512", "512 MB" } };
+const Option BlockMs[] = { { "10", "10 ms" }, { "20", "20 ms" }, { "30", "30 ms" }, { "40", "40 ms" } };
 const Option Collide[] = { { "0", "Ghost cars" }, { "1", "Solid cars" }, { "none", "Ghost everything" } };
 const Option MaxPlayers[] = { { "2", "2" }, { "4", "4" }, { "6", "6" }, { "8", "8" }, { "12", "12" }, { "16", "16" },
                               { "24", "24" }, { "33", "33" } };
@@ -74,10 +83,17 @@ const Option Silence[] = { { "-60", "-60 dB" }, { "-50", "-50 dB" }, { "-40", "-
 const Option DeadZone[] = { { "0", "0%" }, { "10", "10%" }, { "20", "20%" }, { "30", "30%" }, { "40", "40%" },
                             { "50", "50%" } };
 
+const Item Mods[] = {
+    { "NFSU2 Revived", Cfg, "network", Choice, OPTIONS(Network), "revived", 0, nullptr,
+      "The game's LAN and Online menus through nfsu2.xyz, with the players in the browser. Local Wi-Fi only: LAN "
+      "races with PCs on your network, Online through the Online server. Off: the game stays offline." },
+    { "Free roam", Ini, "Enable", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Meet other players in the city (NFSU2 Revived's free-roam mod, scripts/NFSU2FreeRoam.ini)." },
+    { "EU Car Content", Extra, "UnlockRegionalCars", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Drive the Peugeot 106 and Vauxhall Corsa in the US game (NFSU2 Extra Options). Needs their car folders." },
+};
+
 const Item Multiplayer[] = {
-    { "Network play", Cfg, "network", Choice, OPTIONS(Network), "revived", 0, nullptr,
-      "The game's LAN and Online menus. NFSU2 Revived: through nfsu2.xyz, with the players in the browser. "
-      "Local Wi-Fi: LAN races with PCs on your network, Online through the Online server below." },
     { "Revived server", Cfg, "revived_server", Text, nullptr, 0, "nfsu2.xyz", 63, "nfsu2.xyz",
       "The NFSU2 Revived server to play on." },
     { "Player name", Cfg, "revived_name", Text, nullptr, 0, "", 24, "Vita user name",
@@ -90,8 +106,6 @@ const Item Multiplayer[] = {
 };
 
 const Item FreeRoam[] = {
-    { "Free roam", Ini, "Enable", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
-      "Meet other players in the city (NFSU2 Revived's free-roam mod, scripts/NFSU2FreeRoam.ini)." },
     { "Name", Ini, "Name", Text, nullptr, 0, "", 24, "Profile name",
       "The name your friends see over your car." },
     { "Room", Ini, "Room", Text, nullptr, 0, "", 32, "Everybody",
@@ -124,6 +138,8 @@ const Item Display[] = {
       "Scenery narrower than this on screen uses its simpler model. More gives speed and more pop-in." },
     { "Small scenery", Cfg, "dev_world_min_pixels", Choice, OPTIONS(MinPixels), "0", 0, nullptr,
       "Scenery smaller than this on screen is not drawn. More gives speed and more pop-in." },
+    { "Movies", Cfg, "movies", Choice, OPTIONS(Movies), "native", 0, nullptr,
+      "How the game's movies play. The Vita decoder plays the converted .mp4 files; VP6 plays the originals." },
     { "Optimised particles", Cfg, "optimised_particles", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "Cheaper tyre smoke and other particles, close to the original picture. Off is exactly as the original." },
 };
@@ -135,6 +151,8 @@ const Item Sound[] = {
       "The sound mixer holds the game's sound lock for a shorter time. Worth about 1 fps in busy races." },
     { "Mix rate", Cfg, "audio_mix_rate", Choice, OPTIONS(MixRate), "0", 0, nullptr,
       "The rate the game mixes its sound at. 32000 Hz needs less processor time; 22050 Hz less again, but duller." },
+    { "Sound block", Cfg, "audio_block_ms", Choice, OPTIONS(BlockMs), "20", 0, nullptr,
+      "Length of one block of sound output. Shorter lowers the delay and costs more processor time." },
     { "Quiet sounds", Cfg, "audio_silence_db", Choice, OPTIONS(Silence), "-60", 0, nullptr,
       "Sounds quieter than this are not mixed, which saves processor time. -60 dB is inaudible; off mixes all." },
 };
@@ -150,11 +168,24 @@ const Item Controller[] = {
       "How far the right stick moves before the garage camera turns." },
 };
 
+const Item Performance[] = {
+    { "Third CPU core", Cfg, "use_core3", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "Use the Vita's third processor core when it can be unlocked." },
+    { "Third core work", Cfg, "core3_tasks", Choice, OPTIONS(Core3Tasks), "helpers", 0, nullptr,
+      "What the third core does: helper and file threads with the command-list worker, or job workers." },
+    { "Texture cache", Cfg, "texture_cache_mb", Choice, OPTIONS(TextureCache), "12", 0, nullptr,
+      "Memory for kept texture levels. More avoids reloading them." },
+    { "Texture heap", Cfg, "texture_heap_mb", Choice, OPTIONS(TextureHeap), "0", 0, nullptr,
+      "Largest size of the texture heap. No cap lets the game decide." },
+};
+
 const Item Game[] = {
     { "Frame rate", Cfg, "frame_rate", Choice, OPTIONS(FrameRate), "30", 0, nullptr,
       "30 locks the game to 30 frames a second for steady pacing; unlocked runs as fast as it can." },
     { "Free-roam log", Ini, "Log", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "Write scripts/NFSU2FreeRoam.log." },
+    { "Start-up screen", Cfg, "show_configurator_on_boot", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "The screen before the game starts, where START opens the settings manager." },
     { "Detailed log", Cfg, "log_info", Choice, OPTIONS(OnOff), "off", 0, nullptr,
       "Write a detailed log to NeedForSpeedUnderground2.log, useful when reporting a problem." },
 };
@@ -175,10 +206,14 @@ const Page Pages[] = {
     { "Sound", OPTIONS(Sound) },
     { "Controller", OPTIONS(Controller) },
     { "Game", OPTIONS(Game) },
+    { "Performance", OPTIONS(Performance) },
+    { "Mods", OPTIONS(Mods) },
 };
 const int PageCount = int(sizeof(Pages) / sizeof(Pages[0]));
 
 // Written when free roam is first turned on without an .ini: the PC mod's file with the Vita's defaults.
+const char FreeRoamSection[] = "FreeRoam";
+
 const char IniTemplate[] =
     "; NFSU2FreeRoam.ini: free-roam multiplayer for Need for Speed Underground 2 on the PS Vita port, the same\n"
     "; settings as the PC's NFSU2FreeRoam.asi plugin (NFSU2 Revived). It belongs in the \"scripts\" folder of the\n"
@@ -332,15 +367,16 @@ std::string iniValue(const std::string& raw)
     return trimmed(s);
 }
 
-// [FreeRoam]: the first line after its header and the line after its last key; false without the section.
-bool iniSection(const Lines& lines, size_t* begin, size_t* end)
+// A section: the first line after its header and the line after its last key; false without the section.
+bool iniSection(const Lines& lines, const char* section, size_t* begin, size_t* end)
 {
     for (size_t i = 0; i < lines.size(); ++i)
     {
         const std::string t = trimmed(lines[i]);
         if (t.size() < 2 || t[0] != '[')
             continue;
-        if (strncasecmp(t.c_str(), "[FreeRoam]", 10) != 0)
+        const size_t n = strlen(section);
+        if (t.size() < n + 2 || strncasecmp(t.c_str() + 1, section, n) != 0 || t[n + 1] != ']')
             continue;
         *begin = i + 1;
         size_t last = i + 1;
@@ -358,10 +394,10 @@ bool iniSection(const Lines& lines, size_t* begin, size_t* end)
     return false;
 }
 
-bool iniGet(const Lines& lines, const char* key, std::string* value)
+bool iniGet(const Lines& lines, const char* section, const char* key, std::string* value)
 {
     size_t begin, end;
-    if (!iniSection(lines, &begin, &end))
+    if (!iniSection(lines, section, &begin, &end))
         return false;
     bool found = false;
     for (size_t i = begin; i < end; ++i)
@@ -376,13 +412,13 @@ bool iniGet(const Lines& lines, const char* key, std::string* value)
     return found;
 }
 
-void iniSet(Lines& lines, const char* key, const std::string& value)
+void iniSet(Lines& lines, const char* section, const char* key, const std::string& value)
 {
     const std::string line = std::string(key) + " = " + value;
     size_t begin, end;
-    if (!iniSection(lines, &begin, &end))
+    if (!iniSection(lines, section, &begin, &end))
     {
-        lines.push_back("[FreeRoam]");
+        lines.push_back(std::string("[") + section + "]");
         lines.push_back(line);
         return;
     }
@@ -426,7 +462,7 @@ int optionIndex(const Item& item, const std::string& value)
 
 // ---- The settings now --------------------------------------------------------------------------------------------------
 
-std::string s_cfgPath, s_iniPath;
+std::string s_cfgPath, s_iniPath, s_extraPath;
 bool s_enabled = false, s_loaded = false;
 // Per page and item: the value in the file (or the default) and the value now.
 std::vector<std::vector<std::string>> s_saved, s_values;
@@ -443,6 +479,7 @@ void configure(const char* settingsPath, const char* gameFolder)
     s_enabled = pf::Config::getBool("options_menu", true);
     s_cfgPath = settingsPath;
     s_iniPath = std::string(gameFolder) + "/scripts/NFSU2FreeRoam.ini";
+    s_extraPath = std::string(gameFolder) + "/" + exopts::IniPath;
     pf::logInfo("options menu: %s", s_enabled ? "the main menu's Vita Settings" : "off (options_menu=off)");
 }
 
@@ -455,8 +492,9 @@ void load()
 {
     std::string cfg;
     pf::cfgfile::readFile(s_cfgPath.c_str(), &cfg);
-    Lines ini;
+    Lines ini, extra;
     const bool iniExists = readLines(s_iniPath, &ini);
+    const bool extraExists = readLines(s_extraPath, &extra);
     s_saved.assign(PageCount, {});
     for (int p = 0; p < PageCount; ++p)
         for (int i = 0; i < Pages[p].count; ++i)
@@ -475,13 +513,20 @@ void load()
                 if (iniExists)      // Enable = 1 when the .ini has none, as roam_vita.cpp reads it
                 {
                     v = "1";
-                    iniGet(ini, it.key, &v);
+                    iniGet(ini, FreeRoamSection, it.key, &v);
                 }
                 else
                     v = "0";        // no .ini: free roam is off
             }
+            else if (it.store == Extra)
+            {
+                // As the mods tab reads it: no file is off, a file without the key is on.
+                v = extraExists ? "1" : "0";
+                if (extraExists)
+                    iniGet(extra, exopts::RegionSection, it.key, &v);
+            }
             else
-                iniGet(ini, it.key, &v);
+                iniGet(ini, FreeRoamSection, it.key, &v);
             s_saved[p].push_back(v);
         }
     s_values = s_saved;
@@ -502,7 +547,9 @@ bool save()
     std::vector<pf::cfgfile::Change> changes;
     Lines ini;
     const bool haveIni = readLines(s_iniPath, &ini);
-    bool iniChanged = false;
+    bool iniChanged = false, extraChanged = false;
+    Lines extra;
+    const bool haveExtra = readLines(s_extraPath, &extra);
     for (int p = 0; p < PageCount; ++p)
         for (int i = 0; i < Pages[p].count; ++i)
         {
@@ -518,11 +565,19 @@ bool save()
                 change.atDefault = setting && change.value == pf::defaultText(*setting);
                 changes.push_back(change);
             }
+            else if (it.store == Extra)
+            {
+                // No file and off stays no file; the mod's own settings file is written when a mod is turned on.
+                if (!haveExtra && s_values[p][i] == "0")
+                    continue;
+                iniSet(extra, exopts::RegionSection, it.key, s_values[p][i]);
+                extraChanged = true;
+            }
             else
             {
                 if (!haveIni && !iniChanged)
                     splitLines(IniTemplate, &ini);
-                iniSet(ini, it.key, s_values[p][i]);
+                iniSet(ini, FreeRoamSection, it.key, s_values[p][i]);
                 iniChanged = true;
             }
         }
@@ -541,6 +596,11 @@ bool save()
             pf::logError("options menu: %s could not be written", s_iniPath.c_str());
             ok = false;
         }
+    }
+    if (extraChanged && !writeLines(s_extraPath, extra))
+    {
+        pf::logError("options menu: %s could not be written", s_extraPath.c_str());
+        ok = false;
     }
     if (ok)
     {
