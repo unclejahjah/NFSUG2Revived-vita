@@ -194,7 +194,7 @@ void Config::load(const char* path, const char* missingFileText)
         strcpy(entry.key, key);
         strcpy(entry.value, value);
         if (known)
-            logInfo("config %s=%s", entry.key, entry.value);
+            logInfo("config %s=%s", entry.key, strcmp(entry.key, "revived_passphrase") ? entry.value : "(set, not shown)");
         else
             logError("config: unknown setting '%s'", entry.key);
     }
