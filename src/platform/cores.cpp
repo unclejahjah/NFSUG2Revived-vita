@@ -102,6 +102,16 @@ int mask(Role role)
     return Thread::Cpu0 << core(role);
 }
 
+int producerCore()
+{
+    return 2;
+}
+
+int producerMask()
+{
+    return Thread::Cpu0 << producerCore();
+}
+
 const char* name(Role role)
 {
     return s_names[role];

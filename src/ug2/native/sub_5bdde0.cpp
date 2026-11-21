@@ -1,6 +1,8 @@
 // Native replacement of sub_5bdde0: per-mesh world, view and projection upload with a three-way cache (cdecl: world, view).
 
 #include <native/common.h>
+#include <native/flush_context.h>
+#include <offload.h>
 #include <native/shadow.h>
 #include <platform/switches.h>
 #include <platform/cached.h>
@@ -33,41 +35,43 @@ void body(win32::WinApplication* app, x86::CPU& cpu)
     }
     const x86::reg32 world = argument(cpu, 0);
     const x86::reg32 view = argument(cpu, 1);
-    rc::st32(0x872ef4, rc::ld32(0x872ef4) + 1);
+    flush::st32<0x872ef4>(cpu, flush::ld32<0x872ef4>(cpu) + 1);
     if (world == 0x872e90)
-        rc::st32(0x872f00, rc::ld32(0x872f00) + 1);
-    const x86::reg32 group = rc::ld32(0x870910);
-    const x86::reg32 cachedGroup = rc::ld32(0x87684c);
-    const x86::reg32 cachedView = rc::ld32(0x800534);
-    if (world == rc::ld32(0x876850) && group == cachedGroup && cachedView == view)
+        flush::st32<0x872f00>(cpu, flush::ld32<0x872f00>(cpu) + 1);
+    const x86::reg32 group = flush::ld32<0x870910>(cpu);
+    const x86::reg32 cachedGroup = flush::ld32<0x87684c>(cpu);
+    const x86::reg32 cachedView = flush::ld32<0x800534>(cpu);
+    const bool hit = world == flush::ld32<0x876850>(cpu) && group == cachedGroup && cachedView == view;
+    offload::matrixStep(hit, world, group, view);
+    if (hit)
     {
         cpu.eax = group;
         cpu.esp += 4;
         return;
     }
-    const x86::reg32 plat = rc::ld32(0x832de0 + view * 0x70);
+    const float* const views = flush::viewMatrices(cpu, view);
     const x86::reg32 device = rc::ld32(0x870974);
     const bool viewChanged = view != cachedView;
     if ((viewChanged || group != cachedGroup) && rc::ld8(group + 0x18) == 0)
     {
-        win32::d3d9::bridge::setTransform(app, cpu, device, 2, matrixAt(plat));
-        win32::d3d9::bridge::setTransform(app, cpu, device, 3, matrixAt(plat + 0x40));
+        win32::d3d9::bridge::setTransform(app, cpu, device, 2, views);
+        win32::d3d9::bridge::setTransform(app, cpu, device, 3, views + 16);
     }
     if (viewChanged)
     {
-        rc::st32(0x872efc, rc::ld32(0x872efc) + 1);
-        rc::st32(0x800534, view);
+        flush::st32<0x872efc>(cpu, flush::ld32<0x872efc>(cpu) + 1);
+        flush::st32<0x800534>(cpu, view);
     }
-    rc::st32(0x872ef8, rc::ld32(0x872ef8) + 1);
-    rc::st32(0x87684c, group);
-    rc::st32(0x876850, world);
+    flush::st32<0x872ef8>(cpu, flush::ld32<0x872ef8>(cpu) + 1);
+    flush::st32<0x87684c>(cpu, group);
+    flush::st32<0x876850>(cpu, world);
     const float* const worldMatrix = matrixAt(world);
     const x86::reg32 desc = rc::ld32(group + 0x1c);
     const x86::reg32 wvHandle = rc::ld32(desc + 0x934);
     float product[16];
     if (wvHandle != 0)
     {
-        win32::d3d9::bridge::matrixMultiply(worldMatrix, matrixAt(plat), product);
+        win32::d3d9::bridge::matrixMultiply(worldMatrix, views, product);
         win32::d3d9::bridge::effectSetMatrix(app, cpu, rc::ld32(group + 0x20), wvHandle, product);
     }
     if (rc::ld8(group + 0x18) == 0)
@@ -77,7 +81,7 @@ void body(win32::WinApplication* app, x86::CPU& cpu)
         cpu.esp += 4;
         return;
     }
-    win32::d3d9::bridge::matrixMultiply(worldMatrix, matrixAt(plat + 0x80), product);
+    win32::d3d9::bridge::matrixMultiply(worldMatrix, views + 32, product);
     cpu.eax = win32::d3d9::bridge::effectSetMatrix(app, cpu, rc::ld32(group + 0x20), rc::ld32(desc + 0x95c), product);
     cpu.esp += 4;
 }

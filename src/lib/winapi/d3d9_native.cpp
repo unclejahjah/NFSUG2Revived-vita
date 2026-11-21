@@ -40,9 +40,9 @@ const char* const s_methodNames[MethodCount] = {
     "Effect::End", "Effect::SetIntArray", "guest call",
 };
 
-inline Device* device(reg32 guest)
+inline Device* device(const x86::CPU& cpu, reg32 guest)
 {
-    return deviceObject(guest);
+    return deviceOf(cpu, guest);
 }
 
 inline uint32_t bits(float value)
@@ -660,7 +660,7 @@ uint32_t runRecord(const uint32_t* p)
     const uint32_t length = p[0] >> 8;
     const uint32_t* w = p + 1;
     const float* f = reinterpret_cast<const float*>(w);
-    const auto dev2 = [&](reg32 guest) { return guest == d.deviceGuest ? d.device : device(guest); };
+    const auto dev2 = [&](reg32 guest) { return guest == d.deviceGuest ? d.device : device(cpu, guest); };
     const auto dev = [&] { return dev2(w[0]); };
     HRESULT h = D3D_OK;
     switch (op)
@@ -725,7 +725,7 @@ uint32_t runRecord(const uint32_t* p)
     case OpSetMatrixProduct:
     {
         const float* matrices[3] = { f + 4, f + 20, f + 36 };
-        h = effect::setProduct(w[0], w[1], matrices, w[2], w[3]);
+        h = effect::setProduct(cpu, w[0], w[1], matrices, w[2], w[3]);
         break;
     }
     case MethodEffectSetTexture:
@@ -833,7 +833,7 @@ uint32_t runRecord(const uint32_t* p)
             case CallGroup::KindProduct:
             {
                 const float* matrices[3] = { floats + 1, floats + 17, floats + 33 };
-                r = effect::setProduct(target, index, matrices, (words - 1) / 16, data[0]);
+                r = effect::setProduct(cpu, target, index, matrices, (words - 1) / 16, data[0]);
                 method = OpSetMatrixProduct;
                 break;
             }
@@ -1339,6 +1339,24 @@ void deleteLater(Object* object)
     s_defer.deletes.push_back(object);
 }
 
+bool g_deferDeletes = false;
+uint32_t g_pendingSegments = 0;
+static std::vector<Object*> s_joinDeletes;
+
+void deleteAtJoin(Object* object)
+{
+    s_joinDeletes.push_back(object);
+}
+
+void joinDeletes()
+{
+    g_deferDeletes = false;
+    std::vector<Object*> objects;
+    objects.swap(s_joinDeletes);
+    for (Object* object : objects)
+        delete object;
+}
+
 void countBoundOnly(int delta)
 {
     s_defer.boundOnly += uint32_t(delta);
@@ -1399,11 +1417,11 @@ HRESULT setTransform(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD stat
             const Capture::Call* call = r.replay();
             return call ? call->result : D3D_OK;
         }
-        const HRESULT h = device(guest)->SetTransform(app, cpu, state, reinterpret_cast<const D3DMATRIX*>(matrix));
+        const HRESULT h = device(cpu, guest)->SetTransform(app, cpu, state, reinterpret_cast<const D3DMATRIX*>(matrix));
         r.done(h);
         return h;
     }
-    return device(guest)->SetTransform(app, cpu, state, reinterpret_cast<const D3DMATRIX*>(matrix));
+    return device(cpu, guest)->SetTransform(app, cpu, state, reinterpret_cast<const D3DMATRIX*>(matrix));
 }
 
 HRESULT setMaterial(WinApplication* app, x86::CPU& cpu, reg32 guest, const DWORD* material)
@@ -1428,11 +1446,11 @@ HRESULT setMaterial(WinApplication* app, x86::CPU& cpu, reg32 guest, const DWORD
             const Capture::Call* call = r.replay();
             return call ? call->result : D3D_OK;
         }
-        const HRESULT h = device(guest)->SetMaterial(app, cpu, material);
+        const HRESULT h = device(cpu, guest)->SetMaterial(app, cpu, material);
         r.done(h);
         return h;
     }
-    return device(guest)->SetMaterial(app, cpu, material);
+    return device(cpu, guest)->SetMaterial(app, cpu, material);
 }
 
 HRESULT setLight(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD index, const DWORD* light)
@@ -1459,11 +1477,11 @@ HRESULT setLight(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD index, c
             const Capture::Call* call = r.replay();
             return call ? call->result : D3D_OK;
         }
-        const HRESULT h = device(guest)->SetLight(app, cpu, index, light);
+        const HRESULT h = device(cpu, guest)->SetLight(app, cpu, index, light);
         r.done(h);
         return h;
     }
-    return device(guest)->SetLight(app, cpu, index, light);
+    return device(cpu, guest)->SetLight(app, cpu, index, light);
 }
 
 HRESULT lightEnable(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD index, BOOL enable)
@@ -1488,11 +1506,11 @@ HRESULT lightEnable(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD index
             const Capture::Call* call = r.replay();
             return call ? call->result : D3D_OK;
         }
-        const HRESULT h = device(guest)->LightEnable(app, cpu, index, enable);
+        const HRESULT h = device(cpu, guest)->LightEnable(app, cpu, index, enable);
         r.done(h);
         return h;
     }
-    return device(guest)->LightEnable(app, cpu, index, enable);
+    return device(cpu, guest)->LightEnable(app, cpu, index, enable);
 }
 
 static __attribute__((noinline)) HRESULT setRenderStateQueued(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD state, DWORD value)
@@ -1511,14 +1529,14 @@ static __attribute__((noinline)) HRESULT setRenderStateQueued(WinApplication* ap
 HRESULT setRenderStateSlow(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD state, DWORD value)
 {
     if (__builtin_expect(quiet(), 1))
-        return device(guest)->SetRenderState(app, cpu, state, value);
+        return device(cpu, guest)->SetRenderState(app, cpu, state, value);
     return setRenderStateQueued(app, cpu, guest, state, value);
 }
 
 HRESULT setRenderStateDirect(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD state, DWORD value)
 {
     if (__builtin_expect(quiet(), 1))
-        return device(guest)->SetRenderState(app, cpu, state, value);
+        return device(cpu, guest)->SetRenderState(app, cpu, state, value);
     drain();
     if (active())
     {
@@ -1531,11 +1549,11 @@ HRESULT setRenderStateDirect(WinApplication* app, x86::CPU& cpu, reg32 guest, DW
             const Capture::Call* call = r.replay();
             return call ? call->result : D3D_OK;
         }
-        const HRESULT h = device(guest)->SetRenderState(app, cpu, state, value);
+        const HRESULT h = device(cpu, guest)->SetRenderState(app, cpu, state, value);
         r.done(h);
         return h;
     }
-    return device(guest)->SetRenderState(app, cpu, state, value);
+    return device(cpu, guest)->SetRenderState(app, cpu, state, value);
 }
 
 HRESULT setTextureStageState(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD stage, DWORD type, DWORD value)
@@ -1550,7 +1568,7 @@ HRESULT setTextureStageState(WinApplication* app, x86::CPU& cpu, reg32 guest, DW
         return queued();
     }
     drain();
-    return device(guest)->SetTextureStageState(app, cpu, stage, type, value);
+    return device(cpu, guest)->SetTextureStageState(app, cpu, stage, type, value);
 }
 
 HRESULT setSamplerState(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD sampler, DWORD type, DWORD value)
@@ -1565,7 +1583,7 @@ HRESULT setSamplerState(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD s
         return queued();
     }
     drain();
-    return device(guest)->SetSamplerState(app, cpu, sampler, type, value);
+    return device(cpu, guest)->SetSamplerState(app, cpu, sampler, type, value);
 }
 
 HRESULT setViewport(WinApplication* app, x86::CPU& cpu, reg32 guest, const DWORD* viewport)
@@ -1580,7 +1598,7 @@ HRESULT setViewport(WinApplication* app, x86::CPU& cpu, reg32 guest, const DWORD
         return queued();
     }
     drain();
-    return device(guest)->SetViewport(app, cpu, reinterpret_cast<const D3DVIEWPORT9*>(viewport));
+    return device(cpu, guest)->SetViewport(app, cpu, reinterpret_cast<const D3DVIEWPORT9*>(viewport));
 }
 
 HRESULT setFVF(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD fvf)
@@ -1595,7 +1613,7 @@ HRESULT setFVF(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD fvf)
     if (deferring(cpu))
         fallback();
     drain();
-    const HRESULT h = device(guest)->SetFVF(app, cpu, fvf);
+    const HRESULT h = device(cpu, guest)->SetFVF(app, cpu, fvf);
     refreshBindings();
     return h;
 }
@@ -1623,7 +1641,7 @@ HRESULT clear(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD count, cons
     if (deferring(cpu))
         fallback();
     drain();
-    const HRESULT h = device(guest)->Clear(app, cpu, count, reinterpret_cast<const D3DRECT*>(rects), flags, color, z,
+    const HRESULT h = device(cpu, guest)->Clear(app, cpu, count, reinterpret_cast<const D3DRECT*>(rects), flags, color, z,
                                            stencil);
     refreshBindings();
     return h;
@@ -1634,14 +1652,14 @@ HRESULT beginScene(WinApplication* app, x86::CPU& cpu, reg32 guest)
     if (deferringDraw(cpu, guest))
         return D3D_OK;
     drain();
-    const HRESULT h = device(guest)->BeginScene(app, cpu);
+    const HRESULT h = device(cpu, guest)->BeginScene(app, cpu);
     refreshBindings();
     return h;
 }
 
 HRESULT endScene(WinApplication* app, x86::CPU& cpu, reg32 guest)
 {
-    return device(guest)->EndScene(app, cpu);
+    return device(cpu, guest)->EndScene(app, cpu);
 }
 
 HRESULT setRenderTarget(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD index, reg32 surface)
@@ -1657,7 +1675,7 @@ HRESULT setRenderTarget(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD i
     if (deferring(cpu))
         fallback();
     drain();
-    return device(guest)->SetRenderTarget(app, cpu, index, static_cast<Surface*>(lookup(surface)));
+    return device(cpu, guest)->SetRenderTarget(app, cpu, index, static_cast<Surface*>(lookup(surface)));
 }
 
 HRESULT setDepthStencilSurface(WinApplication* app, x86::CPU& cpu, reg32 guest, reg32 surface)
@@ -1672,7 +1690,7 @@ HRESULT setDepthStencilSurface(WinApplication* app, x86::CPU& cpu, reg32 guest, 
     if (deferring(cpu))
         fallback();
     drain();
-    return device(guest)->SetDepthStencilSurface(app, cpu, static_cast<Surface*>(lookup(surface)));
+    return device(cpu, guest)->SetDepthStencilSurface(app, cpu, static_cast<Surface*>(lookup(surface)));
 }
 
 HRESULT drawFrameVertices(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD type, UINT minIndex, UINT vertices,
@@ -1701,7 +1719,7 @@ HRESULT drawFrameVertices(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD
     if (deferring(cpu))
         fallback();
     drain();
-    Device* d = device(guest);
+    Device* d = device(cpu, guest);
     void* frame = d->frameVertices(app, cpu, bytes);
     if (cpu.terminate)
         return D3D_OK;
@@ -1732,7 +1750,7 @@ HRESULT present(WinApplication* app, x86::CPU& cpu, reg32 guest, const void* sou
     if (deferring(cpu))
         fallback();
     drain();
-    const HRESULT h = device(guest)->Present(app, cpu, static_cast<const RECT*>(source),
+    const HRESULT h = device(cpu, guest)->Present(app, cpu, static_cast<const RECT*>(source),
                                              static_cast<const RECT*>(dest), window, dirtyRegion);
     refreshBindings();
     return h;
@@ -1871,11 +1889,11 @@ HRESULT setTextureDirect(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD 
             const Capture::Call* call = r.replay();
             return call ? call->result : D3D_OK;
         }
-        const HRESULT h = device(guest)->SetTexture(app, cpu, stage, lookup(texture));
+        const HRESULT h = device(cpu, guest)->SetTexture(app, cpu, stage, lookup(texture));
         r.done(h);
         return h;
     }
-    return device(guest)->SetTexture(app, cpu, stage, lookup(texture));
+    return device(cpu, guest)->SetTexture(app, cpu, stage, lookup(texture));
 }
 
 HRESULT setVertexDeclarationSlow(WinApplication* app, x86::CPU& cpu, reg32 guest, reg32 declaration)
@@ -1900,12 +1918,12 @@ HRESULT setVertexDeclarationSlow(WinApplication* app, x86::CPU& cpu, reg32 guest
             const Capture::Call* call = r.replay();
             return call ? call->result : D3D_OK;
         }
-        const HRESULT h = device(guest)->SetVertexDeclaration(
+        const HRESULT h = device(cpu, guest)->SetVertexDeclaration(
             app, cpu, static_cast<VertexDeclaration*>(lookup(declaration)));
         r.done(h);
         return h;
     }
-    const HRESULT h = device(guest)->SetVertexDeclaration(app, cpu,
+    const HRESULT h = device(cpu, guest)->SetVertexDeclaration(app, cpu,
                                                           static_cast<VertexDeclaration*>(lookup(declaration)));
     refreshBindings();
     return h;
@@ -1940,12 +1958,12 @@ HRESULT setStreamSourceSlow(WinApplication* app, x86::CPU& cpu, reg32 guest, UIN
             const Capture::Call* call = r.replay();
             return call ? call->result : D3D_OK;
         }
-        const HRESULT h = device(guest)->SetStreamSource(app, cpu, stream, static_cast<Buffer*>(lookup(buffer)),
+        const HRESULT h = device(cpu, guest)->SetStreamSource(app, cpu, stream, static_cast<Buffer*>(lookup(buffer)),
                                                          offset, stride);
         r.done(h);
         return h;
     }
-    const HRESULT h = device(guest)->SetStreamSource(app, cpu, stream, static_cast<Buffer*>(lookup(buffer)), offset,
+    const HRESULT h = device(cpu, guest)->SetStreamSource(app, cpu, stream, static_cast<Buffer*>(lookup(buffer)), offset,
                                                      stride);
     refreshBindings();
     return h;
@@ -1973,11 +1991,11 @@ HRESULT setIndicesSlow(WinApplication* app, x86::CPU& cpu, reg32 guest, reg32 bu
             const Capture::Call* call = r.replay();
             return call ? call->result : D3D_OK;
         }
-        const HRESULT h = device(guest)->SetIndices(app, cpu, static_cast<Buffer*>(lookup(buffer)));
+        const HRESULT h = device(cpu, guest)->SetIndices(app, cpu, static_cast<Buffer*>(lookup(buffer)));
         r.done(h);
         return h;
     }
-    const HRESULT h = device(guest)->SetIndices(app, cpu, static_cast<Buffer*>(lookup(buffer)));
+    const HRESULT h = device(cpu, guest)->SetIndices(app, cpu, static_cast<Buffer*>(lookup(buffer)));
     refreshBindings();
     return h;
 }
@@ -2007,7 +2025,7 @@ HRESULT drawIndexedPrimitiveSlow(WinApplication* app, x86::CPU& cpu, reg32 guest
 {
     // No deferral device: no bindings to refresh after the draw.
     if (__builtin_expect(quiet() && !g_hot.deferDevice, 1))
-        return device(guest)->DrawIndexedPrimitive(app, cpu, type, baseVertex, minIndex, vertices, startIndex, count);
+        return device(cpu, guest)->DrawIndexedPrimitive(app, cpu, type, baseVertex, minIndex, vertices, startIndex, count);
     return drawIndexedPrimitiveQueued(app, cpu, guest, type, baseVertex, minIndex, vertices, startIndex, count);
 }
 
@@ -2016,7 +2034,7 @@ HRESULT drawIndexedPrimitiveDirect(WinApplication* app, x86::CPU& cpu, reg32 gue
 {
     if (__builtin_expect(quiet(), 1))
     {
-        const HRESULT h = device(guest)->DrawIndexedPrimitive(app, cpu, type, baseVertex, minIndex, vertices,
+        const HRESULT h = device(cpu, guest)->DrawIndexedPrimitive(app, cpu, type, baseVertex, minIndex, vertices,
                                                               startIndex, count);
         refreshBindings();
         return h;
@@ -2039,12 +2057,12 @@ HRESULT drawIndexedPrimitiveDirect(WinApplication* app, x86::CPU& cpu, reg32 gue
             const Capture::Call* call = r.replay();
             return call ? call->result : D3D_OK;
         }
-        const HRESULT h = device(guest)->DrawIndexedPrimitive(app, cpu, type, baseVertex, minIndex, vertices,
+        const HRESULT h = device(cpu, guest)->DrawIndexedPrimitive(app, cpu, type, baseVertex, minIndex, vertices,
                                                               startIndex, count);
         r.done(h);
         return h;
     }
-    const HRESULT h = device(guest)->DrawIndexedPrimitive(app, cpu, type, baseVertex, minIndex, vertices, startIndex,
+    const HRESULT h = device(cpu, guest)->DrawIndexedPrimitive(app, cpu, type, baseVertex, minIndex, vertices, startIndex,
                                                           count);
     refreshBindings();
     return h;
@@ -2088,11 +2106,11 @@ HRESULT drawPrimitiveUPSlow(WinApplication* app, x86::CPU& cpu, reg32 guest, DWO
             const Capture::Call* call = r.replay();
             return call ? call->result : D3D_OK;
         }
-        const HRESULT h = device(guest)->DrawPrimitiveUP(app, cpu, type, count, data, stride);
+        const HRESULT h = device(cpu, guest)->DrawPrimitiveUP(app, cpu, type, count, data, stride);
         r.done(h);
         return h;
     }
-    const HRESULT h = device(guest)->DrawPrimitiveUP(app, cpu, type, count, data, stride);
+    const HRESULT h = device(cpu, guest)->DrawPrimitiveUP(app, cpu, type, count, data, stride);
     refreshBindings();
     return h;
 }
@@ -2425,7 +2443,7 @@ HRESULT effectSetMatrixProductDirect(WinApplication* app, x86::CPU& cpu, reg32 g
         return effectSetMatrix(app, cpu, guest, handle, m);
     }
     const float* matrices[3] = { a, b, c };
-    return effect::setProduct(guest, handle, matrices, count, readFpscr());
+    return effect::setProduct(cpu, guest, handle, matrices, count, readFpscr());
 }
 
 HRESULT effectSetTextureSlow(WinApplication* app, x86::CPU& cpu, reg32 guest, reg32 handle, reg32 texture)
@@ -2546,6 +2564,60 @@ bool effectEndPass(WinApplication* app, x86::CPU& cpu, reg32 guest)
     RC_USE(cpu);
     RC_USE(guest);
     return __builtin_expect(quiet(), 1);
+}
+
+bool segmentBegin()
+{
+    return quiet() && !g_hot.deferDevice && g_streamDevice && g_streamDevice->segmentBegin();
+}
+
+void segmentEnd()
+{
+    g_streamDevice->segmentEnd();
+}
+
+bool segmentBegin(SegmentRef& ref, uint32_t arenaBytes, uint32_t draws, void (*await)(void*), void* job)
+{
+    if (!quiet() || g_hot.deferDevice || !g_streamDevice)
+        return false;
+    ref.device = g_streamDevice->segmentClone(arenaBytes, draws, await, job);
+    return ref.device != nullptr;
+}
+
+void segmentFinish(SegmentRef& ref)
+{
+    Device* clone = static_cast<Device*>(ref.device);
+    clone->segmentFinishClone(clone);
+}
+
+uint32_t openFrameIndex()
+{
+    return g_streamDevice ? g_streamDevice->frameIndexOpen() : 0;
+}
+
+void (*g_frameHook)(uint32_t frame) = nullptr;
+
+void setFrameHook(void (*hook)(uint32_t frame))
+{
+    g_frameHook = hook;
+}
+
+uint32_t segmentStaleBuffers(reg32* out, uint32_t max)
+{
+    return Buffer::staleGuests(out, max);
+}
+
+void segmentPrepareBuffer(reg32 buffer)
+{
+    Object* o = lookup(buffer);
+    if (o && (o->kind() == KindVertexBuffer || o->kind() == KindIndexBuffer))
+        static_cast<Buffer*>(o)->syncIfStale();
+}
+
+void segmentEnd(SegmentRef& ref)
+{
+    g_streamDevice->segmentCloseClone(static_cast<Device*>(ref.device));
+    ref.device = nullptr;
 }
 
 HRESULT effectEnd(WinApplication* app, x86::CPU& cpu, reg32 guest)

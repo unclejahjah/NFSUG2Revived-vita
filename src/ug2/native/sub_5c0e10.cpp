@@ -2,12 +2,9 @@
 // texture and locks the buffer. The quad of sub_5bb430 is built inline.
 
 #include <native/common.h>
+#include <native/particle_batch.h>
 #include <platform/switches.h>
-#include <platform/cached.h>
 #include <platform/config.h>
-#include <platform/render.h>
-#include <algorithm>
-#include <cmath>
 
 namespace ug2
 {
@@ -20,88 +17,8 @@ void sub_5bb320(win32::WinApplication* app, x86::CPU& cpu);
 namespace native
 {
 
-namespace
-{
-
-#if defined(__ARM_FP) && !defined(NFSU_FPU_DOUBLE)
-
-// Fixed operand order: of two NaNs the first wins, as in the translated body.
-inline float add(float a, float b)
-{
-    float r;
-#ifdef __aarch64__
-    __asm__("fadd %s0, %s1, %s2" : "=w"(r) : "w"(a), "w"(b));
-#else
-    __asm__("vadd.f32 %0, %1, %2" : "=t"(r) : "t"(a), "t"(b));
-#endif
-    return r;
-}
-
-inline float mul(float a, float b)
-{
-    float r;
-#ifdef __aarch64__
-    __asm__("fmul %s0, %s1, %s2" : "=w"(r) : "w"(a), "w"(b));
-#else
-    __asm__("vmul.f32 %0, %1, %2" : "=t"(r) : "t"(a), "t"(b));
-#endif
-    return r;
-}
-
-inline float sub(float a, float b)
-{
-    float r;
-#ifdef __aarch64__
-    __asm__("fsub %s0, %s1, %s2" : "=w"(r) : "w"(a), "w"(b));
-#else
-    __asm__("vsub.f32 %0, %1, %2" : "=t"(r) : "t"(a), "t"(b));
-#endif
-    return r;
-}
-
-#else
-
-inline Real add(Real a, Real b) { return a + b; }
-inline Real sub(Real a, Real b) { return a - b; }
-inline Real mul(Real a, Real b) { return a * b; }
-
-#endif
-
-inline void vertex(x86::reg32 v, Real x, Real y, Real z, x86::reg32 colour, x86::reg32 s, x86::reg32 t)
-{
-    rc::stf32(v, float(x));
-    rc::stf32(v + 4, float(y));
-    rc::stf32(v + 8, float(z));
-    rc::st32(v + 0xc, colour);
-    rc::st32(v + 0x10, s);
-    rc::st32(v + 0x14, t);
-}
-
-// Particles kept, in 256ths.
-uint32_t thinKeep()
-{
-    static const uint32_t keep = uint32_t(pf::render::particleOptions().thinPercent * 256 / 100);
-    return keep;
-}
-
-// Drops a stable share of particles, compensating alpha.
-x86::reg32 thin(x86::reg32 colour, x86::reg32 record)
-{
-    const uint32_t keep = thinKeep();
-    // The record is on 0x48C290's stack; its next node is at record - 0x230 + 0xE8.
-    const x86::reg32 next = rc::ld32(record - 0x230 + 0xe8);
-    const x86::reg32 node = next ? rc::ld32(next + 4) : 0;
-    if (!node || rc::ld32(node) != next || (colour >> 24) <= 0x14)
-        return colour;
-    if ((node >> 4) * 2654435761u >> 24 >= keep)
-        return colour & 0x00ffffffu;
-    const float a = float(colour >> 24) / 255.0f;
-    const uint32_t alpha = uint32_t(std::min(255.0f, 255.0f * (1.0f - powf(1.0f - a, 256.0f / float(keep))) + 0.5f));
-    return (colour & 0x00ffffffu) | alpha << 24;
-}
-
 // Batch start: the guest's frame and registers, for its three callees.
-[[gnu::noinline]] bool begin(win32::WinApplication* app, x86::CPU& cpu, x86::reg32 p)
+[[gnu::noinline]] bool particleBatchBegin(win32::WinApplication* app, x86::CPU& cpu, x86::reg32 p)
 {
     const x86::reg32 entry = cpu.esp;
     const x86::reg32 ebx = cpu.ebx, ebp = cpu.ebp, esi = cpu.esi, edi = cpu.edi;
@@ -139,6 +56,9 @@ x86::reg32 thin(x86::reg32 colour, x86::reg32 record)
     return true;
 }
 
+namespace
+{
+
 void body(win32::WinApplication* app, x86::CPU& cpu)
 {
     if (!NFSU_NATIVE("particles_native"))
@@ -147,66 +67,26 @@ void body(win32::WinApplication* app, x86::CPU& cpu)
         return;
     }
     const x86::reg32 p = argument(cpu, 0);
-    if (rc::ld32(0x87074c) == 0 && !begin(app, cpu, p))
+    if (rc::ld32(0x87074c) == 0 && !particleBatchBegin(app, cpu, p))
         return;
 
-    const Real c[3] = {ld(p + 0x10), ld(p + 0x14), ld(p + 0x18)};
-    const Real width = ld(p + 0x30);
-    const Real height = ld(p + 0x34);
-    Real a[3], b[3];
-    for (int i = 0; i < 3; ++i)
-    {
-        a[i] = mul(ld(0x873370 + 4 * i), width);
-        b[i] = mul(ld(0x8763c0 + 4 * i), height);
-    }
-    const auto ftol2 = [](Real value) { return x86::reg32(x86::truncInteger64(double(value))); };
-    x86::reg32 colour = ftol2(ld(p + 0x2c)) << 8;
-    colour = (colour | ftol2(ld(p + 0x20))) << 8;
-    colour = (colour | ftol2(ld(p + 0x24))) << 8;
-    colour |= ftol2(ld(p + 0x28));
-    if (thinKeep() < 256)
-        colour = thin(colour, p);
-    const x86::reg32 s0 = rc::ld32(p + 0x48), t0 = rc::ld32(p + 0x4c);
-    const x86::reg32 s1 = rc::ld32(p + 0x40), t1 = rc::ld32(p + 0x44);
-
-    x86::reg32 ecx = 0x872b98;
-    if (rc::ld8(0x872b98) != 0)
-    {
-        const x86::reg32 cursor = rc::ld32(0x86b7c8);
-        ecx = cursor;
-        if (cursor != 0 && cursor < rc::ld32(0x86b7cc))
-        {
-            if ((colour & 0xff000000u) <= 0x14000000u)
-            {
-                for (x86::reg32 v = cursor; v != cursor + 0x60; v += 0x18)
-                {
-                    rc::st32(v, 0);
-                    rc::st32(v + 4, 0);
-                    rc::st32(v + 8, 0);
-                }
-            }
-            else
-            {
-                Real q[4][3];
-                for (int i = 0; i < 3; ++i)
-                {
-                    q[0][i] = add(add(a[i], b[i]), c[i]);
-                    q[1][i] = add(sub(c[i], a[i]), b[i]);
-                    q[2][i] = sub(sub(c[i], a[i]), b[i]);
-                    q[3][i] = sub(add(a[i], c[i]), b[i]);
-                }
-                vertex(cursor, q[0][0], q[0][1], q[0][2], colour, s0, t0);
-                vertex(cursor + 0x18, q[1][0], q[1][1], q[1][2], colour, s1, t0);
-                vertex(cursor + 0x30, q[2][0], q[2][1], q[2][2], colour, s1, t1);
-                vertex(cursor + 0x48, q[3][0], q[3][1], q[3][2], colour, s0, t1);
-            }
-            ecx = cursor + 0x60;
-            rc::st32(0x86b7c8, ecx);
-        }
-    }
-    rc::st32(0x870750, rc::ld32(0x870750) + 1);
+    batch::Quad q;
+    q.x = ld(p + 0x10);
+    q.y = ld(p + 0x14);
+    q.z = ld(p + 0x18);
+    q.width = ld(p + 0x30);
+    q.height = ld(p + 0x34);
+    q.alpha = ld(p + 0x2c);
+    q.red = ld(p + 0x20);
+    q.green = ld(p + 0x24);
+    q.blue = ld(p + 0x28);
+    q.s0 = rc::ld32(p + 0x48);
+    q.t0 = rc::ld32(p + 0x4c);
+    q.s1 = rc::ld32(p + 0x40);
+    q.t1 = rc::ld32(p + 0x44);
+    // The record is on 0x48C290's stack; its next node is at record - 0x230 + 0xE8.
+    cpu.ecx = batch::append(q, batch::thinning(), [p] { return rc::ld32(p - 0x230 + 0xe8); });
     cpu.eax = 1;
-    cpu.ecx = ecx;
     cpu.esp += 4;
 }
 

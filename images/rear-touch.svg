@@ -48,10 +48,10 @@
 
   <!-- callouts -->
   <g font-size="19" font-weight="700">
-    <text x="290" y="132" text-anchor="end" fill="#ff6f88">R2 · Shift up</text>
-    <text x="670" y="132" fill="#6ea4ff">L2 · Shift down</text>
-    <text x="290" y="506" text-anchor="end" fill="#ffc35c">R3 · Change camera</text>
-    <text x="670" y="506" fill="#cb85ff">L3 · Look back</text>
+    <text x="290" y="132" text-anchor="end" fill="#ff6f88">R2</text>
+    <text x="670" y="132" fill="#6ea4ff">L2</text>
+    <text x="290" y="506" text-anchor="end" fill="#ffc35c">R3</text>
+    <text x="670" y="506" fill="#cb85ff">L3</text>
   </g>
   <g font-size="14" fill="#9aa3c7">
     <text x="290" y="152" text-anchor="end">upper corner, right hand</text>
@@ -60,5 +60,5 @@
     <text x="670" y="526">lower corner, left hand</text>
   </g>
 
-  <text x="480" y="572" text-anchor="middle" fill="#9aa3c7" font-size="14">The game sees a PlayStation 2 controller. These are the defaults; change them in Options &gt; Controls.</text>
+  <text x="480" y="572" text-anchor="middle" fill="#9aa3c7" font-size="14">The game sees a PlayStation 2 controller.</text>
 </svg>

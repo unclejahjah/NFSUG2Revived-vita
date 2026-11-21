@@ -93,12 +93,12 @@ smoothly. To make the copies, with [ffmpeg](https://ffmpeg.org) installed, run t
 python3 tools/vita/movies_convert.py "<game folder>/MOVIES"
 ```
 
-It writes one `.mp4` next to each `.vp6` (29 files, about 290 MB) and changes nothing else. Then copy the game
+It writes one `.mp4` next to each `.vp6` (29 files, about 310 MB) and changes nothing else. Then copy the game
 folder to the Vita as described above, so that `MOVIES` holds both. If you already copied the game, copy the
 `MOVIES` folder again.
 
-The `.mp4` files hold the picture only. The game still plays the sound from the `.vp6` files, so both are needed,
-and an `.mp4` opened on a PC is silent.
+The `.mp4` files hold the picture and the sound. Keep the `.vp6` files as well: the port needs both. Movies converted
+before v0.8.4 have no sound; convert them again.
 
 ## Controls
 
@@ -125,9 +125,8 @@ controller (Cross is shown as Button 3), and the tables below are the defaults.
 | Left stick | Steer |
 | Cross | Handbrake |
 | Circle | Nitrous |
-| Triangle / Square | Shift up / down |
-| Rear touch, upper corners | Shift |
-| Rear touch, lower corners | Look back / change camera |
+| Triangle / Square | Change camera / look back |
+| Rear touch corners | Not bound; set them in Options > Controls |
 | Select | Reset car to the road |
 | Start | Pause |
 
@@ -143,6 +142,65 @@ controller (Cross is shown as Button 3), and the tables below are the defaults.
 Text fields, such as a profile name, open the Vita keyboard. To quit, use the PS button.
 
 ## Settings
+
+### Vita Settings
+
+**Vita Settings**, the main menu icon where Online was (Online is not offered), opens the game's own Options screens
+with the settings of the browser version's Settings page that the Vita has, in the same groups: Multiplayer, Free
+Roam, Display, Sound, Controller and Game. It is also the last icon in the game's Options, from the main menu and from
+the race pause menu. Pick a group, then change a setting with left and right as in the game's options; Cross on a text
+setting, such as a name or the passphrase, opens the Vita keyboard. Each change is saved at once to the same files as
+a hand edit and as the start-up screen's: `NeedForSpeedUnderground2.cfg` and free roam's `scripts/NFSU2FreeRoam.ini`.
+`log_info` and the garage stick settings apply at once; the others apply when the game starts again, and the game says
+so the first time one changes. The last icon, **Save and Restart**, restarts the game. The passphrase is never shown or
+logged once typed. `options_menu=off` leaves the icon out.
+
+### Start-up screen
+
+The VPK holds two programs: `eboot.bin`, a small launcher with the start-up screen and settings manager, and
+`game.bin`, the game. The launcher only edits the settings files and then starts the game as a new program; the game
+reads the files and plays the same way with or without it. `game.bin` copied over `eboot.bin` runs the game alone.
+
+Each time the game starts it first shows a short screen: press START to open the settings manager, or any other
+button to start the game at once; after 3 seconds it starts by itself. The sticks and touch pads do not count as
+buttons. `show_configurator_on_boot=off` in the settings file turns the screen off: the launcher then starts the game
+at once.
+
+The manager has two tabs, switched with L and R: **Mods** for PC mod features (see [Mods tab](#mods-tab)) and
+**Config** for the port's own settings, every key of the settings file by group. The d-pad moves up and down and changes
+the selected value with left and right (hold to repeat). The left stick does the same, faster the further and the
+longer it is pushed, but only past half way, never near a diagonal, and only along the axis a push starts on; it
+changes numbers only. Square sets the default; holding Select for 3 seconds sets the whole tab to its defaults
+(only the mods on Mods, every setting on Config). Triangle shows or hides the dev settings (`dev_` keys and the Developer
+group) on Config, and the mod settings the port does not support yet on Mods; both start hidden. Below the last item
+are **Cancel** (or Circle anywhere) and **Save** (or START anywhere), which can also be tapped; each asks first, then
+starts the game. Save writes only the settings you changed, in the file's own format, and leaves the other lines as
+they are. The path of the file each tab edits is shown above the hints.
+
+If the settings file or a mod's settings file is there but cannot be read (not text, or nothing in it makes sense),
+the game lists it for 2 seconds before it starts and uses the defaults, or leaves that mod off. The manager says so
+too, and its Save writes the file anew from what the screen shows; Cancel leaves it as it is. A missing file is never
+an error.
+
+### Mods tab
+
+The start-up screen's Mods tab switches PC mod features the port has rebuilt itself, grouped by the mod they come
+from. Triangle also lists the rest of each mod's settings, greyed out, as the port does not support them yet; they are
+never changed. Each feature keeps its setting in the mod's own settings file, shared with the PC game, so a PC mod
+user's file works as it is. The game is vanilla by default: with no settings file a mod is off, Save writes one only
+when you turn a mod on, and with an existing file only that mod's key is changed in place, every other line left as
+it was. As on the PC, an existing file without a feature's key (or its section) counts as on.
+`NeedForSpeedUnderground2.cfg` never covers the same feature as a mod. The manager only edits the files: a setting
+can be switched whatever files it needs; while any are missing the description shows the requirements in orange. The
+game decides at start-up and keeps a feature off while anything it needs is missing.
+
+The settings files are under the game folder, `ux0:data/NeedForSpeedUnderground2/`, and can be edited by hand.
+
+| Entry | Settings file | Needs |
+|-------|---------------|-------|
+| ExtraOptions 5.1.0.1340 by ExOpts Team: EU Car Content | `scripts/NFSU2ExtraOptionsSettings.ini`, `UnlockRegionalCars = 1` in `[Gameplay]` | `CARS/CORSA` and `CARS/PEUGOT106`, each with `GEOMETRY.BIN`, `TEXTURES.BIN`, `VINYLS.BIN` and `PARTS_ANIMATIONS.bin`, copied from a European PC copy of the game |
+
+### Settings file
 
 With nothing changed the game runs locked to 30 frames a second, in widescreen, with the touch screen on as a replacement for a mouse.
 
@@ -161,11 +219,11 @@ Delete the file to get a fresh copy on the next start.
 | `frame_rate` | `30` (default), `0` | Locked to 30 frames a second for steady pacing, or unlocked |
 | `widescreen` | `on` (default), `off` | Full 16:9 picture with the HUD at the screen edges, or the original 4:3 one with black bars |
 | `gfx_preset` | `vita` (default), `max` | Graphics the port is tuned for, or everything on (much slower). Can be changed in game Options -> Display|
-| `rear_touch` | `on` (default), `off` | Rear touch pad L2, R2, R3, L3 |
+| `rear_touch` | `on` (default), `off` | Rear touch pad L2, R2, L3, R3 (unbound until set in Options > Controls) |
 | `front_touch` | `on` (default), `off` | Touching the screen works as a mouse click in the menus; no cursor is drawn |
-| `garage_stick` | `on` (default), `off` | The right stick turns the car in the garage and customisation menus. `garage_stick_deadzone` (default `20`, percent) and `garage_stick_speed` (default `4`) tune it |
-| `world_lod_pixels` | `0` (default, off), a width in pixels | Scenery narrower than this on screen uses its simpler model. `128` gives more speed; higher values show more pop-in |
-| `world_min_pixels` | `0` (default, off) to `64` | Scenery smaller than this on screen is not drawn. More speed, more pop-in |
+| `garage_stick` | `on` (default), `off` | The right stick turns the car in the garage and customisation menus. `garage_stick_deadzone` (default `30`, percent) tunes it. The right stick does not move menu selections |
+| `dev_world_lod_pixels` | `0` (default, off), a width in pixels | Experimental. Scenery narrower than this on screen uses its simpler model. `128` gives more speed; higher values show more pop-in. The old name `world_lod_pixels` still works |
+| `dev_world_min_pixels` | `0` (default, off) to `64` | Experimental. Scenery smaller than this on screen is not drawn. More speed, more pop-in. The old name `world_min_pixels` still works |
 | `optimised_particles` | `on` (default), `off` | Cheaper tyre smoke and other particles with a picture close to the original, or exactly as the original game |
 | `music_hw_decode` | `on` (default), `off` | Music decoded by the Vita's hardware MP3 decoder instead of the game's own decoder, which frees the CPU. If the hardware decoder cannot start, the game's decoder plays it |
 | `audio_mix_rate` | `0` (default: the game's choice, 44100 with the Vita preset), `32000`, `22050` | Rate the game mixes its sound at. `32000` matches most of the game's sounds and music and needs less CPU; `22050` is cheaper still but duller |
@@ -174,8 +232,15 @@ Delete the file to get a fresh copy on the next start.
 | `revived_server` | `nfsu2.xyz` (default), a host name | The NFSU2 Revived server (`network=revived`) |
 | `revived_name` | empty (default: the Vita's user name), a name | The name other players see on the Revived server |
 | `online_server` | `eahub.eu` (default), a host name or address, `off` | `network=direct`: the community server the Online menu uses in place of EA's closed servers |
+| `show_configurator_on_boot` | `on` (default), `off` | The start-up screen before the game boots (see above) |
 | `boot_race` | `off` (default), `on` | Skip the menus and start a test race |
 | `log_info` | `off` (default), `on` | Write a detailed log to `NeedForSpeedUnderground2.log`, useful when reporting a problem. Errors are logged either way |
+
+Settings that start with `dev_` are experiments that may change or go away. Their tuning keys were renamed too
+(`dev_world_lod_min_tris`, `dev_world_lod_max_percent`, `dev_world_lod_min_width`, `dev_world_lod_signs`,
+`dev_world_min_pixels_lights`, `dev_reflection_min_pixels`, and in `DEV_SETTINGS` builds `dev_smoke_skip`,
+`dev_smoke_fade`, `dev_smoke_near`, `dev_smoke_mip`); the names without `dev_` are still read and the log notes the
+new name.
 
 The graphics settings can be changed in the game's own Display menu, and they are kept between sessions. The
 resolution stays at 960x544. Above the Medium detail setting the Vita will definitely struggle with performance.
@@ -212,6 +277,20 @@ a problem. In `direct` mode, the race link uses UDP port 3658, which the Vita al
 fails, the log says so.
 
 ## Mods
+
+### EU Car Content (from NFSU2 Extra Options)
+
+The European Vauxhall/Opel Corsa and Peugeot 106 can be listed in the US game (car lot, customisation and
+opponents), as Extra Options' Unlock Regional Cars does on the PC. It works the same way: put the mod's settings file,
+`scripts/NFSU2ExtraOptionsSettings.ini`, in the game folder (`ux0:data/NeedForSpeedUnderground2/`) with
+`UnlockRegionalCars = 1` in its `[Gameplay]` section, and copy the `CARS/CORSA` and `CARS/PEUGOT106` folders (each with
+`GEOMETRY.BIN`, `TEXTURES.BIN`, `VINYLS.BIN` and `PARTS_ANIMATIONS.bin`, the files every racing car has) from a
+European PC copy of the game. As on the PC, a settings file without the key or its section counts as on. Without the
+settings file at all (where the PC mod would be on), with the key at `0` or with any of those files missing it stays
+off, and the log says what it needs. The game reads the file at start-up and never writes it. Based on Extra
+Options' option (see [THIRD_PARTY.md](THIRD_PARTY.md)); none of its code is used.
+
+### Other PC mods
 
 All mods are untested at this stage. The only kinds that could work are PC mods that change `SPEED2.EXE` and/or the
 game's asset files. They may cause crashes or major performance problems.
@@ -296,11 +375,16 @@ example `-DDEV_SETTINGS=ON`.
 | `AUDIO_FAST_PATHS` | `ON` | Uses the native and NEON routines in the audio mixer. `OFF` uses the plain ones |
 | `RENDER_FAST_PATHS` | `ON` | Uses the fast paths of the Direct3D layer and the renderer. `OFF` uses the straightforward ones |
 | `DEV_SETTINGS` | `OFF` | For development: the settings file can switch each of these choices one by one, without a rebuild |
+| `NFSU_LAUNCHER` | `ON` | The VPK's `eboot.bin` is the launcher (start-up screen and settings manager) and the game is `game.bin`. `OFF` packs the game alone as `eboot.bin`. `build-vita/NFSU2VITA.self` is the game alone either way |
+| `DEV_TOOLS` | `OFF` | For development: compiles the diagnostics from `src/dev` (hitch log, mixer counters, benchmark figures, test driver, scene log). Releases do not include them |
 
 With `DEV_SETTINGS=OFF` the three choices are fixed when the program is compiled, and settings for them in the
 settings file are ignored. With `DEV_SETTINGS=ON` each choice has its own key there, for example `matrix4_native=off`,
 and the option above is only its default. The first lines of the log say which kind of build is running when
 `log_info=on`.
+
+With `DEV_TOOLS=OFF` the settings of those diagnostics (`hitch_log`, `dev_mixer_stats`, `scene_log`, `scene_log_frames`, `offload_count`, `d3d_record_test`,
+`benchmark_seconds`, `benchmark_window`, `benchmark_frames`, `benchmark_exit`, `boot_drive`, `boot_drive_seed`) are ignored.
 
 ## Credits
 

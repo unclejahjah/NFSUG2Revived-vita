@@ -1,11 +1,12 @@
 #include <platform/config.h>
+#include <platform/cfgfile.h>
 #include <platform/log.h>
-#include <cerrno>
-#include <climits>
+#include <platform/settings.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <strings.h>
+#include <vector>
 
 namespace pf
 {
@@ -13,85 +14,37 @@ namespace pf
 namespace
 {
 
-const int MaxEntries = 64;
 const int MaxKey     = 32;
 const int MaxValue   = 384;
 const int MaxLine    = 448;
 
-// Every setting the game reads; other keys are reported as unknown.
-const char* const Known[] =
-{
-    // Player settings.
-    "widescreen", "ui_log", "button_prompts", "frame_rate", "car_reflection_interval", "rear_touch", "front_touch", "garage_stick", "garage_stick_deadzone", "garage_stick_speed", "pad_log", "pad_script",
-    "music_hw_decode", "world_min_pixels", "reflection_min_pixels", "world_min_pixels_lights", "world_lod_pixels", "world_lod_min_tris", "world_lod_max_percent", "world_lod_min_width", "world_lod_signs", "scene_log", "scene_log_frames", "timing_interval", "material_native", "matrix4_native", "box_cull_native", "box_neon", "tree_cull_native", "draw_scenery_native",
-    "world_upload_native", "texture_step_native", "light_upload_native", "flush_native",
-    "entry_resolve_native", "ui_pos_native", "sine_poly_native", "point_in_quad_native", "vec_blend_native", "sub_61b670_native",
-    "entry_pick_native", "mixer_accumulate_native", "ground_query_native", "ug2_draw_walk_native", "corner_walk_native",
-    "closest_feature_native", "view_adjust_native", "chase_cam_native",
-    "shadow_hull_native", "particles_native", "particle_update_native", "headlight_pass_native", "scenery_stuff_native",
-    "shadow_points_native", "vec_helpers_native", "phys_vector_native", "drivetrain_native", "wheel_native", "shape_bounds_native", "phys_native_check", "view_visible_native", "light_gather_native", "light_flare_native",
-    // Cores, logs and the benchmark.
-    "use_core3", "core3_tasks", "timing_log", "timing_phases", "hitch_log", "console_log", "log_info", "memory_log", "memory_log_seconds", "log_async", "stall_report",
-    "stall_seconds", "stall_direct", "stall_heartbeat", "stall_priority",
-    "stall_crash", "stall_cpu", "stall_power_tick",
-    "benchmark", "benchmark_exit", "benchmark_seconds", "benchmark_laps", "benchmark_opponents", "benchmark_track",
-    "benchmark_timing_log", "benchmark_mode", "benchmark_car", "benchmark_driver", "benchmark_window", "benchmark_frames",
-    // Direct boot into a race and the virtual clock (src/ug2/boot.cpp).
-    "boot_race", "boot_track", "boot_car", "boot_laps", "boot_ai_driver", "boot_seed", "boot_hud", "boot_audio",
-    "boot_crowd", "boot_traffic", "boot_traffic_level", "boot_opponents", "boot_power_tick", "virtual_clock", "boot_mode", "boot_drive_seed", "boot_drive", "boot_manual", "boot_upgrades",
-    // Graphics preset (src/lib/registry.cpp).
-    "gfx_preset", "gfx_set", "gfx_level",
-    // Renderer.
-    "alpha_draw_order", "skip_unused_alpha_test", "matrices_on_render_thread", "texture_cache_mb", "guest_memory_split", "texture_async", "texture_batch",
-    "texture_instant_free", "texture_heap_mb", "texture_retry", "texture_release_all", "texture_load_drain", "texture_heap_shrink",
-    "gxm_precomputed", "gxm_lists", "gxm_core2", "gxm_program_list", "cull_swap", "debug_frame_dump", "debug_hold_frame",
-    "debug_skip_vp", "debug_skip_fp", "debug_max_draws", "debug_scene_scale", "debug_scene_dump", "debug_merge_limit", "debug_plan_check", "debug_shot_frames", "debug_draw_hash", "scene_merge", "blend_op_exact", "copy_elide", "dead_passes",
-    "effect_stats", "effect_trace", "effect_check", "optimised_particles", "smoke_log", "smoke_skip", "smoke_fade", "smoke_near", "smoke_mip",
-    // Native versions of guest code and their shadow compares.
-    "audio_log", "audio_silence_db", "audio_cull_check", "dev_cull_stats", "audio_block_ms", "audio_mix_rate", "audio_mixer", "audio_defer", "audio_defer_log", "audio_defer_notify", "audio_defer_hook", "audio_inline_with_hooks", "audio_hook_release", "audio_hook_wait_ms", "audio_snd_yield", "audio_mixer_stay", "audio_dump", "audio_engine_inline", "ea_timer_unlocked", "yield_relock_spin_us", "audio_inline_notifications", "audio_library_audit", "audio_native_kernels", "audio_neon_kernels", "audio_selftest", "audio_hash", "bank_native", "shadow_bank", "bank_cache_check", "bank_lib_check", "coll_native", "shadow_coll", "cull_native", "cull_parallel", "shadow_cull", "music_hw_check", "music_hw_check_dump", "music_hw_ahead", "dev_mixer_stats", "dev_snd_watch", "audio_mixer_split", "audio_split_check",
-    "sampler", "sampler_interval_us", "sampler_copies", "sampler_thread", "sampler_from_race",
-    "draw_native", "shadow_draw", "flush_native", "flush_async", "flush_async_core", "flush_async_priority",
-    "flush_async_frame", "flares_native", "flares_parallel", "shadow_flares",
-    "load_native", "shadow_load", "math_native", "shadow_math", "particles_native", "particles_update",
-    "particles_parallel", "particles_direct", "shadow_particles", "prep_native", "shadow_prep",
-    "native_shadow", "native_shadow_rate",
-    // Movies through the platform video decoder (src/ug2/movies.cpp).
-    "movies", "movies_dir", "movies_selftest",
-    // Front end (src/ug2/frontend.cpp).
-    "boot_script", "fe_log", "fe_files", "ime_test", "ime_test_field", "movies_skip", "fe_msg", "fe_orbit", "fe_grep_words", "fe_grep", "fe_grep_frame", "fe_scan_file", "fe_scan_every", "boot_steps", "fe_dump", "boot_quit_after", "fe_gfx_apply", "fe_gfx_apply_delay",
-    // Save folder (src/lib/file.cpp).
-    "save_dir", "save_log", "save_sync", "save_atomic", "file_lazy_seek", "file_handle_cache",
-    // Network play (src/lib/winapi/ws2_32.cpp, src/lib/winapi/revived).
-    "network", "online_server", "revived_server", "revived_name", "revived_passphrase",
-    // Host build.
-    "host_gpu_latency", "limiter_log", "debug_scene_finish", "display_vblank_wait", "wait_probe", "frame_stats", "d3d_fast_effects", "d3d_fast_draw", "d3d_fast_layer", "flush_direct", "host_check_ranges",
-};
-
 bool isKnown(const char* key)
 {
-    for (const char* known : Known)
-    {
-        if (strcmp(known, key) == 0)
-            return true;
-    }
-    return false;
+    return findSetting(canonicalKey(key)) != nullptr;
 }
 
 struct Entry
 {
     char key[MaxKey];
     char value[MaxValue];
+    bool fromAlias;     // set under an old name; a line with the current name replaces it
 };
 
-Entry s_entries[MaxEntries];
-int   s_count = 0;
+std::vector<Entry> s_entries;
 
-const char* find(const char* key)
+// A secret (revived_passphrase) is never logged.
+bool isSecret(const char* key)
 {
-    for (int i = 0; i < s_count; ++i)
+    return strstr(key, "passphrase") || strstr(key, "password");
+}
+
+const char* find(const char* wanted)
+{
+    const char* key = canonicalKey(wanted);
+    for (const Entry& entry : s_entries)
     {
-        if (strcmp(s_entries[i].key, key) == 0)
-            return s_entries[i].value;
+        if (strcmp(entry.key, key) == 0)
+            return entry.value[0] ? entry.value : nullptr;    // set() empties a removed key
     }
     return nullptr;
 }
@@ -133,9 +86,15 @@ bool readLine(FILE* file, char* line, int size, bool* tooLong)
 }
 
 // A missing file is created from missingFileText, when given.
-void Config::load(const char* path, const char* missingFileText)
+bool Config::load(const char* path, const char* missingFileText)
 {
-    s_count = 0;
+    s_entries.clear();
+    std::string text;
+    if (cfgfile::readText(path, &text) == cfgfile::FileState::Unreadable)
+    {
+        logError("config: %s is unreadable, all settings at their defaults", path);
+        return false;
+    }
     FILE* file = fopen(path, "rt");
     if (!file)
     {
@@ -145,7 +104,7 @@ void Config::load(const char* path, const char* missingFileText)
                 fputs(missingFileText, created);
                 fclose(created);
             }
-        return;
+        return true;
     }
     char buffer[MaxLine];
     bool tooLong = false;
@@ -178,29 +137,42 @@ void Config::load(const char* path, const char* missingFileText)
             continue;
         }
         const bool known = isKnown(key);
-        if (find(key))
+        const char* current = canonicalKey(key);
+        const bool alias = current != key;
+        Entry* existing = nullptr;
+        for (Entry& entry : s_entries)
         {
-            if (known)
+            if (strcmp(entry.key, current) == 0)
+                existing = &entry;
+        }
+        if (existing)
+        {
+            if (existing->fromAlias && !alias)
+            {
+                strcpy(existing->value, value);
+                existing->fromAlias = false;
+                logInfo("config %s=%s", existing->key, isSecret(existing->key) ? "(set, not logged)" : existing->value);
+            }
+            else if (known)
                 logError("config line %d: %s repeated, first value kept", number, key);
             continue;
         }
-        if (s_count == MaxEntries)
-        {
-            logError("config line %d: more than %d entries, %s ignored", number, MaxEntries, key);
-            continue;
-        }
         // Unknown keys are kept too, so that a repeat is not reported again; nothing reads them.
-        Entry& entry = s_entries[s_count++];
-        strcpy(entry.key, key);
+        s_entries.emplace_back();
+        Entry& entry = s_entries.back();
+        strcpy(entry.key, current);
         strcpy(entry.value, value);
-        // A secret (revived_passphrase) is never logged.
-        const bool secret = strstr(entry.key, "passphrase") || strstr(entry.key, "password");
-        if (known)
-            logInfo("config %s=%s", entry.key, secret ? (*entry.value ? "(set, not logged)" : "") : entry.value);
+        entry.fromAlias = alias;
+        const char* shown = isSecret(entry.key) ? (*entry.value ? "(set, not logged)" : "") : entry.value;
+        if (alias)
+            logInfo("config %s is now %s, the old name still works: %s=%s", key, current, current, shown);
+        else if (known)
+            logInfo("config %s=%s", entry.key, shown);
         else
             logError("config: unknown setting '%s'", entry.key);
     }
     fclose(file);
+    return true;
 }
 
 bool Config::tryGetBool(const char* key, bool* value)
@@ -208,16 +180,8 @@ bool Config::tryGetBool(const char* key, bool* value)
     const char* text = find(key);
     if (!text)
         return false;
-    static const char* const On[] = { "on", "true", "yes", "1" };
-    static const char* const Off[] = { "off", "false", "no", "0" };
-    for (int i = 0; i < 4; ++i)
-    {
-        if (strcasecmp(text, On[i]) == 0 || strcasecmp(text, Off[i]) == 0)
-        {
-            *value = strcasecmp(text, On[i]) == 0;
-            return true;
-        }
-    }
+    if (cfgfile::parseBool(text, value))
+        return true;
     logError("config %s=%s is not a boolean (on/off, true/false, yes/no, 1/0), ignored", key, text);
     return false;
 }
@@ -227,16 +191,10 @@ bool Config::tryGetInt(const char* key, int* value)
     const char* text = find(key);
     if (!text)
         return false;
-    char* end = nullptr;
-    errno = 0;
-    const long number = strtol(text, &end, 10);
-    if (end == text || *end || errno == ERANGE || number < INT_MIN || number > INT_MAX)
-    {
-        logError("config %s=%s is not an integer, ignored", key, text);
-        return false;
-    }
-    *value = int(number);
-    return true;
+    if (cfgfile::parseInt(text, value))
+        return true;
+    logError("config %s=%s is not an integer, ignored", key, text);
+    return false;
 }
 
 bool Config::getBool(const char* key, bool defaultValue)
@@ -249,6 +207,36 @@ int Config::getInt(const char* key, int defaultValue)
 {
     int value = defaultValue;
     return tryGetInt(key, &value) ? value : defaultValue;
+}
+
+static unsigned s_generation = 0;
+
+void Config::set(const char* wanted, const char* value)
+{
+    const char* key = canonicalKey(wanted);
+    if (strlen(key) >= MaxKey || strlen(value) >= MaxValue)
+        return;
+    Entry* existing = nullptr;
+    for (Entry& entry : s_entries)
+    {
+        if (strcmp(entry.key, key) == 0)
+            existing = &entry;
+    }
+    if (!existing && *value)
+    {
+        s_entries.emplace_back();
+        existing = &s_entries.back();
+        strcpy(existing->key, key);
+        existing->fromAlias = false;
+    }
+    if (existing)
+        strcpy(existing->value, value);     // empty: find() treats the key as removed
+    ++s_generation;
+}
+
+unsigned Config::generation()
+{
+    return s_generation;
 }
 
 const char* Config::getString(const char* key, const char* defaultValue)

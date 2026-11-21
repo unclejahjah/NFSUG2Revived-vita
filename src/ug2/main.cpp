@@ -8,16 +8,25 @@
 #include "audio_stats.h"
 #include "bankcode.h"
 #include "boot.h"
+#include "mods_hook.h"
+#include "notice.h"
 #include "movies.h"
+#include "mods_runtime.h"
 #include "music_decode.h"
 #include "default_cfg.h"
 #include "frontend.h"
 #include "hitch.h"
 #include "textures.h"
 #include <lib/memlog.h>
+#include "offload.h"
+#ifdef DEV_TOOLS
+#include "../dev/record_test.h"
+#endif
 #include "scenery.h"
 #include "padbind.h"
 #include "textentry.h"
+#include "options_menu.h"
+#include "menu_entry.h"
 
 #include <lib/file.h>
 #include <lib/memmap.h>
@@ -46,6 +55,9 @@
 #include <psp2/ctrl.h>
 #include <psp2/power.h>
 #include <psp2/kernel/processmgr.h>
+#else
+#include <host/crash.h>
+#include <unistd.h>
 #endif
 #include <sys/stat.h>
 #include <algorithm>
@@ -111,6 +123,43 @@ Folders folders(int, char**)
     f.log = join(f.game, "NeedForSpeedUnderground2.log");
     mkdir("ux0:data", 0777);
     mkdir(f.game.c_str(), 0777);
+    return f;
+}
+#else
+std::string environment(const char* name, const std::string& fallback)
+{
+    const char* value = getenv(name);
+    return value && *value ? std::string(value) : fallback;
+}
+
+void makeFolders(const std::string& path)
+{
+    for (size_t slash = path.find('/', 1); slash != std::string::npos; slash = path.find('/', slash + 1))
+        mkdir(path.substr(0, slash).c_str(), 0777);
+    mkdir(path.c_str(), 0777);
+}
+
+// The game folder stays read-only: the guest's writes go to the data folder.
+Folders folders(int argc, char** argv)
+{
+    Folders f;
+    f.game = environment("NFSU2_GAME_DIR", "");
+    for (int i = 1; i < argc; ++i)
+    {
+        if (!strcmp(argv[i], "--game-dir") && i + 1 < argc)
+            f.game = argv[++i];
+        else if (!strncmp(argv[i], "--game-dir=", 11))
+            f.game = argv[i] + 11;
+    }
+    while (f.game.size() > 1 && f.game.back() == '/')
+        f.game.pop_back();
+    f.data = environment("NFSU2_DATA_DIR", "ug2host-data");
+    makeFolders(f.data);
+    char resolved[PATH_MAX];
+    if (realpath(f.data.c_str(), resolved))
+        f.data = resolved;
+    f.config = environment("NFSU2_CONFIG", join(f.game, "NeedForSpeedUnderground2.cfg"));
+    f.log = environment("NFSU2_LOG", "ug2host.log");
     return f;
 }
 #endif
@@ -195,6 +244,9 @@ int main(int argc, char** argv)
 #endif
     const Folders f = folders(argc, argv);
     pf::logInit(f.log.c_str());
+#ifndef __vita__
+    pf::crash::install();
+#endif
     pf::logInfo("NeedForSpeedUnderground2 %s starting: game folder %s, data folder %s", NFSU_VERSION, f.game.c_str(), f.data.c_str());
 #ifdef __vita__
     pf::logInfo("clocks: arm %d MHz, bus %d MHz, gpu %d MHz, xbar %d MHz", scePowerGetArmClockFrequency(),
@@ -203,17 +255,28 @@ int main(int argc, char** argv)
     x86::mmxSelfTest();
     x86::fpuSelfTest();
 #ifdef __vita__
-    pf::Config::load(f.config.c_str(), ug2::DefaultSettingsFile);
+    const bool cfgRead = pf::Config::load(f.config.c_str(), ug2::DefaultSettingsFile);
 #else
-    pf::Config::load(f.config.c_str());
+    const bool cfgRead = pf::Config::load(f.config.c_str());
 #endif
+#ifdef __vita__
     pf::logSetConsole(pf::Config::getBool("console_log", false));
+#else
+    pf::logSetConsole(pf::Config::getBool("console_log", true));
+#endif
 #ifdef __vita__
     pf::logSetInfo(pf::Config::getBool("log_info", false));
 #else
     pf::logSetInfo(pf::Config::getBool("log_info", true));
 #endif
     pf::logSetDeferred(pf::Config::getBool("log_async", true));
+    const std::vector<std::string> notices = ug2::notice::collect(cfgRead, f.config, ug2::readModSettings(f.game));
+    if (!notices.empty())
+    {
+        for (const std::string& line : notices)
+            pf::logError("%s", line.c_str());
+        ug2::notice::show(notices);
+    }
     rc::g_promoteLo = x86::reg32(pf::Config::getInt("promote_lo", 0));
     rc::g_promoteSpan = x86::reg32(pf::Config::getInt("promote_hi", -1)) - rc::g_promoteLo;
 #ifdef DEV_SETTINGS
@@ -224,7 +287,7 @@ int main(int argc, char** argv)
                 NATIVE_FUNCTIONS, AUDIO_FAST_PATHS, RENDER_FAST_PATHS);
 #endif
     pf::cores::init();
-    pf::perf::init(pf::Config::getBool("timing_log", false), pf::Config::getBool("hitch_log", false));
+    pf::perf::init(pf::Config::getBool("timing_log", false), ug2::hitch::enabled());
     pf::limiter::init();
 #ifdef NFSU_PGO_GENERATE
     pf::pgo::start(join(f.data, pf::pgo::FileName).c_str());
@@ -256,6 +319,7 @@ int main(int argc, char** argv)
         ug2::Application app(CommandLine, sections);
         std::vector<win32::Section>().swap(sections);
         std::vector<uint8_t>().swap(image);
+        ug2::modrt::applyPatches(win32::g_guestBase);
         ug2::mixer::configure(app);
         ug2::cull::configure(app);
         ug2::mixstats::configure(app);
@@ -264,11 +328,18 @@ int main(int argc, char** argv)
         ug2::music::configure(app);
         ug2::boot::configure(app);
         ug2::textentry::configure(app);
+        ug2::options::configure(f.config.c_str(), f.game.c_str());
+        ug2::menu::configure(app);
         ug2::padbind::configure(app);
         ug2::hitch::configure(app);
         ug2::textures::configure(app);
         win32::memlog::configure(ug2::frontend::frameCounter);
         ug2::scenery::configure();
+        ug2::offload::configure();
+#ifdef DEV_TOOLS
+        if (pf::Config::getBool("d3d_record_test", false))
+            ug2::dev::recordTest();
+#endif
         ug2::movies::configure(app);
         if (!win32::File::setCurrentDirectory(GuestGameFolder))
             pf::fatal("%s (the game folder) is missing", GuestGameFolder);

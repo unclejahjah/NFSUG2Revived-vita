@@ -3,6 +3,7 @@
 
 #include <native/common.h>
 #include <native/shadow.h>
+#include <offload.h>
 #include <platform/switches.h>
 #include <platform/cached.h>
 #include <platform/config.h>
@@ -227,6 +228,7 @@ const shadow::Spec spec = {"sub_5d6ad0", shadow::Ecx | shadow::Ebx | shadow::Esp
 
 void sub_5d6ad0(win32::WinApplication* app, x86::CPU& cpu)
 {
+    const offload::Pass pass(offload::CatWorld, rc::ld8(cpu.esp + 8));
     shadow::call(spec, app, cpu, body, sub_5d6ad0_guest, declare);
 }
 

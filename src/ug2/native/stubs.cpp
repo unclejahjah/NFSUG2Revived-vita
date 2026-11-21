@@ -71,6 +71,24 @@ void sub_5be180_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_401650_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_5aad20_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_43d0c0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_61d4b0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_6316d0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_631250_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_60bb10_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_43c990_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_4316b0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_6e3b10_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_6e5570_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_6e4900_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_6e82d0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_6e9780_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_5bc6f0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_5bc7b0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_5bc890_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_5bcad0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_5bcb10_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_5bdcd0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_4901d0_guest(win32::WinApplication* app, x86::CPU& cpu);
 
 namespace native
 {
@@ -393,6 +411,96 @@ __attribute__((weak)) void sub_5aad20(win32::WinApplication* app, x86::CPU& cpu)
 __attribute__((weak)) void sub_43d0c0(win32::WinApplication* app, x86::CPU& cpu)
 {
     sub_43d0c0_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_61d4b0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_61d4b0_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_6316d0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_6316d0_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_631250(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_631250_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_60bb10(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_60bb10_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_43c990(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_43c990_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_4316b0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_4316b0_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_6e3b10(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_6e3b10_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_6e5570(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_6e5570_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_6e4900(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_6e4900_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_6e82d0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_6e82d0_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_6e9780(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_6e9780_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_5bc6f0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_5bc6f0_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_5bc7b0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_5bc7b0_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_5bc890(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_5bc890_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_5bcad0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_5bcad0_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_5bcb10(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_5bcb10_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_5bdcd0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_5bdcd0_guest(app, cpu);
+}
+
+__attribute__((weak)) void sub_4901d0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    sub_4901d0_guest(app, cpu);
 }
 
 }
