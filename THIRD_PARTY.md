@@ -25,6 +25,23 @@ installs it into `.pydeps/`.
 The optional profile-guided build links compiler-rt's profile runtime (Apache License 2.0 with LLVM Exceptions). It
 is not part of the repository: `cmake/pgo-runtime.cmake` downloads it for the compiler's version.
 
+## nfsu2-web (NFSU2 Revived)
+
+`src/lib/winapi/revived/winsock.c`, `net_lan.c`, `net_proto.h`, `lan_vfd.h`, `racenet.h` and `winsock.h` come from
+[nfsu2-web](https://github.com/th0mk/nfsu2-web)'s runtime, MIT License (Copyright (c) 2026 th0mk; portions
+copyright (c) 2026 Talha Müderrisoğlu), with small changes for the Vita marked `NFSU2_VLAN_BACKEND`. The license
+text is in `src/lib/winapi/revived/LICENSE.nfsu2-web`.
+
+## Mbed TLS
+
+The Revived link's TLS is Mbed TLS 3.6.2 (Apache License 2.0). It is not part of the repository:
+`cmake/revived.cmake` downloads its release archive and checks its SHA-256 (or uses `NFSU_MBEDTLS`).
+
+## Mozilla CA certificates
+
+`third_party/cacert/cacert.pem` is Mozilla's list of CA certificates, as packaged by certifi 2026.10.18, Mozilla
+Public License 2.0 (https://mozilla.org/MPL/2.0/).
+
 ## Need for Speed Underground 2
 
 Game code, binaries and assets are the property of Electronic Arts Inc. and its licensors and are not part of this

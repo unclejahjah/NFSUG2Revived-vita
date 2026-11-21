@@ -1,0 +1,67 @@
+# The NFSU2 Revived link (include/winapi/revived.h): nfsu2-web's Winsock layer (src/lib/winapi/revived, C), the
+# WebSocket link to the server, and the TLS it runs on (Mbed TLS, src/platform/tls.cpp).
+#
+# nfsu_revived_libraries(<out-var>): adds the static libraries nfsu_mbedtls and nfsu_revived and returns their names.
+# Mbed TLS comes from NFSU_MBEDTLS (a source tree), else its release archive is downloaded once into the build
+# directory and checked against its SHA-256.
+
+set(NFSU_MBEDTLS "$ENV{NFSU_MBEDTLS}" CACHE PATH "Mbed TLS 3.6 source tree (empty: download 3.6.2)")
+
+function(nfsu_revived_libraries out_var)
+  set(version 3.6.2)
+  if(NFSU_MBEDTLS)
+    set(root "${NFSU_MBEDTLS}")
+  else()
+    set(root "${CMAKE_BINARY_DIR}/mbedtls-${version}")
+    if(NOT EXISTS "${root}/library/ssl_tls.c")
+      set(archive "${CMAKE_BINARY_DIR}/mbedtls-${version}.tar.bz2")
+      set(url "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-${version}/mbedtls-${version}.tar.bz2")
+      message(STATUS "Revived link: downloading Mbed TLS ${version}")
+      file(DOWNLOAD "${url}" "${archive}" TLS_VERIFY ON STATUS status
+           EXPECTED_HASH SHA256=8b54fb9bcf4d5a7078028e0520acddefb7900b3e66fec7f7175bb5b7d85ccdca)
+      list(GET status 0 code)
+      if(NOT code EQUAL 0)
+        file(REMOVE "${archive}")
+        message(FATAL_ERROR "Download of ${url} failed (${status}); set NFSU_MBEDTLS")
+      endif()
+      file(ARCHIVE_EXTRACT INPUT "${archive}" DESTINATION "${CMAKE_BINARY_DIR}")
+      file(REMOVE "${archive}")
+    endif()
+  endif()
+  file(GLOB mbedtls_sources "${root}/library/*.c")
+  if(NOT mbedtls_sources)
+    message(FATAL_ERROR "${root}/library has no sources (NFSU_MBEDTLS)")
+  endif()
+  set(config_dir "${CMAKE_SOURCE_DIR}/src/platform/tls")
+  add_library(nfsu_mbedtls STATIC ${mbedtls_sources})
+  target_compile_options(nfsu_mbedtls PRIVATE ${NFSU_ARCH_FLAGS} -O2 -ffunction-sections -fdata-sections -w)
+  target_compile_definitions(nfsu_mbedtls PUBLIC "MBEDTLS_USER_CONFIG_FILE=<mbedtls_vita_config.h>")
+  target_include_directories(nfsu_mbedtls PUBLIC "${root}/include" "${config_dir}" PRIVATE "${root}/library")
+
+  # Mozilla's CA certificates, as a C array
+  set(cacert "${CMAKE_SOURCE_DIR}/third_party/cacert/cacert.pem")
+  set(cacert_c "${CMAKE_BINARY_DIR}/generated/tls_cacert.c")
+  add_custom_command(
+    OUTPUT "${cacert_c}"
+    COMMAND "${CMAKE_COMMAND}" "-DINPUT=${cacert}" "-DOUTPUT=${cacert_c}" "-DSYMBOL=tls_cacert_pem"
+            -P "${CMAKE_SOURCE_DIR}/cmake/bin2c.cmake"
+    DEPENDS "${cacert}" "${CMAKE_SOURCE_DIR}/cmake/bin2c.cmake"
+    COMMENT "Embedding the CA certificates"
+    VERBATIM)
+
+  set(dir src/lib/winapi/revived)
+  set(c_sources ${dir}/winsock.c ${dir}/net_lan.c)
+  add_library(nfsu_revived STATIC
+    ${c_sources}
+    ${dir}/revived_bridge.cpp
+    ${dir}/revived_link.cpp
+    src/platform/tls.cpp
+    "${cacert_c}")
+  target_compile_options(nfsu_revived PRIVATE ${NFSU_COMMON_FLAGS} -O2)
+  target_compile_definitions(nfsu_revived PRIVATE ${NFSU_RUNTIME_DEFINES})
+  target_include_directories(nfsu_revived PRIVATE ${NFSU_INCLUDES} "${CMAKE_SOURCE_DIR}/${dir}")
+  target_link_libraries(nfsu_revived PRIVATE nfsu_mbedtls)
+  # nfsu2-web's own code as it is (its warnings are its own); the browser backend of its virtual LAN
+  set_source_files_properties(${c_sources} PROPERTIES COMPILE_OPTIONS "-w" COMPILE_DEFINITIONS NFSU2_VLAN_BACKEND)
+  set(${out_var} nfsu_revived nfsu_mbedtls PARENT_SCOPE)
+endfunction()

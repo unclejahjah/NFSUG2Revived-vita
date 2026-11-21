@@ -1,4 +1,5 @@
 #include <winapi/netapi32.h>
+#include <winapi/revived.h>
 #include <winapi/support.h>
 #include <winapi/ws2_32.h>
 #include <lib/winapp.h>
@@ -45,6 +46,8 @@ static const BYTE NRC_BRIDGE = 0x23;    // invalid adapter number
 // Asynchronous commands complete at once.
 BYTE Netbios(WinApplication* app, x86::CPU& cpu, NCB* pncb)
 {
+    if (revived::enabled())
+        return BYTE(revived::call(app, cpu, "netapi32", "Netbios"));
     if (!pncb)
         return NRC_BRIDGE;
     unsigned char mac[6];

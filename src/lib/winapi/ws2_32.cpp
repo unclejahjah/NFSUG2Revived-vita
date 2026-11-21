@@ -16,6 +16,7 @@
 // 50 ms with the lock released, so the other guest threads and the renderer keep running, and checks after each
 // slice that the socket was not closed by another thread meanwhile (WSAEINTR, as Windows says).
 #include <winapi/ws2_32.h>
+#include <winapi/revived.h>
 #include <winapi/support.h>
 #include <lib/memmap.h>
 #include <lib/teb.h>
@@ -580,6 +581,11 @@ uint32_t resolve(WinApplication* app, x86::CPU& cpu, const std::string& name)
 
 }
 
+bool netStart()
+{
+    return netUp();
+}
+
 bool adapterAddress(unsigned char mac[6])
 {
     if (!netUp())
@@ -590,6 +596,8 @@ bool adapterAddress(unsigned char mac[6])
 
 int WSAStartup(WinApplication* app, x86::CPU& cpu, WORD wVersionRequested, x86::reg32 lpWSAData)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "WSAStartup"));
     RC_USE(cpu);
     if (!netUp())
     {
@@ -628,6 +636,8 @@ int WSAStartup(WinApplication* app, x86::CPU& cpu, WORD wVersionRequested, x86::
 
 int WSACleanup(WinApplication* app, x86::CPU& cpu)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "WSACleanup"));
     if (!s_startups)
         return fail(app, cpu, WSANOTINITIALISED);
     if (!--s_startups)
@@ -642,6 +652,8 @@ int WSACleanup(WinApplication* app, x86::CPU& cpu)
 // The calling thread's last error, as GetLastError.
 int WSAGetLastError(WinApplication* app, x86::CPU& cpu)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "WSAGetLastError"));
     return int(app->getMemory<x86::reg32>(cpu.efs + teb::LastError));
 }
 
@@ -649,6 +661,8 @@ int WSAIoctl(WinApplication* app, x86::CPU& cpu, SOCKET s, DWORD dwIoControlCode
              DWORD cbInBuffer, x86::reg32 lpvOutBuffer, DWORD cbOutBuffer, x86::reg32 lpcbBytesReturned,
              x86::reg32 lpOverlapped, x86::reg32 lpCompletionRoutine)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "WSAIoctl"));
     RC_USE(lpOverlapped);
     RC_USE(lpCompletionRoutine);
     Sock* sock = use(app, cpu, s);
@@ -707,6 +721,8 @@ int WSAIoctl(WinApplication* app, x86::CPU& cpu, SOCKET s, DWORD dwIoControlCode
 
 SOCKET socket(WinApplication* app, x86::CPU& cpu, int af, int type, int protocol)
 {
+    if (revived::enabled())
+        return SOCKET(revived::call(app, cpu, "ws2_32", "socket"));
     if (!s_startups)
     {
         setLastError(app, cpu, WSANOTINITIALISED);
@@ -742,6 +758,8 @@ SOCKET socket(WinApplication* app, x86::CPU& cpu, int af, int type, int protocol
 
 int closesocket(WinApplication* app, x86::CPU& cpu, SOCKET s)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "closesocket"));
     if (!use(app, cpu, s))
         return SOCKET_ERROR;
     // A thread waiting on it sees the handle gone after its slice (WSAEINTR).
@@ -752,6 +770,8 @@ int closesocket(WinApplication* app, x86::CPU& cpu, SOCKET s)
 
 int shutdown(WinApplication* app, x86::CPU& cpu, SOCKET s, int how)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "shutdown"));
     Sock* sock = use(app, cpu, s);
     if (!sock)
         return SOCKET_ERROR;
@@ -765,6 +785,8 @@ int shutdown(WinApplication* app, x86::CPU& cpu, SOCKET s, int how)
 
 int bind(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 name, int namelen)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "bind"));
     Sock* sock = use(app, cpu, s);
     if (!sock)
         return SOCKET_ERROR;
@@ -788,6 +810,8 @@ int bind(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 name, int name
 
 int connect(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 name, int namelen)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "connect"));
     Sock* sock = use(app, cpu, s);
     if (!sock)
         return SOCKET_ERROR;
@@ -839,6 +863,8 @@ int connect(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 name, int n
 
 int listen(WinApplication* app, x86::CPU& cpu, SOCKET s, int backlog)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "listen"));
     Sock* sock = use(app, cpu, s);
     if (!sock)
         return SOCKET_ERROR;
@@ -855,6 +881,8 @@ int listen(WinApplication* app, x86::CPU& cpu, SOCKET s, int backlog)
 
 SOCKET accept(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 addr, x86::reg32 addrlen)
 {
+    if (revived::enabled())
+        return SOCKET(revived::call(app, cpu, "ws2_32", "accept"));
     Sock* sock = use(app, cpu, s);
     if (!sock)
         return INVALID_SOCKET;
@@ -907,6 +935,8 @@ SOCKET accept(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 addr, x86
 
 int ioctlsocket(WinApplication* app, x86::CPU& cpu, SOCKET s, LONG cmd, x86::reg32 argp)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "ioctlsocket"));
     Sock* sock = use(app, cpu, s);
     if (!sock)
         return SOCKET_ERROR;
@@ -932,6 +962,8 @@ int ioctlsocket(WinApplication* app, x86::CPU& cpu, SOCKET s, LONG cmd, x86::reg
 int setsockopt(WinApplication* app, x86::CPU& cpu, SOCKET s, int level, int optname, x86::reg32 optval,
                int optlen)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "setsockopt"));
     Sock* sock = use(app, cpu, s);
     if (!sock)
         return SOCKET_ERROR;
@@ -1001,6 +1033,8 @@ int setsockopt(WinApplication* app, x86::CPU& cpu, SOCKET s, int level, int optn
 int getsockopt(WinApplication* app, x86::CPU& cpu, SOCKET s, int level, int optname, x86::reg32 optval,
                x86::reg32 optlen)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "getsockopt"));
     Sock* sock = use(app, cpu, s);
     if (!sock)
         return SOCKET_ERROR;
@@ -1053,23 +1087,31 @@ int getsockopt(WinApplication* app, x86::CPU& cpu, SOCKET s, int level, int optn
 
 int send(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 buf, int len, int flags)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "send"));
     return doSend(app, cpu, s, buf, len, flags, 0, 0);
 }
 
 int sendto(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 buf, int len, int flags, x86::reg32 to,
            int tolen)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "sendto"));
     return doSend(app, cpu, s, buf, len, flags, to, tolen);
 }
 
 int recv(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 buf, int len, int flags)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "recv"));
     return doRecv(app, cpu, s, buf, len, flags, 0, 0);
 }
 
 int recvfrom(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 buf, int len, int flags, x86::reg32 from,
              x86::reg32 fromlen)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "recvfrom"));
     return doRecv(app, cpu, s, buf, len, flags, from, fromlen);
 }
 
@@ -1077,6 +1119,8 @@ int recvfrom(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 buf, int l
 int select(WinApplication* app, x86::CPU& cpu, int nfds, x86::reg32 readfds, x86::reg32 writefds,
            x86::reg32 exceptfds, x86::reg32 timeout)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "select"));
     RC_USE(nfds);
     if (!s_startups)
         return fail(app, cpu, WSANOTINITIALISED);
@@ -1180,6 +1224,8 @@ int select(WinApplication* app, x86::CPU& cpu, int nfds, x86::reg32 readfds, x86
 
 int getpeername(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 name, x86::reg32 namelen)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "getpeername"));
     Sock* sock = use(app, cpu, s);
     if (!sock)
         return SOCKET_ERROR;
@@ -1200,6 +1246,8 @@ int getpeername(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 name, x
 
 int getsockname(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 name, x86::reg32 namelen)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "getsockname"));
     Sock* sock = use(app, cpu, s);
     if (!sock)
         return SOCKET_ERROR;
@@ -1219,6 +1267,8 @@ int getsockname(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 name, x
 // *.ea.com goes to the community server; this Vita's own name to its address; dotted addresses as they are.
 x86::reg32 gethostbyname(WinApplication* app, x86::CPU& cpu, LPCSTR name)
 {
+    if (revived::enabled())
+        return x86::reg32(revived::call(app, cpu, "ws2_32", "gethostbyname"));
     if (!s_startups)
     {
         setLastError(app, cpu, WSANOTINITIALISED);
@@ -1253,6 +1303,8 @@ x86::reg32 gethostbyname(WinApplication* app, x86::CPU& cpu, LPCSTR name)
 
 int gethostname(WinApplication* app, x86::CPU& cpu, x86::reg32 name, int namelen)
 {
+    if (revived::enabled())
+        return int(revived::call(app, cpu, "ws2_32", "gethostname"));
     if (!s_startups)
         return fail(app, cpu, WSANOTINITIALISED);
     const std::string host = hostName();
