@@ -51,8 +51,13 @@ function(nfsu_revived_libraries out_var)
 
   set(dir src/lib/winapi/revived)
   set(c_sources ${dir}/winsock.c ${dir}/net_lan.c)
+  # free roam (src/ug2/freeroam.cpp): nfsu2-web's mod as its PC plugin builds it (-DROAM_HOST_WIN), on the
+  # browser's network (roam_web.c)
+  set(roam_sources ${dir}/roam/roam_game.c ${dir}/roam/roam_core.c ${dir}/roam/roam_web.c)
   add_library(nfsu_revived STATIC
     ${c_sources}
+    ${roam_sources}
+    ${dir}/roam/roam_vita.cpp
     ${dir}/revived_bridge.cpp
     ${dir}/revived_link.cpp
     src/platform/tls.cpp
@@ -63,5 +68,6 @@ function(nfsu_revived_libraries out_var)
   target_link_libraries(nfsu_revived PRIVATE nfsu_mbedtls)
   # nfsu2-web's own code as it is (its warnings are its own); the browser backend of its virtual LAN
   set_source_files_properties(${c_sources} PROPERTIES COMPILE_OPTIONS "-w" COMPILE_DEFINITIONS NFSU2_VLAN_BACKEND)
+  set_source_files_properties(${roam_sources} PROPERTIES COMPILE_OPTIONS "-w" COMPILE_DEFINITIONS ROAM_HOST_WIN)
   set(${out_var} nfsu_revived nfsu_mbedtls PARENT_SCOPE)
 endfunction()

@@ -197,7 +197,16 @@ is not available, as before. Two ways to play, chosen with `network`:
   `online_server` (default `eahub.eu`), the same redirect the PC `eanationhub` mod uses, and the lobby link is plain
   TCP to port 20920 (the game's `*pcnfs05.ea.com` loses its `*`, which asked for SSL 2.0).
 
-Not yet tested on a real Vita. Free roam with other players, as in the browser game, is not part of this yet. With
+**Free roam with other players** (NFSU2 Revived's free-roam mod) installs the way the PC mod does. On PC it is
+`NFSU2FreeRoam.asi` and `NFSU2FreeRoam.ini` in the game's `scripts` folder; on the Vita the code is built in, so only
+the settings file goes there: copy [`extras/scripts/NFSU2FreeRoam.ini`](extras/scripts/NFSU2FreeRoam.ini) to
+`ux0:data/NeedForSpeedUnderground2/scripts/NFSU2FreeRoam.ini`. It has the PC plugin's settings (`Enable`, `Name`,
+`Room`, `Crew`, `CrewColours`, `Collide`, ...) and writes `scripts/NFSU2FreeRoam.log`. The game side is the PC
+plugin's (runtime/roam_game.c built as for Windows), run from the same place in the game's main loop; the cars of the
+players near you come from the Revived server's free-roam hub, so this needs `network=revived`. Without the file, or
+with `Enable = 0`, the game is as before.
+
+Not yet tested on a real Vita. With
 `log_info=on` the link logs its steps with a `revived:` prefix (`ws2_32:` in `direct` mode), which helps when reporting
 a problem. In `direct` mode, the race link uses UDP port 3658, which the Vita also uses for ad hoc play; if binding it
 fails, the log says so.

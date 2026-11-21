@@ -17,6 +17,7 @@
 extern "C" int winsock_call(CPU* c, const char* dll, const char* n, uint32_t* out);
 // revived_link.cpp: SceNet up, the link thread started
 bool revived_link_start();
+bool revived_link_ensure();
 
 namespace
 {
@@ -83,6 +84,13 @@ void olfilter_lobby_sent(uint32_t, uint8_t*, int) {}
 
 }
 
+// The link thread, started once (the first Winsock call, or free roam's first frame).
+bool revived_link_ensure()
+{
+    static const bool s_link = revived_link_start();
+    return s_link;
+}
+
 namespace win32 { namespace revived
 {
 
@@ -103,8 +111,7 @@ x86::reg32 call(WinApplication* app, x86::CPU& cpu, const char* dll, const char*
         nfsu2_guest_base = g_guestBase;
     // Every Winsock call starts the link once (SceNet, the link thread); without a network the calls see the
     // virtual LAN down, as the browser does without its server.
-    static const bool s_link = revived_link_start();
-    (void)s_link;
+    revived_link_ensure();
     win32::WinApplication* const outerApp = t_app;
     x86::CPU* const outerCpu = t_cpu;
     t_app = app;

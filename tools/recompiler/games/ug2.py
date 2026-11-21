@@ -22,6 +22,12 @@ NO_RETURN = [
     0x75bca3,   # _amsg_exit variant (__crtExitProcess)
 ]
 
+# Calls that write their return address into its stack slot (the translation leaves it unwritten): their native
+# callee runs only for that caller.
+RETURN_ADDRESS_SITES = [
+    0x581475,   # GameLoop's second debug hook call (0x4022C0): free roam (src/ug2/freeroam.cpp), as NFSU2FreeRoam.asi
+]
+
 # Guest functions replaced by hand-written native code (native::sub_<address>, src/ug2/native.cpp).
 NATIVE_OVERRIDES = [
     0x75bed4,   # _ftol2: st0 to a 64-bit integer, truncating (fistp, corrected toward zero)
@@ -47,6 +53,9 @@ NATIVE_OVERRIDES = [
     0x5dd360, 0x5abdf0,
     # Garage camera orbit with the right stick (src/ug2/native/sub_4a5d90.cpp)
     0x4a5d90,
+    # GameLoop's debug hook (empty, ret), called at 0x581470 and 0x581475 between World::DoTimestep and the camera,
+    # audio and render: the call at 0x581475 is where the PC's NFSU2FreeRoam.asi runs free roam (src/ug2/freeroam.cpp)
+    0x4022c0,
     # Medium graphics features: flares, shadow hull, headlight pass, particles
     0x490920, 0x5c5580, 0x60cee0, 0x5bdaa0, 0x48bdf0, 0x492e10,
     0x5c0e10, 0x4881d0, 0x5bb430, 0x61e700,

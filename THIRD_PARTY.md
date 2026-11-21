@@ -27,7 +27,9 @@ is not part of the repository: `cmake/pgo-runtime.cmake` downloads it for the co
 
 ## nfsu2-web (NFSU2 Revived)
 
-`src/lib/winapi/revived/winsock.c`, `net_lan.c`, `net_proto.h`, `lan_vfd.h`, `racenet.h` and `winsock.h` come from
+`src/lib/winapi/revived/winsock.c`, `net_lan.c`, `net_proto.h`, `lan_vfd.h`, `racenet.h`, `winsock.h`, the free-roam
+mod in `src/lib/winapi/revived/roam/` (`roam_game.c`, `roam_core.c`, `roam_core.h`, `roam_plat.h`, `roam_web.c`,
+`carsfx.h`, `names.h`; `roam_host_win.h` after the PC plugin's) and `extras/scripts/NFSU2FreeRoam.ini` come from
 [nfsu2-web](https://github.com/th0mk/nfsu2-web)'s runtime, MIT License (Copyright (c) 2026 th0mk; portions
 copyright (c) 2026 Talha Müderrisoğlu), with small changes for the Vita marked `NFSU2_VLAN_BACKEND`. The license
 text is in `src/lib/winapi/revived/LICENSE.nfsu2-web`.

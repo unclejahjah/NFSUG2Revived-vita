@@ -822,6 +822,17 @@ private:
                 memcpy(frame + FrameHeader, s->data, len);
                 sendFrame(0x2, frame, FrameHeader + len);
             }
+            else if (kind == NET_KIND_NOTICE && len <= NET_MAX_PAYLOAD)
+            {
+                // a line the page would show over the game (free roam: a friend joined, left...): the log here,
+                // the friend's name first, ended by 0x1F
+                std::string text(reinterpret_cast<const char*>(s->data), len);
+                const size_t k = text.find('\x1f');
+                if (k != std::string::npos)
+                    text.erase(k, 1);
+                if (!text.empty() && text[0] != '\x1e')
+                    pf::logInfo("revived: %s", text.c_str());
+            }
             ++tail;
             st(&ep.mb->tx_tail, tail);
         }
