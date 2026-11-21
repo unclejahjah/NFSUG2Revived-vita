@@ -50,7 +50,8 @@ void sub_577b10(win32::WinApplication* app, x86::CPU& cpu)
 // Solid unload (cdecl; chunk, pack): clears each solid's mesh.
 void sub_493f20(win32::WinApplication* app, x86::CPU& cpu)
 {
-    flush::unloadFence("solid");
+    const x86::reg32 chunk = argument(cpu, 0);
+    flush::unloadFence("solid", chunk, rc::ld32(chunk + 4) + 8);
     sub_493f20_guest(app, cpu);
 }
 

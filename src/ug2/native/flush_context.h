@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 namespace ug2 { namespace native { namespace flush {
 
@@ -173,6 +174,9 @@ struct Context : win32::d3d9::bridge::SegmentRef
     bool        ok = true;              // the flush ran to its end
     uint32_t    fpscr = 0;              // the game thread's, set on the thread that runs the job
     void      (*run)(Context&) = nullptr;   // the flush on cpu, then the segment's publish
+#ifdef DEV_TOOLS
+    std::vector<reg32> solids;          // solids of the queued mesh draws, for the unload log
+#endif
 
     // Marker: clears the light copies.
     void beginSnapshot();
@@ -241,8 +245,8 @@ Pending pendingStats();
 void closeDone();
 // Waits for every job and closes it, game thread; fence: waits are counted as fence waits.
 void fence();
-// Fence before guest data a pending flush reads is unloaded, game thread.
-void unloadFence(const char* what);
+// Fence before guest data (from, size if known) a pending flush reads is unloaded.
+void unloadFence(const char* what, reg32 from = 0, reg32 size = 0);
 
 inline Context* context(const x86::CPU& cpu)
 {

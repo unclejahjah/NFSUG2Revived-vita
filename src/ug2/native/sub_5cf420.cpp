@@ -672,6 +672,9 @@ bool prepare(win32::WinApplication* app, const x86::CPU& cpu, flush::Context& co
     draws = 0;
     context.listCount = 0;
     context.beginSnapshot();
+#ifdef DEV_TOOLS
+    context.solids.clear();
+#endif
     if (rc::ld32(rc::ld32(CurrentView) + 4) >= flush::ViewCount)
         return false;
     for (reg32 k = nextList(0); k < HeadCount; k = nextList(k + 1))
@@ -739,6 +742,10 @@ bool prepare(win32::WinApplication* app, const x86::CPU& cpu, flush::Context& co
                     continue;
                 }
                 const reg32 mesh = rc::ld32(rc::ld32(entry + 0x10));
+#ifdef DEV_TOOLS
+                if (context.solids.empty() || context.solids.back() != rc::ld32(entry + 0x10))
+                    context.solids.push_back(rc::ld32(entry + 0x10));
+#endif
                 draws += meshDraws;
                 for (reg32 i = 0; i < staleCount; ++i)
                     if (stale[i] == rc::ld32(mesh + 0x20) || stale[i] == rc::ld32(mesh + 0x2c))
@@ -1055,13 +1062,22 @@ void fence()
     s_fenceWaitUs += pf::perf::now() - start;
 }
 
-void unloadFence(const char* what)
+void unloadFence(const char* what, reg32 from, reg32 size)
 {
 #ifdef DEV_TOOLS
-    static uint32_t calls = 0, logged = 0;
-    uint32_t running = 0;
+    static uint32_t calls = 0, logged = 0, hitsLogged = 0;
+    uint32_t running = 0, hits = 0;
     for (const Context* job : s_pending)
-        running += !queue::isDone(*job);
+    {
+        const bool unfinished = !queue::isDone(*job);
+        running += unfinished;
+        if (unfinished && size != 0)
+            for (const reg32 solid : job->solids)
+                hits += solid - from < size;
+    }
+    if (hits != 0 && hitsLogged < 64 && ++hitsLogged)
+        pf::logError("offload: %s unload of 0x%08x+0x%x at frame %u frees %u solids that unfinished flushes still draw", what,
+                     unsigned(from), unsigned(size), unsigned(rc::ld32(0x86514c)), unsigned(hits));
     ++calls;
     static uint32_t foreign = 0;
     const int game = queue::gameThread(), self = pf::Thread::currentId();
@@ -1095,7 +1111,7 @@ Pending pendingStats()
 #else
 void closeDone() {}
 void fence() {}
-void unloadFence(const char*) {}
+void unloadFence(const char*, reg32, reg32) {}
 Pending pendingStats() { return Pending{}; }
 #endif
 
