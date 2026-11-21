@@ -7,6 +7,7 @@
 #include <platform/config.h>
 #include <platform/log.h>
 #include <platform/perf.h>
+#include <platform/sync.h>
 #include <algorithm>
 #include <atomic>
 #include <offload.h>
@@ -1062,14 +1063,27 @@ void unloadFence(const char* what)
     for (const Context* job : s_pending)
         running += !queue::isDone(*job);
     ++calls;
-    if ((running != 0 || calls <= 8 || (calls & (calls - 1)) == 0) && logged < 96 && ++logged)
-        pf::logInfo("offload: %s unload %u at frame %u: %u flushes pending, %u not finished", what, unsigned(calls),
-                    unsigned(rc::ld32(0x86514c)), unsigned(s_pending.size()), unsigned(running));
-#else
-    (void)what;
+    static uint32_t foreign = 0;
+    const int game = queue::gameThread(), self = pf::Thread::currentId();
+    const bool other = game != 0 && self != game;
+    foreign += other;
+    if ((running != 0 || other || calls <= 8 || (calls & (calls - 1)) == 0) && logged < 200 && ++logged)
+        pf::logInfo("offload: %s unload %u at frame %u: %u flushes pending, %u not finished; thread %d, game thread %d, "
+                    "%u calls off the game thread, %u jobs run so far", what, unsigned(calls), unsigned(rc::ld32(0x86514c)),
+                    unsigned(s_pending.size()), unsigned(running), self, game, unsigned(foreign),
+                    unsigned(queue::totals().runs));
 #endif
-    if (!s_pending.empty() && NFSU_SWITCH_CACHED("offload_unload_fence", 1))
-        fence();
+    if (s_pending.empty() || !NFSU_SWITCH_CACHED("offload_unload_fence", 1))
+        return;
+    if (pf::Thread::currentId() != queue::gameThread())
+    {
+        // Jobs are closed on the game thread only; the worker's null mesh check still holds.
+        static std::atomic<bool> told{false};
+        if (!told.exchange(true))
+            pf::logError("offload: %s unload off the game thread, pending flushes not joined", what);
+        return;
+    }
+    fence();
 }
 
 Pending pendingStats()

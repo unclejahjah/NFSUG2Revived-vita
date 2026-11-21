@@ -320,6 +320,11 @@ void await(void* pointer)
     s_waits[game].fetch_add(1, std::memory_order_relaxed);
 }
 
+int gameThread()
+{
+    return s_gameThread.load(std::memory_order_relaxed);
+}
+
 Totals totals()
 {
     return Totals{ { s_waitedUs[0].load(), s_waitedUs[1].load() }, { s_waits[0].load(), s_waits[1].load() },

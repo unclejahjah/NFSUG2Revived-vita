@@ -229,6 +229,8 @@ inline bool isDone(const Context& job) { return job.state.load(std::memory_order
 // Microseconds waiting in await, jobs run and microseconds spent running them; read by the counters.
 struct Totals { uint64_t waitedUs[2], waits[2], runs, busyUs; };
 Totals totals();
+// Id of the thread that submitted the last job, 0 before the first.
+int gameThread();
 }
 
 // Jobs pending now and the most since the last call, game thread; microseconds the game thread waited at joins and
