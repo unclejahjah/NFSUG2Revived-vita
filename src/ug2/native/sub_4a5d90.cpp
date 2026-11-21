@@ -28,15 +28,18 @@ struct GarageStick
     float speed;        // mouse counts per frame at full deflection
 };
 
+// Read again when the options menu changes a setting (pf::Config::generation).
 const GarageStick& settings()
 {
-    static const GarageStick s = [] {
-        GarageStick g;
-        g.enabled = pf::Config::getBool("garage_stick", true);
-        g.deadZone = std::min(std::max(pf::Config::getInt("garage_stick_deadzone", 20), 0), 99) / 100.0f;
-        g.speed = float(pf::Config::getInt("garage_stick_speed", 4));
-        return g;
-    }();
+    static GarageStick s;
+    static unsigned s_generation = ~0u;
+    if (s_generation != pf::Config::generation())
+    {
+        s_generation = pf::Config::generation();
+        s.enabled = pf::Config::getBool("garage_stick", true);
+        s.deadZone = std::min(std::max(pf::Config::getInt("garage_stick_deadzone", 20), 0), 99) / 100.0f;
+        s.speed = float(pf::Config::getInt("garage_stick_speed", 4));
+    }
     return s;
 }
 

@@ -20,6 +20,10 @@ public:
     // Index of the value in names[0..count) (any case); defaultIndex if the key is missing or the value is not one
     // of the names (logged).
     static int  getChoice(const char* key, const char* const* names, int count, int defaultIndex);
+    // A new value for a known key, as if the file had it (the options menu's settings that apply at once); an empty
+    // value removes it. Game thread; readers that cache a value compare generation().
+    static void set(const char* key, const char* value);
+    static unsigned generation();
 };
 
 }

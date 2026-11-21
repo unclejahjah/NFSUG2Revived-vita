@@ -658,4 +658,23 @@ void setText(int g, int i, const std::string& text)
     s_values[g][i] = v;
 }
 
+bool applyLive(int g, int i)
+{
+    // The settings read where they are used, rather than once at the start.
+    static const char* const Live[] = { "log_info", "garage_stick", "garage_stick_deadzone", "garage_stick_speed" };
+    const Item& it = item(g, i);
+    if (it.store != Cfg)
+        return false;
+    for (const char* key : Live)
+    {
+        if (strcmp(it.key, key) != 0)
+            continue;
+        pf::Config::set(it.key, s_values[g][i].c_str());
+        if (!strcmp(it.key, "log_info"))
+            pf::logSetInfo(pf::Config::getBool("log_info", false));
+        return true;
+    }
+    return false;
+}
+
 }}

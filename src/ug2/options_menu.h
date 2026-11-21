@@ -37,6 +37,8 @@ std::string itemText(int g, int i);
 void cycle(int g, int i, int delta);
 // A text item's new text; an empty one leaves a secret as it was.
 void setText(int g, int i, const std::string& text);
+// After a change was saved: applies it now if it can be, which most settings cannot (true then).
+bool applyLive(int g, int i);
 
 }}
 

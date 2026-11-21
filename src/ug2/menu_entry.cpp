@@ -59,7 +59,13 @@ const reg32 OnlineItem       = 0x00790C38;  // the main menu's Online icon class
 const reg32 AddOption        = 0x0050DAB0;  // an icon menu's method 0x18 (thiscall (item), ret 4)
 const reg32 OptionsItem      = 0x00790C40;  // the main menu's Options icon class: its React opens UI_OptionsMain
 const reg32 CategoryItem     = 0x007918C8;  // an options category class (category 2, a list of rows)
-const reg32 OptionsIcon      = 0x3058FE37;  // the main menu's Options icon texture
+const reg32 VitaIcon         = 0x5654A1C0;  // our icon texture, added to GLOBAL/GlobalB.lzc (tools/vita/vita_icon.py)
+const reg32 SwitchPackage    = 0x00537980;  // cdecl (from package, to package name, 0)
+const reg32 OptionsMainName  = 0x0078FA3C;  // "UI_OptionsMain.fng"
+const reg32 ShowDialog       = 0x00558790;  // cdecl: a one-button dialog (package, dialog package, ..., text hash)
+const reg32 SmallDialog      = 0x0078FA24;  // "GenericDialog_SMALL.fng"
+const reg32 DialogDone       = 0x56540D1A;  // the message our dialog sends back, swallowed
+const reg32 OptionsBack      = 0x911AB364;  // UI_OptionsMain: Circle
 const reg32 MainReact        = 0x004F98B0;  // UI_Main's React (thiscall; message, 3 more; ret 0x10)
 const reg32 OptionsMainReact = 0x004B6080;  // UI_OptionsMain's
 const reg32 OptionsReact     = 0x0049C690;  // UI_Options's
@@ -76,12 +82,15 @@ const reg32 RowSize          = 0x58;        // the game's 0x54, then our item in
 const unsigned AcceptSound   = 8;
 const int MaxGroups          = 15;
 
-// The game's own category icons for ours, and the last for Save and Restart.
-const reg32 GroupIcons[] = { 0xD708EFEF, 0x4DF98FB2, 0x8A006328, 0xF37AF144, 0xA04A7B26, 0x51009E20 };
+// The game's own category icons for ours (GlobalB's, which race pause menus have too), and the last for Save and
+// Restart.
+const reg32 GroupIcons[] = { 0xD708EFEF, 0x4DF98FB2, 0x8A006328, 0xF37AF144, 0xA04A7B26, VitaIcon };
 const reg32 RestartIcon = 0x83070A37;
 const char RestartLabel[] = "Save and Restart";
+const char RestartText[] = "This setting applies the next time the game starts. Use Save and Restart in Vita Settings "
+                           "to restart now.";
 
-enum TextKind { KindName = 0, KindValue = 1, KindGroup = 2 };
+enum TextKind { KindName = 0, KindValue = 1, KindGroup = 2, KindDialog = 3 };
 
 reg32 hashOf(TextKind kind, int g, int i, int parity) { return OurHashes | reg32(kind) << 12 | reg32(g) << 8 | reg32(i) << 1 | reg32(parity); }
 
@@ -91,6 +100,9 @@ win32::MethodPtr s_optionsReact = nullptr;
 win32::MethodPtr s_peekMessage = nullptr;
 win32::MethodPtr s_addOption = nullptr;
 bool s_inMainSetup = false;
+reg32 s_pauseItem = 0;                  // the game's UI_OptionsMain: our icon among its categories
+reg32 s_gameOptionsMain = 0;
+bool s_restartShown = false;            // the restart dialog, once a list visit
 
 reg32 s_menu = 0, s_item = 0;           // UI_Main and our icon
 bool s_vita = false;                    // UI_OptionsMain and UI_Options show ours
@@ -186,6 +198,21 @@ void openEditor(reg32 row)
         s_editRow = row;
 }
 
+// A setting changed: saved at once, applied now when it can be, else the game's dialog says it needs a restart
+// (once a visit of the list).
+void changed(win32::WinApplication* app, x86::CPU& cpu, int g, int i)
+{
+    options::save();
+    if (options::applyLive(g, i) || s_restartShown || !s_options)
+        return;
+    s_restartShown = true;
+    const reg32 text = hashOf(KindDialog, 0, 0, 0);
+    if (!setText(app, cpu, text, RestartText))
+        return;
+    callGuest(app, cpu, ShowDialog, 0, { rc::ld32(s_options + 4), SmallDialog, 0x639, 0x541389E5, 0xEFEDCBA0,
+                                         DialogDone, DialogDone, 0, text });
+}
+
 // Our row's method 1 (thiscall (x, message), ret 8): left and right change a choice.
 void rowReact(win32::WinApplication* app, x86::CPU& cpu)
 {
@@ -197,6 +224,7 @@ void rowReact(win32::WinApplication* app, x86::CPU& cpu)
         options::cycle(g, i, message == Right ? 1 : -1);
         callGuest(app, cpu, rc::ld32(rc::ld32(row) + 0x40), row, { message });    // the game's blink
         setRowTexts(app, cpu, row);
+        changed(app, cpu, g, i);
     }
     else if (message == Accept)
     {
@@ -220,7 +248,7 @@ void addOption(win32::WinApplication* app, x86::CPU& cpu)
     if (s_inMainSetup && cpu.ecx == s_menu && item && rc::ld32(item) == OnlineItem)
     {
         rc::st32(item, OptionsItem);
-        rc::st32(item + 0x0C, OptionsIcon);
+        rc::st32(item + 0x0C, VitaIcon);
         rc::st32(item + 0x2C, LabelHash);
         s_item = item;
     }
@@ -247,6 +275,21 @@ void mainReact(win32::WinApplication* app, x86::CPU& cpu)
 void optionsMainReact(win32::WinApplication* app, x86::CPU& cpu)
 {
     const reg32 menu = cpu.ecx;
+    // The game's own categories: our icon among them opens ours in the same screen.
+    if (!s_vita && s_pauseItem && menu == s_gameOptionsMain && rc::ld32(cpu.esp + 4) == Accept &&
+        rc::ld32(menu + 0x58) == s_pauseItem)
+    {
+        playAccept(app, cpu, menu);
+        s_vita = true;
+        options::load();
+        const reg32 package = rc::ld32(menu + 4);
+        callGuest(app, cpu, SwitchPackage, 0, { package, OptionsMainName, 0 });
+        pf::logInfo("menu entry: Vita Settings from the game's options");
+        cpu.esp += 4 + 16;
+        return;
+    }
+    if (s_vita && menu == s_optionsMain && rc::ld32(cpu.esp + 4) == OptionsBack)
+        s_vita = false;     // back to wherever the options were opened from
     if (s_vita && menu == s_optionsMain && rc::ld32(cpu.esp + 4) == Accept)
     {
         const reg32 current = rc::ld32(menu + 0x58);
@@ -275,6 +318,11 @@ void optionsReact(win32::WinApplication* app, x86::CPU& cpu)
     if (s_vita && screen == s_options)
     {
         const reg32 message = rc::ld32(cpu.esp + 4);
+        if (message == DialogDone)
+        {
+            cpu.esp += 4 + 16;
+            return;
+        }
         if (message == Accept && isOurRow(rc::ld32(screen + 0x54)))
             openEditor(rc::ld32(screen + 0x54));
         else if (message == LeaveList)
@@ -305,7 +353,11 @@ void peekMessageHook(win32::WinApplication* app, x86::CPU& cpu)
     for (char& c : text)
         c = 0;
     if (s_options && isOurRow(row))
+    {
         setRowTexts(app, cpu, row);
+        if (result == win32::Gamepad::TextConfirmed)
+            changed(app, cpu, s_group, rowItem(row));
+    }
 }
 
 }
@@ -361,7 +413,22 @@ void sub_4b6230(win32::WinApplication* app, x86::CPU& cpu)
     const reg32 menu = cpu.ecx;
     if (!s_vita)
     {
+        s_gameOptionsMain = menu;
+        s_pauseItem = 0;
         sub_4b6230_guest(app, cpu);
+        // Vita Settings after the game's categories.
+        if (options::enabled() && setText(app, cpu, LabelHash, "Vita Settings"))
+        {
+            const reg32 item = callGuest(app, cpu, OperatorNew, 0, { 0x48 });
+            if (item)
+            {
+                callGuest(app, cpu, ItemConstructor, item, { VitaIcon, LabelHash, 0 });
+                rc::st32(item, CategoryItem);
+                callGuest(app, cpu, rc::ld32(rc::ld32(menu) + 0x18), menu, { item });
+                callGuest(app, cpu, rc::ld32(rc::ld32(menu) + 0x10), menu, {});
+                s_pauseItem = item;
+            }
+        }
         return;
     }
     s_optionsMain = menu;
@@ -421,6 +488,7 @@ void sub_4b8470(win32::WinApplication* app, x86::CPU& cpu)
     }
     s_options = screen;
     s_editRow = 0;
+    s_restartShown = false;
     const int count = s_group < options::groupCount() ? options::itemCount(s_group) : 0;
     for (int i = 0; s_rowClass && i < count; ++i)
     {

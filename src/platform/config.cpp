@@ -93,7 +93,7 @@ const char* find(const char* key)
     for (int i = 0; i < s_count; ++i)
     {
         if (strcmp(s_entries[i].key, key) == 0)
-            return s_entries[i].value;
+            return s_entries[i].value[0] ? s_entries[i].value : nullptr;    // set() empties a removed key
     }
     return nullptr;
 }
@@ -251,6 +251,37 @@ int Config::getInt(const char* key, int defaultValue)
 {
     int value = defaultValue;
     return tryGetInt(key, &value) ? value : defaultValue;
+}
+
+static unsigned s_generation = 0;
+
+void Config::set(const char* key, const char* value)
+{
+    if (strlen(key) >= MaxKey || strlen(value) >= MaxValue)
+        return;
+    int i = 0;
+    while (i < s_count && strcmp(s_entries[i].key, key) != 0)
+        ++i;
+    if (!*value)
+    {
+        if (i < s_count)
+            s_entries[i].value[0] = 0;
+    }
+    else if (i < s_count || s_count < MaxEntries)
+    {
+        if (i == s_count)
+        {
+            strcpy(s_entries[i].key, key);
+            ++s_count;
+        }
+        strcpy(s_entries[i].value, value);
+    }
+    ++s_generation;
+}
+
+unsigned Config::generation()
+{
+    return s_generation;
 }
 
 const char* Config::getString(const char* key, const char* defaultValue)
