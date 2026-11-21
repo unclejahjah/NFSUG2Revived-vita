@@ -126,8 +126,7 @@ controller (Cross is shown as Button 3), and the tables below are the defaults.
 | Cross | Handbrake |
 | Circle | Nitrous |
 | Triangle / Square | Shift up / down |
-| Rear touch, upper corners | Shift |
-| Rear touch, lower corners | Look back / change camera |
+| Rear touch corners | Not bound; set them in Options > Controls |
 | Select | Reset car to the road |
 | Start | Pause |
 
@@ -208,7 +207,7 @@ Delete the file to get a fresh copy on the next start.
 | `frame_rate` | `30` (default), `0` | Locked to 30 frames a second for steady pacing, or unlocked |
 | `widescreen` | `on` (default), `off` | Full 16:9 picture with the HUD at the screen edges, or the original 4:3 one with black bars |
 | `gfx_preset` | `vita` (default), `max` | Graphics the port is tuned for, or everything on (much slower). Can be changed in game Options -> Display|
-| `rear_touch` | `on` (default), `off` | Rear touch pad L2, R2, R3, L3 |
+| `rear_touch` | `on` (default), `off` | Rear touch pad L2, R2, L3, R3 (unbound until set in Options > Controls) |
 | `front_touch` | `on` (default), `off` | Touching the screen works as a mouse click in the menus; no cursor is drawn |
 | `garage_stick` | `on` (default), `off` | The right stick turns the car in the garage and customisation menus. `garage_stick_deadzone` (default `30`, percent) tunes it. The right stick does not move menu selections |
 | `dev_world_lod_pixels` | `0` (default, off), a width in pixels | Experimental. Scenery narrower than this on screen uses its simpler model. `128` gives more speed; higher values show more pop-in. The old name `world_lod_pixels` still works |

@@ -24,7 +24,7 @@ const char DefaultSettingsFile[] =
     "# The game's own Display menu changes the individual options; above Medium detail the Vita struggles.\n"
     "#gfx_preset=vita\n"
     "\n"
-    "# Rear touch pad for shifting and the camera: on or off.\n"
+    "# Rear touch pad as L2, R2, L3 and R3 (unbound until set in the Controls screen): on or off.\n"
     "#rear_touch=on\n"
     "\n"
     "# Front touch screen as a mouse click in the menus (no cursor is drawn): on or off.\n"

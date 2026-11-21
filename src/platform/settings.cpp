@@ -36,7 +36,7 @@ const Setting s_table[] =
     ENUM("movies", Display, 1, "game|native|vp6|vp6only", "native: the .mp4s, Vita decoder; vp6: else native VP6 (vp6only: VP6 always); game: the game's own decoder.", 0),
 
     // ---- Controls ----
-    BOOL("rear_touch", Controls, 1, "Rear touch pad works as L2, R2, R3 and L3 for shifting and the camera.", 0),
+    BOOL("rear_touch", Controls, 1, "Rear touch pad works as L2, R2, L3 and R3, unbound until set in the Controls screen.", 0),
     BOOL("front_touch", Controls, 1, "Touching the screen clicks like a mouse in the menus; no cursor is drawn.", 0),
     BOOL("garage_stick", Controls, 1, "The right stick turns the car in the garage and the customisation menus.", 0),
     INT("garage_stick_deadzone", Controls, 30, 0, 99, 1, "Dead zone of the garage stick, in percent of its range.", 0),
