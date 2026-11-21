@@ -61,6 +61,8 @@ NATIVE_OVERRIDES = [
     # Vita Settings in the game's own screens (src/ug2/menu_entry.cpp): the setups of UI_Main, UI_OptionsMain and
     # UI_Options (thiscall; their constructors call them directly) and the game's text of a label hash (edx)
     0x4aee30, 0x4b6230, 0x4b8470, 0x4ff9d0,
+    # ... and the race pause menu's options list, UI_PauseOptions (0x4d9418 calls it directly)
+    0x4c4bd0,
     # Menu up/down ignore the right stick (src/ug2/native/sub_571d50.cpp)
     0x571d50,
     # Medium graphics features: flares, shadow hull, headlight pass, particles
