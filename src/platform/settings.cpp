@@ -29,14 +29,7 @@ const Setting s_table[] =
     // ---- General ----
     BOOL("show_configurator_on_boot", General, 1, "Show the start-up screen (press START to configure) before the game boots.", 0),
     BOOL("log_info", General, 0, "Write a detailed log to NeedForSpeedUnderground2.log. Errors are logged either way.", 0),
-    BOOL("options_menu", General, 1, "The Vita Settings icon in the game's menus (main menu, Options, pause menu Options).", 0),
-
-    // ---- General: network play (src/lib/winapi/ws2_32.cpp, src/lib/winapi/revived) ----
-    ENUM("network", General, 0, "revived|direct|off", "LAN and Online through the NFSU2 Revived server, over local Wi-Fi only, or offline.", 0),
-    STR("revived_server", General, "nfsu2.xyz", "The NFSU2 Revived server (network=revived).", 0),
-    STR("revived_name", General, "", "Name other players see on the Revived server; empty uses the Vita's user name.", 0),
-    STR("revived_passphrase", General, "", "Passphrase of the Revived account; set it in Vita Settings. Never shown or logged.", SECRET),
-    STR("online_server", General, "eahub.eu", "network=direct: the community server the Online menu uses, or off.", 0),
+    BOOL("options_menu", General, 1, "The Vita Settings icon in the game's menus (main menu and Options), and Select + Up opens it.", 0),
 
     // ---- General: network play (src/lib/winapi/ws2_32.cpp, src/lib/winapi/revived) ----
     ENUM("network", General, 0, "revived|direct|off", "LAN and Online through the NFSU2 Revived server, over local Wi-Fi only, or offline.", 0),
