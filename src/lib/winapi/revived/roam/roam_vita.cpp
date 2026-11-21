@@ -48,8 +48,10 @@ const struct { const char *name, *key, *def; } Opts[] = {
     { "NFSU2_ROAM_ROOM",        "Room",        ""  },
     { "NFSU2_ROAM_CREW",        "Crew",        ""  },
     { "NFSU2_ROAM_CREW_RGB",    "CrewColours", ""  },
-    { "NFSU2_ROAM_MAX_PLAYERS", "MaxPlayers",  ""  },
-    { "NFSU2_ROAM_MAX_CARS",    "MaxCars",     ""  },
+    // fewer than the PC's 33 and 5: with 49 players near, free roam's own work took 11.6 ms a frame on the Vita
+    // (25 us alone) and the game ran at half speed; every car shown is a car load, 2 to 5 s each (2026-11-21)
+    { "NFSU2_ROAM_MAX_PLAYERS", "MaxPlayers",  "8" },
+    { "NFSU2_ROAM_MAX_CARS",    "MaxCars",     "2" },
     { "NFSU2_ROAM_RATE",        "Rate",        ""  },
     { "NFSU2_ROAM_DELAY",       "Delay",       ""  },
     { "NFSU2_ROAM_EXTRAP",      "Extrap",      ""  },
