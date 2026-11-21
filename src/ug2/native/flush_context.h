@@ -239,6 +239,8 @@ Pending pendingStats();
 void closeDone();
 // Waits for every job and closes it, game thread; fence: waits are counted as fence waits.
 void fence();
+// Fence before guest data a pending flush reads is unloaded, game thread.
+void unloadFence(const char* what);
 
 inline Context* context(const x86::CPU& cpu)
 {

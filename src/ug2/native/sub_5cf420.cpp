@@ -8,6 +8,7 @@
 #include <platform/log.h>
 #include <platform/perf.h>
 #include <algorithm>
+#include <atomic>
 #include <offload.h>
 #include <winapi/d3d9_probe.h>
 #include <scenery.h>
@@ -297,6 +298,14 @@ bool drawIndexed(win32::WinApplication* app, x86::CPU& cpu, State& s)
             return false;
     }
     s.ebx = rc::ld32(rc::ld32(s.ebp + 0x10));
+    if (__builtin_expect(s.ebx == 0 && cpu.og, 0))
+    {
+        // An unload overtook this flush: the guest would create a buffer at address 0.
+        static std::atomic<bool> logged{false};
+        if (!logged.exchange(true))
+            pf::logError("offload: a queued draw's model was unloaded (entry 0x%08x); draw skipped", unsigned(s.ebp));
+        return true;
+    }
     s.esi = s.ebx + 0x2c;
     if (rc::ld32(s.ebx + 0x2c) == 0)
     {
@@ -1045,6 +1054,24 @@ void fence()
     s_fenceWaitUs += pf::perf::now() - start;
 }
 
+void unloadFence(const char* what)
+{
+#ifdef DEV_TOOLS
+    static uint32_t calls = 0, logged = 0;
+    uint32_t running = 0;
+    for (const Context* job : s_pending)
+        running += !queue::isDone(*job);
+    ++calls;
+    if ((running != 0 || calls <= 8 || (calls & (calls - 1)) == 0) && logged < 96 && ++logged)
+        pf::logInfo("offload: %s unload %u at frame %u: %u flushes pending, %u not finished", what, unsigned(calls),
+                    unsigned(rc::ld32(0x86514c)), unsigned(s_pending.size()), unsigned(running));
+#else
+    (void)what;
+#endif
+    if (!s_pending.empty() && NFSU_SWITCH_CACHED("offload_unload_fence", 1))
+        fence();
+}
+
 Pending pendingStats()
 {
     const Pending p = { uint32_t(s_pending.size()), s_peak, queue::totals().waitedUs[1], s_fenceWaitUs };
@@ -1054,6 +1081,7 @@ Pending pendingStats()
 #else
 void closeDone() {}
 void fence() {}
+void unloadFence(const char*) {}
 Pending pendingStats() { return Pending{}; }
 #endif
 

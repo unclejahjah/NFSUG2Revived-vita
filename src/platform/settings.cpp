@@ -215,6 +215,8 @@ const Setting s_table[] =
     BOOL("offload_context", Developer, 1, "Run each flush with its own context and device clone.", DS),
     BOOL("offload_sequential", Developer, 0, "Hand each flush to the worker and wait for it at once.", DS),
     BOOL("offload_poison", Developer, 0, "Poison a context's state after each flush to find leaks.", DS),
+    BOOL("offload_unload_fence", Developer, 1, "Unloading models or textures waits for the flushes still pending.", DS),
+    INT("offload_worker_delay", Developer, 0, 0, 1000, 1, "Test: the flush worker waits this many ms before each flush.", DS),
     BOOL("offload_count", Developer, 0, "Count the flush's reads and writes of shared state.", DT),
     BOOL("offload_probe", Developer, 0, "Count the flush's reads of state and simulate a late join.", DT),
     BOOL("debug_constants_zero", Developer, 0, "Clear constants no program writes, so draw hashes compare.", DT),

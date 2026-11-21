@@ -1,10 +1,12 @@
 // Worker context of a draw flush segment: snapshot of the guest globals, write-back, chain return, check-mode poison.
 
 #include <native/flush_context.h>
+#include <platform/config.h>
 #include <platform/cores.h>
 #include <platform/log.h>
 #include <platform/perf.h>
 #include <platform/sync.h>
+#include <platform/time.h>
 
 namespace ug2 { namespace native { namespace flush {
 
@@ -249,6 +251,11 @@ int workerEntry(void*)
         const uint32_t first = s_first.load(std::memory_order_relaxed);
         Context* job = s_ring[first % RingSize];
         s_first.store(first + 1, std::memory_order_release);
+#ifdef DEV_SETTINGS
+        static const int delay = pf::Config::getInt("offload_worker_delay", 0);
+        if (delay > 0)
+            pf::sleepMs(uint32_t(delay));
+#endif
         if (claim(*job))
             runClaimed(*job);
     }

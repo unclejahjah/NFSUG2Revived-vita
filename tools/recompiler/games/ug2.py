@@ -112,6 +112,9 @@ NATIVE_OVERRIDES = [
     0x5ce170,   # texture creation of a texture record (thiscall)
     # Draw flush helpers: group begin virtuals, skinning palette upload, texture lookup (src/ug2/native/sub_5bc6f0.cpp ...)
     0x5bc6f0, 0x5bc7b0, 0x5bc890, 0x5bcad0, 0x5bcb10, 0x5bdcd0, 0x4901d0,
+    # Unloads that wait for pending draw flushes (src/ug2/native/load_hooks.cpp): chunk unload, solid unload,
+    # texture pack unload, streamed texture unload
+    0x577b10, 0x493f20, 0x494dd0, 0x494b10,
 ]
 
 # Calls emitted inline with generate.py --inline-ftol2 (codegen/control.py INLINE): address -> helper.
