@@ -92,7 +92,7 @@ static const uint64_t s_tapUs = 100000;
 
 // Left and right stick: dead zone and saturation as fractions of full deflection, and the response curve
 // y = linear * x + (1 - linear) * x^3 between them (finer aim near the centre).
-static const float s_stickDeadZone   = 0.08f;
+static const float s_stickDeadZone   = 0.15f;
 static const float s_stickSaturation = 0.94f;
 static const float s_stickLinear     = 0.6f;
 

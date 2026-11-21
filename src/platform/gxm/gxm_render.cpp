@@ -768,7 +768,7 @@ void FrameRenderer::submitted(render::Frame* frame, uint32_t vblanks)
     stall::set(stall::g_gxm.submitted, frame->index);
     stall::mark(stall::g_gxm.frames, "submitted");
     if (s.offscreen)
-        s.offscreen->lastUse = frame->index;
+        s.offscreen->lastUse.store(frame->index, std::memory_order_relaxed);
 }
 
 void FrameRenderer::freePending()
@@ -836,13 +836,13 @@ void FrameRenderer::release(render::TextureStorage* texture)
         return;
     }
     // lastUse is 0 for a texture never drawn; the frame being recorded is never finished yet.
-    if (t->lastUse <= completedFrame() && uploadDone(t->lastTicket))
+    if (t->lastUse.load(std::memory_order_relaxed) <= completedFrame() && uploadDone(t->lastTicket))
     {
         destroy(0, t);
         ++m_instantFrees;
         return;
     }
-    queueRelease(0, t, t->lastUse, t->bytes);
+    queueRelease(0, t, t->lastUse.load(std::memory_order_relaxed), t->bytes);
 }
 
 void FrameRenderer::release(render::DepthStorage* depth)
@@ -857,13 +857,13 @@ void FrameRenderer::release(render::DepthStorage* depth)
         queueRelease(1, d, m_lastIndex + 1, bytes);
         return;
     }
-    if (d->lastUse <= completedFrame())
+    if (d->lastUse.load(std::memory_order_relaxed) <= completedFrame())
     {
         destroy(1, d);
         ++m_instantFrees;
         return;
     }
-    queueRelease(1, d, d->lastUse, bytes);
+    queueRelease(1, d, d->lastUse.load(std::memory_order_relaxed), bytes);
 }
 
 void FrameRenderer::release(render::BufferStorage* buffer)

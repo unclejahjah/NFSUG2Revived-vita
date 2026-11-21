@@ -1,6 +1,7 @@
 #include <platform/render.h>
 #include <platform/log.h>
 #include <atomic>
+#include <mutex>
 #include <cstring>
 
 namespace pf { namespace render {
@@ -259,11 +260,19 @@ uint8_t registerLayout(const VertexLayout& layout)
         if (memcmp(&s_layouts[i], &key, sizeof(key)) == 0)
             return uint8_t(i);
     }
-    if (count == MaxLayouts)
+    static std::mutex s_lock;
+    std::lock_guard<std::mutex> guard(s_lock);
+    const uint32_t now = s_layoutCount.load(std::memory_order_relaxed);
+    for (uint32_t i = count; i < now; ++i)
+    {
+        if (memcmp(&s_layouts[i], &key, sizeof(key)) == 0)
+            return uint8_t(i);
+    }
+    if (now == MaxLayouts)
         fatal("too many vertex layouts");
-    s_layouts[count] = key;
-    s_layoutCount.store(count + 1, std::memory_order_release);
-    return uint8_t(count);
+    s_layouts[now] = key;
+    s_layoutCount.store(now + 1, std::memory_order_release);
+    return uint8_t(now);
 }
 
 const VertexLayout& layout(uint8_t id)

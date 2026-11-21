@@ -1,13 +1,20 @@
 // Native sub_5cf420: draw-queue flush over the 16 x 23 list heads. Guest frame kept, registers live in the CPU; children run through entry points, CommitChanges and EndPass through the bridge.
 
 #include <native/common.h>
+#include <native/flush_context.h>
 #include <platform/switches.h>
 #include <platform/cached.h>
 #include <platform/config.h>
+#include <platform/log.h>
+#include <platform/perf.h>
+#include <algorithm>
+#include <offload.h>
+#include <winapi/d3d9_probe.h>
 #include <scenery.h>
 #include <winapi/d3d9_native.h>
 
 #include <initializer_list>
+#include <vector>
 
 #if defined(__ARM_NEON) && !defined(NFSU_FPU_DOUBLE)
 #include <arm_neon.h>
@@ -33,6 +40,14 @@ void sub_5cea20(win32::WinApplication* app, x86::CPU& cpu);
 
 namespace native
 {
+
+void sub_5bc6f0(win32::WinApplication* app, x86::CPU& cpu);
+void sub_5bc7b0(win32::WinApplication* app, x86::CPU& cpu);
+void sub_5bc890(win32::WinApplication* app, x86::CPU& cpu);
+void sub_5bcad0(win32::WinApplication* app, x86::CPU& cpu);
+void sub_5bcb10(win32::WinApplication* app, x86::CPU& cpu);
+bool textureRetryWanted(x86::reg32 tex);
+void textureRetry(win32::WinApplication* app, x86::CPU& cpu, x86::reg32 tex);
 
 namespace
 {
@@ -65,7 +80,7 @@ struct State
 // flush_direct=off: CommitChanges and EndPass through the vtable.
 bool s_direct = true;
 
-inline void increment(reg32 address) { rc::st32(address, rc::ld32(address) + 1); }
+template< reg32 A > inline void increment(const x86::CPU& cpu) { flush::st32<A>(cpu, flush::ld32<A>(cpu) + 1); }
 
 inline reg32 third(reg32 value) { return reg32((uint64_t(0xaaaaaaabu) * value) >> 32) >> 1; }
 
@@ -117,7 +132,8 @@ inline bool commitChanges(win32::WinApplication* app, x86::CPU& cpu, State& s, r
 {
     if (__builtin_expect(s_direct, 1))
     {
-        app->allowPreemption(cpu);
+        if (!cpu.og)
+            app->allowPreemption(cpu);
         if (__builtin_expect(br::effectCommitChanges(app, cpu, effect), 1))
             return true;
     }
@@ -129,11 +145,35 @@ inline bool endPass(win32::WinApplication* app, x86::CPU& cpu, State& s, reg32 e
 {
     if (__builtin_expect(s_direct, 1))
     {
-        app->allowPreemption(cpu);
+        if (!cpu.og)
+            app->allowPreemption(cpu);
         if (__builtin_expect(br::effectEndPass(app, cpu, effect), 1))
             return true;
     }
     return com(app, cpu, s, effect, 68, {});
+}
+
+const reg32 EmptyGroupFunction = 0x4022c0;
+
+// Begin functions a context runs.
+bool knownBegin(reg32 address)
+{
+    return address == 0x5bc6f0 || address == 0x5bc7b0 || address == 0x5bc890 || address == 0x5bcad0 ||
+           address == 0x5bcb10 || address == EmptyGroupFunction;
+}
+
+// Runs a begin function by address.
+void beginByAddress(win32::WinApplication* app, x86::CPU& cpu, reg32 address)
+{
+    switch (address)
+    {
+    case 0x5bc6f0: sub_5bc6f0(app, cpu); break;
+    case 0x5bc7b0: sub_5bc7b0(app, cpu); break;
+    case 0x5bc890: sub_5bc890(app, cpu); break;
+    case 0x5bcad0: sub_5bcad0(app, cpu); break;
+    case 0x5bcb10: sub_5bcb10(app, cpu); break;
+    default: cpu.esp += 4; break;
+    }
 }
 
 // thiscall group function (vtable +4 begin, +8 end).
@@ -141,6 +181,12 @@ bool group(win32::WinApplication* app, x86::CPU& cpu, State& s, reg32 g, reg32 o
 {
     toCpu(cpu, s, s.frame - 4);
     cpu.ecx = g;
+    if (cpu.og)
+    {
+        if (offset == 4)
+            beginByAddress(app, cpu, rc::ld32(rc::ld32(g) + 4));
+        return !cpu.terminate;
+    }
     br::callGuest(app, cpu, rc::ld32(rc::ld32(g) + offset));
     if (cpu.terminate)
         return false;
@@ -192,37 +238,48 @@ bool createVertexBuffer(win32::WinApplication* app, x86::CPU& cpu, State& s)
 bool fadeParameters(win32::WinApplication* app, x86::CPU& cpu, State& s)
 {
     const reg32 E = s.frame;
-    if (!leaf(app, cpu, s, sub_60fe00, E - 4))
-        return false;
-    reg32 i = cpu.eax;
-    i = rc::ld32(Ring + 4 * i) == rc::ld32(rc::ld32(E + 0x1c) + 0x24) ? i - 2 : i - 1;
+    reg32 i;
+    if (cpu.og)
+        i = flush::ld32<0x8a1c94>(cpu);
+    else
+    {
+        if (!leaf(app, cpu, s, sub_60fe00, E - 4))
+            return false;
+        i = cpu.eax;
+    }
+    i = flush::ld32(cpu, Ring + 4 * i) == rc::ld32(rc::ld32(E + 0x1c) + 0x24) ? i - 2 : i - 1;
     i &= 7;
     rc::st32(E - 4, 0);
     rc::st32(E - 8, 0);
-    rc::st32(E - 0xc, rc::ld32(Ring + 4 * i));
+    rc::st32(E - 0xc, flush::ld32(cpu, Ring + 4 * i));
     if (!leaf(app, cpu, s, sub_4901d0, E - 0x10))
         return false;
     const reg32 info = cpu.eax;
-    reg32 current = rc::ld32(CurrentGroup);
+    reg32 current = flush::ld32<CurrentGroup>(cpu);
     const reg32 effect = rc::ld32(current + 0x20);
     s.esi = rc::ld32(effect);
     br::effectSetTexture(app, cpu, effect, rc::ld32(rc::ld32(current + 0x1c) + 0x894), rc::ld32(rc::ld32(info) + 0x18));
 
     const reg32 depth = cpu.fpu.count;
-    if (!leaf(app, cpu, s, sub_60fde0, E - 4))
-        return false;
-    rc::stf32(E + 0x1c, float(cpu.fpu.regs[(depth + 1) & 7]));
-    cpu.fpu.count = depth;
-    current = rc::ld32(CurrentGroup);
+    if (cpu.og)
+        rc::stf32(E + 0x1c, float(Real(flush::ldf32<0x8a1c9c>(cpu)) / Real(rc::ldf32(0x802954))));
+    else
+    {
+        if (!leaf(app, cpu, s, sub_60fde0, E - 4))
+            return false;
+        rc::stf32(E + 0x1c, float(cpu.fpu.regs[(depth + 1) & 7]));
+        cpu.fpu.count = depth;
+    }
+    current = flush::ld32<CurrentGroup>(cpu);
     s.esi = rc::ld32(E + 0x1c);
     br::effectSetFloat(app, cpu, rc::ld32(current + 0x20), rc::ld32(rc::ld32(current + 0x1c) + 0x844), rc::ldf32(E + 0x1c));
 
     const Real product = Real(rc::ldf32(E + 0x1c)) * Real(rc::ldf32(0x784544));
-    s.esi = rc::ld32(rc::ld32(CurrentGroup) + 0x20);
+    s.esi = rc::ld32(flush::ld32<CurrentGroup>(cpu) + 0x20);
     s.edi = rc::ld32(s.esi);
     cpu.fpu.regs[(depth + 1) & 7] = product;
     const reg32 alpha = reg32(x86::truncInteger64(product)) << 24;
-    br::effectSetInt(app, cpu, s.esi, rc::ld32(rc::ld32(rc::ld32(CurrentGroup) + 0x1c) + 0x86c), sreg32(alpha));
+    br::effectSetInt(app, cpu, s.esi, rc::ld32(rc::ld32(flush::ld32<CurrentGroup>(cpu) + 0x1c) + 0x86c), sreg32(alpha));
     s.edi = rc::ld32(E + 0x14);
     return true;
 }
@@ -241,34 +298,41 @@ bool drawIndexed(win32::WinApplication* app, x86::CPU& cpu, State& s)
     }
     s.ebx = rc::ld32(rc::ld32(s.ebp + 0x10));
     s.esi = s.ebx + 0x2c;
-    if (rc::ld32(s.ebx + 0x2c) == 0 && !createVertexBuffer(app, cpu, s))
-        return false;
+    if (rc::ld32(s.ebx + 0x2c) == 0)
+    {
+        offload::created();
+        if (!createVertexBuffer(app, cpu, s))
+            return false;
+    }
     const reg32 mesh = s.ebx;
-    if (rc::ld32(mesh + 0x2c) != rc::ld32(LastStream))
+    if (offload::counting())
+        offload::streamStep(rc::ld32(mesh + 0x2c) == flush::ld32<LastStream>(cpu), rc::ld32(mesh + 0x20) == flush::ld32<LastIndices>(cpu),
+                            rc::ld32(mesh + 0x2c), rc::ld32(mesh + 0x20));
+    if (rc::ld32(mesh + 0x2c) != flush::ld32<LastStream>(cpu))
     {
         const reg32 buffer = rc::ld32(mesh + 0x2c);
-        s.esi = rc::ld32(rc::ld32(CurrentGroup) + 8);
+        s.esi = rc::ld32(flush::ld32<CurrentGroup>(cpu) + 8);
         br::setStreamSource(app, cpu, rc::ld32(DevicePointer), 0, buffer, 0, s.esi);
-        rc::st32(LastStream, rc::ld32(mesh + 0x2c));
-        increment(0x872ee8);
+        flush::st32<LastStream>(cpu, rc::ld32(mesh + 0x2c));
+        increment<0x872ee8>(cpu);
     }
-    if (rc::ld32(mesh + 0x20) != rc::ld32(LastIndices))
+    if (rc::ld32(mesh + 0x20) != flush::ld32<LastIndices>(cpu))
     {
         br::setIndices(app, cpu, rc::ld32(DevicePointer), rc::ld32(mesh + 0x20));
-        rc::st32(LastIndices, rc::ld32(mesh + 0x20));
-        increment(0x872eec);
+        flush::st32<LastIndices>(cpu, rc::ld32(mesh + 0x20));
+        increment<0x872eec>(cpu);
     }
     if (rc::ld32(s.edi + 0xc) == 0 || rc::ld32(mesh + 0x34) >= 0xffffu)
         return true;
     rc::st32(s.frame + 0x18, rc::ld32(rc::ld32(s.ebp + 0x18) + 0x14));
-    const reg32 current = rc::ld32(CurrentGroup);
+    const reg32 current = flush::ld32<CurrentGroup>(cpu);
     const reg32 type = rc::ld32(current + 4);
     if (type == 0x14)
     {
         if (!fadeParameters(app, cpu, s))
             return false;
     }
-    else if ((rc::ld8(0x8707cd) == 0 || rc::ld32(rc::ld32(CurrentView)) != 0) && rc::ld8(current + 0x18) != 0 &&
+    else if ((flush::ld8<0x8707cd>(cpu) == 0 || flush::viewKind(cpu) != 0) && rc::ld8(current + 0x18) != 0 &&
              (type == 0 || type == 1 || type == 5 || type == 4))
         rc::st32(s.frame + 0x18, 1);
     if (!commitChanges(app, cpu, s, rc::ld32(rc::ld32(s.ebp + 0x18) + 0x20)))
@@ -276,6 +340,7 @@ bool drawIndexed(win32::WinApplication* app, x86::CPU& cpu, State& s)
     s.esi = 0;
     if (sreg32(rc::ld32(s.frame + 0x18)) > 0)
     {
+        offload::issued(rc::ld32(s.frame + 0x18));
         do
         {
             br::effectPass(app, cpu, rc::ld32(rc::ld32(s.ebp + 0x18) + 0x20), s.esi);
@@ -291,8 +356,8 @@ bool drawIndexed(win32::WinApplication* app, x86::CPU& cpu, State& s)
         } while (sreg32(s.esi) < sreg32(rc::ld32(s.frame + 0x18)));
     }
     rc::st32(s.ebx + 0x40, 1);
-    increment(0x872ee0);
-    rc::st32(0x872ef0, rc::ld32(0x872ef0) + third(rc::ld32(s.ebx + 0x34)));
+    increment<0x872ee0>(cpu);
+    flush::st32<0x872ef0>(cpu, flush::ld32<0x872ef0>(cpu) + third(rc::ld32(s.ebx + 0x34)));
     return true;
 }
 
@@ -300,7 +365,7 @@ bool drawIndexed(win32::WinApplication* app, x86::CPU& cpu, State& s)
 bool drawImmediate(win32::WinApplication* app, x86::CPU& cpu, State& s)
 {
     br::setRenderState(app, cpu, rc::ld32(DevicePointer), 14, 0);
-    rc::st32(LastStream, 0);
+    flush::st32<LastStream>(cpu, 0);
     const reg32 entryGroup = rc::ld32(s.ebp + 0x18);
     s.ebx = rc::ld32(entryGroup + 0x14);
     if (!commitChanges(app, cpu, s, rc::ld32(entryGroup + 0x20)))
@@ -308,6 +373,7 @@ bool drawImmediate(win32::WinApplication* app, x86::CPU& cpu, State& s)
     s.esi = 0;
     if (sreg32(s.ebx) > 0)
     {
+        offload::issued(s.ebx);
         do
         {
             br::effectPass(app, cpu, rc::ld32(rc::ld32(s.ebp + 0x18) + 0x20), s.esi);
@@ -320,30 +386,40 @@ bool drawImmediate(win32::WinApplication* app, x86::CPU& cpu, State& s)
         } while (sreg32(s.esi) < sreg32(s.ebx));
     }
     br::setRenderState(app, cpu, rc::ld32(DevicePointer), 14, 1);
-    increment(0x872ee4);
+    increment<0x872ee4>(cpu);
+    if (cpu.og)
+    {
+        static_cast<flush::Context*>(cpu.og)->strips.push(s.edi);
+        return true;
+    }
     rc::st32(s.frame - 4, s.edi);
     cpu.ecx = rc::ld32(StripPool);
     return leaf(app, cpu, s, sub_43cdf0, s.frame - 8);
 }
 
 // One entry: unlinked, its setup children, its draw, back to the entry pool.
-bool drawEntry(win32::WinApplication* app, x86::CPU& cpu, State& s, reg32 list)
+bool drawEntryBody(win32::WinApplication* app, x86::CPU& cpu, State& s, reg32 list)
 {
     s.ebp = rc::ld32(list);
     const reg32 next = rc::ld32(s.ebp), previous = rc::ld32(s.ebp + 4);
     rc::st32(previous, next);
     rc::st32(next + 4, previous);
     rc::st32(s.frame + 0x1c, rc::ld32(s.esi + 0x10));
-    rc::st32(s.frame - 4, rc::ld32(rc::ld32(CurrentView) + 4));
+    rc::st32(s.frame - 4, flush::viewIndex(cpu));
     rc::st32(s.frame - 8, rc::ld32(s.ebp + 0x24));
     if (!call(app, cpu, s, sub_5bdde0, s.frame - 0xc, 8))
         return false;
     if (rc::ld32(rc::ld32(rc::ld32(s.ebp + 0x18) + 0x1c) + 0x59c) != 0)
     {
-        rc::st32(s.frame - 4, 9);
-        if (!leaf(app, cpu, s, sub_48b1e0, s.frame - 8))
-            return false;
-        rc::st32(s.frame - 8, cpu.eax);
+        if (cpu.og)
+            rc::st32(s.frame - 8, 0x832de0 + 9 * 0x70);
+        else
+        {
+            rc::st32(s.frame - 4, 9);
+            if (!leaf(app, cpu, s, sub_48b1e0, s.frame - 8))
+                return false;
+            rc::st32(s.frame - 8, cpu.eax);
+        }
         rc::st32(s.frame - 0xc, rc::ld32(s.ebp + 0x24));
         if (!call(app, cpu, s, sub_5bdaa0, s.frame - 0x10, 0xc))
             return false;
@@ -366,23 +442,37 @@ bool drawEntry(win32::WinApplication* app, x86::CPU& cpu, State& s, reg32 list)
     s.edi = rc::ld32(s.ebp + 8);
     if (!(immediate != 0 ? drawImmediate(app, cpu, s) : drawIndexed(app, cpu, s)))
         return false;
+    if (cpu.og)
+    {
+        static_cast<flush::Context*>(cpu.og)->entries.push(s.ebp);
+        return true;
+    }
     rc::st32(s.frame - 4, s.ebp);
     rc::st32(s.frame - 8, rc::ld32(EntryPool));
     return leaf(app, cpu, s, sub_43f920, s.frame - 0xc);
+}
+
+bool drawEntry(win32::WinApplication* app, x86::CPU& cpu, State& s, reg32 list)
+{
+    offload::entryBegin(rc::ld32(list));
+    const bool ok = drawEntryBody(app, cpu, s, list);
+    offload::entryEnd();
+    return ok;
 }
 
 // A non-empty list (ebx head, ebp group slot): group begin, buckets and entries, group end.
 bool drawList(win32::WinApplication* app, x86::CPU& cpu, State& s)
 {
     s.edi = rc::ld32(s.ebp);
-    rc::st32(CurrentGroup, s.edi);
+    flush::st32<CurrentGroup>(cpu, s.edi);
     rc::st32(s.frame + 0x2c, s.edi);
     if (!group(app, cpu, s, s.edi, 4))
         return false;
     br::setVertexDeclaration(app, cpu, rc::ld32(DevicePointer), rc::ld32(s.edi + 0x24));
     br::effectBegin(app, cpu, rc::ld32(s.edi + 0x20), reinterpret_cast<win32::UINT*>(rc::host(s.frame + 0x30)), 0);
+    offload::listBegin();
     s.esi = rc::ld32(s.ebx);
-    increment(0x872f04);
+    increment<0x872f04>(cpu);
     rc::st32(s.frame + 0x10, s.esi);
     if (s.esi != s.ebx)
     {
@@ -392,7 +482,8 @@ bool drawList(win32::WinApplication* app, x86::CPU& cpu, State& s)
             const reg32 next = rc::ld32(bucket), previous = rc::ld32(bucket + 4);
             rc::st32(previous, next);
             rc::st32(next + 4, previous);
-            increment(0x872ed8);
+            increment<0x872ed8>(cpu);
+            offload::bucketBegin(bucket);
             rc::st32(s.frame - 4, rc::ld32(bucket + 0x10));
             if (!call(app, cpu, s, sub_5bcc30, s.frame - 8, 4))
                 return false;
@@ -409,14 +500,31 @@ bool drawList(win32::WinApplication* app, x86::CPU& cpu, State& s)
                 s.edi = rc::ld32(s.frame + 0x2c);
                 s.ebx = rc::ld32(s.frame + 0x20);
             }
-            rc::st32(rc::ld32(rc::ld32(s.esi + 0x10)) + 0x1c, 0);
-            cpu.ecx = s.esi;
-            if (!leaf(app, cpu, s, sub_5cea20, s.frame - 4))
-                return false;
-            rc::st32(s.frame - 4, s.esi);
-            rc::st32(s.frame - 8, rc::ld32(BucketPool));
-            if (!leaf(app, cpu, s, sub_43f920, s.frame - 0xc))
-                return false;
+            offload::bucketEnd();
+            if (cpu.og)
+            {
+                flush::Context& context = *static_cast<flush::Context*>(cpu.og);
+                const reg32 entries = s.esi + 0x18;
+                for (reg32 n = rc::ld32(entries); n != entries; n = rc::ld32(entries))
+                {
+                    const reg32 next = rc::ld32(n), previous = rc::ld32(n + 4);
+                    rc::st32(previous, next);
+                    rc::st32(next + 4, previous);
+                    context.entries.push(n);
+                }
+                context.buckets.push(s.esi);
+            }
+            else
+            {
+                rc::st32(rc::ld32(rc::ld32(s.esi + 0x10)) + 0x1c, 0);
+                cpu.ecx = s.esi;
+                if (!leaf(app, cpu, s, sub_5cea20, s.frame - 4))
+                    return false;
+                rc::st32(s.frame - 4, s.esi);
+                rc::st32(s.frame - 8, rc::ld32(BucketPool));
+                if (!leaf(app, cpu, s, sub_43f920, s.frame - 0xc))
+                    return false;
+            }
             const reg32 first = rc::ld32(s.ebx);
             rc::st32(s.frame + 0x10, first);
             if (first == s.ebx)
@@ -429,7 +537,8 @@ bool drawList(win32::WinApplication* app, x86::CPU& cpu, State& s)
         return false;
     s.edi = rc::ld32(s.edi + 0x20);
     br::effectEnd(app, cpu, s.edi);
-    rc::st32(CurrentGroup, 0);
+    flush::st32<CurrentGroup>(cpu, 0);
+    offload::listEnd();
     return true;
 }
 
@@ -488,6 +597,371 @@ inline bool guestStep(State& s)
     return true;
 }
 
+#ifdef NFSU_OFFLOAD_CORE
+
+// Keys no call asks for: the texture, matrix, stream and index caches miss next.
+void resetCaches(bool begin)
+{
+    offload::boundary(begin);
+    rc::st32(0x870940, 0);
+    rc::st32(0x870944, 0);
+    rc::st32(0x876850, 0);
+    rc::st32(0x87684c, 0);
+    rc::st32(0x800534, 0xffffffffu);
+    rc::st32(LastStream, 0);
+    rc::st32(LastIndices, 0);
+}
+
+// The flush records into its own segment (offload_flush), the guest caches reset on both sides.
+struct Segment
+{
+    Segment()
+    {
+        const uint64_t start = offload::instructions();
+        m_open = NFSU_SWITCH_CACHED("offload_flush", 1) && br::segmentBegin();
+        if (m_open)
+            resetCaches(true);
+        m_begin = offload::instructions() - start;
+    }
+    ~Segment()
+    {
+        if (m_open)
+        {
+            const uint64_t start = offload::instructions();
+            br::segmentEnd();
+            resetCaches(false);
+            offload::logParts(m_begin, offload::instructions() - start);
+        }
+    }
+
+private:
+    bool m_open;
+    uint64_t m_begin = 0;
+};
+
+// Natives on, no shadow compare.
+bool contextAllowed()
+{
+    static const bool allowed = NFSU_SWITCH_CACHED("offload_context", 1) && NFSU_SWITCH_CACHED("offload_flush", 1) &&
+        NFSU_NATIVE("flush_native") && NFSU_NATIVE("texture_step_native") && NFSU_NATIVE("world_upload_native") &&
+        NFSU_NATIVE("material_native") && NFSU_NATIVE("light_upload_native") && NFSU_NATIVE("headlight_pass_native") &&
+        NFSU_NATIVE("sub_5bdcd0_native") && NFSU_NATIVE("sub_4901d0_native") && NFSU_NATIVE("sub_5bc6f0_native") &&
+        NFSU_NATIVE("sub_5bc7b0_native") && NFSU_NATIVE("sub_5bc890_native") && NFSU_NATIVE("sub_5bcad0_native") &&
+        NFSU_NATIVE("sub_5bcb10_native") && NFSU_RENDER_FAST_CACHED("flush_direct")
+#ifdef NFSU_NATIVE_SHADOW
+        && !shadow::enabled()
+#endif
+        ;
+    return allowed;
+}
+
+// Marker work; false: run the flush directly.
+bool prepare(win32::WinApplication* app, const x86::CPU& cpu, flush::Context& context, reg32& arena, reg32& draws)
+{
+    arena = 0;
+    draws = 0;
+    context.listCount = 0;
+    context.beginSnapshot();
+    if (rc::ld32(rc::ld32(CurrentView) + 4) >= flush::ViewCount)
+        return false;
+    for (reg32 k = nextList(0); k < HeadCount; k = nextList(k + 1))
+    {
+        const reg32 group = rc::ld32(Slots + 4 * (k % Row));
+        if (group == 0 || rc::ld8(group + 0x18) == 0 || !knownBegin(rc::ld32(rc::ld32(group) + 4)) ||
+            rc::ld32(rc::ld32(group) + 8) != EmptyGroupFunction)
+            return false;
+        context.lists[context.listCount++] = uint16_t(k);
+    }
+    reg32 lastLight = 0, stale[8], lastGroup = 0, stripDraws = 0, meshDraws = 0;
+    const reg32 staleCount = br::segmentStaleBuffers(stale, 8);
+    x86::CPU scratch = cpu;
+    State s = {scratch.ebx, scratch.ebp, scratch.esi, scratch.edi, scratch.esp - 0x34};
+    for (reg32 i = 0; i < context.listCount; ++i)
+    {
+        const reg32 head = Heads + 8 * context.lists[i];
+        const reg32 listGroup = rc::ld32(Slots + 4 * (context.lists[i] % Row));
+        const reg32 kind = rc::ld32(listGroup + 4);
+        const bool wantsLight = kind == 4 || kind == 5;
+        lastGroup = 0;
+        const bool onePass = (rc::ld8(0x8707cd) == 0 || rc::ld32(rc::ld32(CurrentView)) != 0) && rc::ld8(listGroup + 0x18) != 0 &&
+                             (kind == 0 || kind == 1 || kind == 5 || kind == 4);
+        for (reg32 bucket = rc::ld32(head); bucket != head; bucket = rc::ld32(bucket))
+        {
+            const reg32 tex = rc::ld32(bucket + 0x10);
+            if (tex == 0)
+                return false;
+            if (textureRetryWanted(tex))
+            {
+                textureRetry(app, scratch, tex);
+                if (scratch.terminate)
+                    return false;
+            }
+            const reg32 entries = bucket + 0x18;
+            for (reg32 entry = rc::ld32(entries); entry != entries; entry = rc::ld32(entry))
+            {
+                if (wantsLight)
+                {
+                    const reg32 light = rc::ld32(entry + 0x1c);
+                    if (light != 0 && light != lastLight)
+                    {
+                        if (!context.addLight(light))
+                            return false;
+                        lastLight = light;
+                    }
+                }
+                const reg32 entryGroup = rc::ld32(entry + 0x18);
+                if (entryGroup != lastGroup)
+                {
+                    const sreg32 entryPasses = sreg32(rc::ld32(entryGroup + 0x14));
+                    lastGroup = entryGroup;
+                    stripDraws = br::effectDrawnPasses(rc::ld32(entryGroup + 0x20), entryPasses > 0 ? reg32(entryPasses) : 0);
+                    meshDraws = onePass ? br::effectDrawnPasses(rc::ld32(entryGroup + 0x20), 1) : stripDraws;
+                }
+                if (rc::ld32(entry + 0xc) != 0)
+                {
+                    draws += stripDraws;
+                    const reg32 vertices = rc::ld32(rc::ld32(entry + 8));
+                    const reg32 passes = rc::ld32(rc::ld32(entry + 0x18) + 0x14);
+                    if (vertices < 2 || vertices > 0x10000)
+                        return false;
+                    if (sreg32(passes) > 0)
+                        arena += passes * ((vertices * 0x18 + 15) & ~15u);
+                    continue;
+                }
+                const reg32 mesh = rc::ld32(rc::ld32(entry + 0x10));
+                draws += meshDraws;
+                for (reg32 i = 0; i < staleCount; ++i)
+                    if (stale[i] == rc::ld32(mesh + 0x20) || stale[i] == rc::ld32(mesh + 0x2c))
+                        br::segmentPrepareBuffer(stale[i]);
+                if (rc::ld32(mesh + 0x2c) != 0)
+                    continue;
+                offload::created();
+                s.ebx = mesh;
+                s.esi = mesh + 0x2c;
+                s.frame = scratch.esp - 0x34;
+                if (!createVertexBuffer(app, scratch, s) || scratch.terminate || rc::ld32(mesh + 0x2c) == 0)
+                    return false;
+            }
+        }
+    }
+    return true;
+}
+
+// Lists leave the guest heads, bucket pointers clear.
+void detach(flush::Context& context)
+{
+    for (reg32 i = 0; i < context.listCount; ++i)
+    {
+        const reg32 head = Heads + 8 * context.lists[i];
+        for (reg32 bucket = rc::ld32(head); bucket != head; bucket = rc::ld32(bucket))
+            rc::st32(rc::ld32(rc::ld32(bucket + 0x10)) + 0x1c, 0);
+        flush::detachList(head, context.heads + 8 * context.lists[i]);
+    }
+}
+
+// The detached lists on the context's CPU.
+bool drawLists(win32::WinApplication* app, x86::CPU& cpu, flush::Context& context)
+{
+    State s = {cpu.ebx, cpu.ebp, cpu.esi, cpu.edi, cpu.esp - 0x34};
+    increment<0x872edc>(cpu);
+    for (reg32 i = 0; i < context.listCount; ++i)
+    {
+        const reg32 k = context.lists[i];
+        s.ebx = context.heads + 8 * k;
+        s.ebp = Slots + 4 * (k % Row);
+        rc::st32(s.frame + 0x20, s.ebx);
+        rc::st32(s.frame + 0x24, s.ebp);
+        if (!drawList(app, cpu, s))
+            return false;
+    }
+    return true;
+}
+
+const uint32_t MaxJobs = 32;
+
+std::vector<flush::Context*> s_jobs;        // every job
+std::vector<flush::Context*> s_pending;     // jobs not closed yet, in marker order
+uint32_t s_peak = 0;
+bool s_fencing = false;
+uint64_t s_fenceWaitUs = 0;
+
+// A job that is closed; null when all are pending.
+flush::Context* freeJob()
+{
+    for (flush::Context* job : s_jobs)
+        if (!job->pending)
+            return job;
+    if (s_jobs.size() == MaxJobs)
+        return nullptr;
+    s_jobs.push_back(new flush::Context);
+    return s_jobs.back();
+}
+
+// The flush on the job's CPU, then the segment is the resolver's.
+void runJob(flush::Context& job)
+{
+#ifdef DEV_TOOLS
+    win32::d3d9::probe::segmentRun(true);
+#endif
+    job.ok = drawLists(job.app, job.cpu, job);
+#ifdef DEV_TOOLS
+    win32::d3d9::probe::segmentRun(false);
+    if (win32::d3d9::probe::on())
+        win32::d3d9::probe::count(win32::d3d9::probe::PoolFrees, job.entries.count + job.buckets.count + job.strips.count);
+#endif
+    br::segmentFinish(job);
+}
+
+// Game thread: what a done job leaves for core 0.
+void closeJob(flush::Context& job)
+{
+    flush::queue::await(&job);
+    if (!job.ok)
+        pf::fatal("offload: a flush on its own context failed");
+    job.writeBack();
+    job.giveBack();
+    br::segmentEnd(job);
+    job.pending = false;
+    job.state.store(flush::JobIdle, std::memory_order_relaxed);
+}
+
+// Closes the first pending jobs while the test holds; the rest of the list keeps its order.
+template< typename F > void closeWhile(F&& test)
+{
+    size_t n = 0;
+    while (n < s_pending.size() && test(*s_pending[n]))
+        closeJob(*s_pending[n++]);
+    s_pending.erase(s_pending.begin(), s_pending.begin() + n);
+}
+
+void closeDoneJobs()
+{
+    closeWhile([](flush::Context& job) { return flush::queue::isDone(job); });
+}
+
+// Jobs of frames before this one are joined.
+void joinOlder(uint32_t frame)
+{
+    closeWhile([frame](flush::Context& job) { return job.frame < frame; });
+    closeDoneJobs();
+}
+
+void onFrameOpened(uint32_t frame)
+{
+    joinOlder(frame - 1);
+}
+
+// Core 0 does what the segment's draws may read: effect textures kept as they are at the marker.
+void snapshotEffects(flush::Context& context)
+{
+    for (reg32 i = 0; i < context.listCount; ++i)
+        br::segmentSnapshotEffect(context, rc::ld32(rc::ld32(Slots + 4 * (context.lists[i] % Row)) + 0x20));
+}
+
+// One flush on a context; false: nothing done.
+bool runContext(win32::WinApplication* app, x86::CPU& cpu)
+{
+    if (!contextAllowed())
+        return false;
+    constexpr bool late = flush::CoreMode != flush::Mode::Inline;
+    static const bool poison = NFSU_SWITCH_CACHED("offload_poison", 0);
+    static const bool sequential = poison || NFSU_SWITCH_CACHED("offload_sequential", 0);
+    if (late)
+    {
+        static const bool hooked = (br::setFrameHook(&onFrameOpened), true);
+        (void)hooked;
+        if (const uint32_t frame = br::openFrameIndex())
+            joinOlder(frame);
+    }
+    flush::Context* job = freeJob();
+    if (!job)
+        return false;
+    flush::Context& context = *job;
+    uint64_t part[offload::Parts] = {};
+    uint64_t mark = offload::instructions();
+    const auto lap = [&](uint32_t i)
+    {
+        const uint64_t now = offload::instructions();
+        part[i] = now - mark;
+        mark = now;
+    };
+    reg32 arena, draws;
+    const bool prepared = prepare(app, cpu, context, arena, draws);
+    lap(0);
+    if (!prepared || !br::segmentBegin(context, arena, draws, late ? &flush::queue::await : nullptr, &context))
+    {
+        offload::contextRun(false);
+        return false;
+    }
+    lap(1);
+    context.pending = true;
+    context.app = app;
+    context.frame = br::openFrameIndex();
+    context.ok = true;
+    context.run = &runJob;
+    offload::contextRun(true);
+    resetCaches(true);
+    context.open(cpu);
+    detach(context);
+    if (late)
+        snapshotEffects(context);
+    uint8_t heads[HeadCount * 8];
+    if (poison)
+    {
+        memcpy(heads, rc::host(Heads), sizeof(heads));
+        context.poison();
+        for (reg32 i = 0; i < HeadCount * 2; ++i)
+            rc::st32(Heads + 4 * i, 0xa5a5a5a5u);
+    }
+    lap(2);
+    if (late)
+    {
+        offload::parts(part);
+        s_pending.push_back(&context);
+        s_peak = std::max<uint32_t>(s_peak, uint32_t(s_pending.size()));
+        flush::queue::submit(context);
+        if (sequential)
+        {
+            flush::queue::await(&context);
+            if (poison)
+            {
+                memcpy(rc::host(Heads), heads, sizeof(heads));
+                context.unpoison();
+            }
+            closeWhile([&context](flush::Context& j) { return &j == &context; });
+        }
+        resetCaches(false);
+        rc::st32(0x87094c, 0);
+        cpu.esp += 4;
+        return true;
+    }
+    runJob(context);
+    lap(3);
+    if (poison)
+    {
+        memcpy(rc::host(Heads), heads, sizeof(heads));
+        context.unpoison();
+    }
+    if (!context.ok)
+    {
+        cpu.terminate = true;
+        return true;
+    }
+    context.writeBack();
+    context.giveBack();
+    lap(4);
+    br::segmentEnd(context);
+    context.pending = false;
+    resetCaches(false);
+    rc::st32(0x87094c, 0);
+    cpu.esp += 4;
+    lap(5);
+    offload::parts(part);
+    return true;
+}
+
+#endif
+
 void body(win32::WinApplication* app, x86::CPU& cpu)
 {
     if (!NFSU_NATIVE("flush_native"))
@@ -501,7 +975,7 @@ void body(win32::WinApplication* app, x86::CPU& cpu)
     rc::st32(s.frame + 8, s.ebp);
     rc::st32(s.frame + 4, s.esi);
     rc::st32(s.frame, s.edi);
-    increment(0x872edc);
+    increment<0x872edc>(cpu);
     reg32 k = 0;
     bool guest = false;
     for (;;)
@@ -542,7 +1016,47 @@ void body(win32::WinApplication* app, x86::CPU& cpu)
 // Not routed through shadow::call: the flush unlinks and frees, so a second run cannot be compared.
 void sub_5cf420(win32::WinApplication* app, x86::CPU& cpu)
 {
+    offload::flushBegin();
+#ifdef NFSU_OFFLOAD_CORE
+    if (runContext(app, cpu))
+    {
+        offload::flushEnd();
+        return;
+    }
+    const Segment segment;
+#endif
     scenery::timed(scenery::PhaseFlush, [&] { body(app, cpu); });
+    offload::flushEnd();
+}
+
+namespace flush
+{
+
+#ifdef NFSU_OFFLOAD_CORE
+void closeDone()
+{
+    closeDoneJobs();
+}
+
+void fence()
+{
+    const uint32_t start = pf::perf::now();
+    closeWhile([](Context&) { return true; });
+    s_fenceWaitUs += pf::perf::now() - start;
+}
+
+Pending pendingStats()
+{
+    const Pending p = { uint32_t(s_pending.size()), s_peak, queue::totals().waitedUs[1], s_fenceWaitUs };
+    s_peak = 0;
+    return p;
+}
+#else
+void closeDone() {}
+void fence() {}
+Pending pendingStats() { return Pending{}; }
+#endif
+
 }
 
 }}

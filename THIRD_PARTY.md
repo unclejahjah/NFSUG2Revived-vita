@@ -44,6 +44,53 @@ The Revived link's TLS is Mbed TLS 3.6.2 (Apache License 2.0). It is not part of
 `third_party/cacert/cacert.pem` is Mozilla's list of CA certificates, as packaged by certifi 2026.10.18, Mozilla
 Public License 2.0 (https://mozilla.org/MPL/2.0/).
 
+## NFSU-XtendedInput
+
+The right stick's car orbit in the garage (the game's own car orbit pad events) and menu navigation kept to the
+d-pad and left stick follow the approach of [NFSU-XtendedInput](https://github.com/xan1242/NFSU-XtendedInput) by
+xan1242, MIT License, Copyright (c) 2022 Lovro Pleše. The port reimplements the behaviour natively
+(`src/ug2/garage_stick.h`, `src/ug2/native/sub_4a5d90.cpp`, `src/ug2/native/sub_571d50.cpp`) and contains none of
+its code.
+
+## FFmpeg
+
+The optional native VP6 movie decoder (`movies=vp6`) links libavcodec and libavutil from FFmpeg 7.1.2
+(https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz), under the GNU Lesser General Public License, version 2.1 or later.
+The build uses no GPL or nonfree options: `tools/vita/build_ffmpeg_vp6.py` downloads that release, checks its SHA-256,
+applies the port's changes to it and builds only the VP6 decoders as a static library. The changes are the patches in
+`tools/vita/ffmpeg-patches/` (also under the LGPL 2.1 or later): the coefficients of a frame parsed on a second thread,
+Huffman tables kept while their model is unchanged, and a NEON version of one inverse DCT. The port is open source and
+built from these scripts, so anyone can rebuild it with their own copy of FFmpeg: replace the library in
+`build-ffmpeg-vp6/install` (or point `NFSU_FFMPEG_DIR` at it) and build again; a copy without these patches lacks
+`ff_vp56_set_split`, which `src/ug2/vp6native.cpp` calls. FFmpeg's license texts are in its source release.
+
+## Noto Sans
+
+The start-up screen draws its text with the Vita's own system font when the firmware's font library is available,
+and otherwise with Noto Sans Regular (Copyright 2022 The Noto Project Authors), SIL Open Font License
+1.1. Its Latin glyphs are rasterised by `tools/fonts/make_atlas.py` into `src/ug2/font_atlas.h`; the license text
+is in `src/ug2/fonts/OFL.txt`.
+
+## Mods tab descriptions
+
+The start-up screen's Mods tab quotes each feature's description from its mod's readme, credited to the mod's authors:
+EU Car Content's from the NFSU2 Extra Options readme, by the ExOpts Team.
+
+## mINI
+
+`src/ug2/mini/ini.h` is mINI 0.9.20 (https://github.com/metayeti/mINI) by Danijel Durakovic, MIT License; the license
+text is in `src/ug2/mini/LICENSE`. It reads and edits the mods' ini files. It is locally modified to add `//` comments
+(comment lines, and trailing comments at `;` or the last ` //`, which a changed value keeps); each change is marked
+`NFSU2VITA patch`.
+
+## NFSU2 Extra Options
+
+The EU Car Content feature, which lifts the game's regional car lock, is based on the Unlock Regional Cars option of
+[NFSU2 Extra Options](https://github.com/ExOptsTeam/NFSU2ExOpts) by the ExOpts Team (nlgxzef and others), GPLv3, and
+is switched by that mod's own settings file. The port makes the same change to the game's data that Extra Options
+makes, the 0xFF byte in each of the four region list entries (`src/ug2/mods_runtime.cpp`), and contains none of Extra
+Options' code.
+
 ## Need for Speed Underground 2
 
 Game code, binaries and assets are the property of Electronic Arts Inc. and its licensors and are not part of this

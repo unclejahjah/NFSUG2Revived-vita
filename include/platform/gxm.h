@@ -80,7 +80,7 @@ public:
     // in path (written by an earlier run) now instead of at their first draw, and lists every program created in
     // path at shutdown.
     void usePrograms(const char* path);
-    bool busy(const render::Resource& resource) { return resource.lastUse > completedFrame(); }
+    bool busy(const render::Resource& resource) { return resource.lastUse.load(std::memory_order_relaxed) > completedFrame(); }
 
     // Null when out of memory. Target textures are rendered to and sampled; the others are written by
     // writeTexture. Contents start undefined.

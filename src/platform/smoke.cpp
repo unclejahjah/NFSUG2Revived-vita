@@ -101,16 +101,16 @@ Settings load()
     s.crop = particleOptions().crop;
 #ifdef DEV_SETTINGS
     s.log = Config::getBool("smoke_log", false);
-    s.skip = Config::getBool("smoke_skip", false);
-    s.mipPoint = Config::getString("smoke_mip", "")[0] == 'p';
+    s.skip = Config::getBool("dev_smoke_skip", false);
+    s.mipPoint = Config::getString("dev_smoke_mip", "")[0] == 'p';
     int a = 0, b = 0;
-    const char* fade = Config::getString("smoke_fade", "");
+    const char* fade = Config::getString("dev_smoke_fade", "");
     if (fade && sscanf(fade, "%d,%d", &a, &b) == 2 && b > a)
     {
         s.fadeFrom = float(a) / 100.0f;
         s.fadeTo = float(b) / 100.0f;
     }
-    const char* near = Config::getString("smoke_near", "");
+    const char* near = Config::getString("dev_smoke_near", "");
     float n0 = 0.0f, n1 = 0.0f;
     if (near && sscanf(near, "%f,%f", &n0, &n1) == 2 && n1 > n0)
     {

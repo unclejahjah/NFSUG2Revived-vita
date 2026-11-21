@@ -2,8 +2,10 @@
 // settings of the browser version's Settings page that the Vita has, grouped as there, and their files.
 
 #include "options_menu.h"
+#include <platform/cfgfile.h>
 #include <platform/config.h>
 #include <platform/log.h>
+#include <platform/settings.h>
 #ifdef __vita__
 #include <psp2/appmgr.h>
 #endif
@@ -71,8 +73,6 @@ const Option MixRate[] = { { "0", "Game's own" }, { "44100", "44100 Hz" }, { "32
 const Option Silence[] = { { "-60", "-60 dB" }, { "-50", "-50 dB" }, { "-40", "-40 dB" }, { "off", "Off" } };
 const Option DeadZone[] = { { "0", "0%" }, { "10", "10%" }, { "20", "20%" }, { "30", "30%" }, { "40", "40%" },
                             { "50", "50%" } };
-const Option Speed[] = { { "1", "1" }, { "2", "2" }, { "3", "3" }, { "4", "4" }, { "5", "5" }, { "6", "6" },
-                         { "8", "8" }, { "10", "10" } };
 
 const Item Multiplayer[] = {
     { "Network play", Cfg, "network", Choice, OPTIONS(Network), "revived", 0, nullptr,
@@ -120,9 +120,9 @@ const Item Display[] = {
     { "Graphics preset", Cfg, "gfx_preset", Choice, OPTIONS(Preset), "vita", 0, nullptr,
       "Vita is what the port is tuned for; Max turns everything on and is much slower. The game's Display menu "
       "changes the individual options." },
-    { "Scenery detail distance", Cfg, "world_lod_pixels", Choice, OPTIONS(LodPixels), "0", 0, nullptr,
+    { "Scenery detail distance", Cfg, "dev_world_lod_pixels", Choice, OPTIONS(LodPixels), "0", 0, nullptr,
       "Scenery narrower than this on screen uses its simpler model. More gives speed and more pop-in." },
-    { "Small scenery", Cfg, "world_min_pixels", Choice, OPTIONS(MinPixels), "0", 0, nullptr,
+    { "Small scenery", Cfg, "dev_world_min_pixels", Choice, OPTIONS(MinPixels), "0", 0, nullptr,
       "Scenery smaller than this on screen is not drawn. More gives speed and more pop-in." },
     { "Optimised particles", Cfg, "optimised_particles", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "Cheaper tyre smoke and other particles, close to the original picture. Off is exactly as the original." },
@@ -141,15 +141,13 @@ const Item Sound[] = {
 
 const Item Controller[] = {
     { "Rear touch pad", Cfg, "rear_touch", Choice, OPTIONS(OnOff), "on", 0, nullptr,
-      "The rear touch pad's corners: shifting above, look back and camera below." },
+      "The rear touch pad works as L2, R2, L3 and R3, unbound until you set them in the game's Controls screen." },
     { "Touch screen", Cfg, "front_touch", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "Touching the screen works as a mouse click in the menus." },
     { "Garage camera stick", Cfg, "garage_stick", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "The right stick turns the car in the garage and the customisation menus." },
-    { "Camera stick dead zone", Cfg, "garage_stick_deadzone", Choice, OPTIONS(DeadZone), "20", 0, nullptr,
+    { "Camera stick dead zone", Cfg, "garage_stick_deadzone", Choice, OPTIONS(DeadZone), "30", 0, nullptr,
       "How far the right stick moves before the garage camera turns." },
-    { "Camera stick speed", Cfg, "garage_stick_speed", Choice, OPTIONS(Speed), "4", 0, nullptr,
-      "How fast the garage camera turns with the stick fully over." },
 };
 
 const Item Game[] = {
@@ -360,33 +358,6 @@ bool iniSection(const Lines& lines, size_t* begin, size_t* end)
     return false;
 }
 
-bool cfgGet(const Lines& lines, const char* key, std::string* value)
-{
-    bool found = false;
-    for (const std::string& line : lines)
-        found = lineSets(line, key, false, value) || found;     // the last line wins, as Config reads it
-    return found;
-}
-
-void cfgSet(Lines& lines, const char* key, const std::string& value)
-{
-    const std::string line = std::string(key) + "=" + value;
-    for (size_t i = lines.size(); i-- > 0;)
-        if (lineSets(lines[i], key, false, nullptr))
-        {
-            lines[i] = line;
-            return;
-        }
-    // Under the commented default the settings file was written with, so the explanation stays above it.
-    for (size_t i = 0; i < lines.size(); ++i)
-        if (lineSets(lines[i], key, true, nullptr))
-        {
-            lines.insert(lines.begin() + long(i) + 1, line);
-            return;
-        }
-    lines.push_back(line);
-}
-
 bool iniGet(const Lines& lines, const char* key, std::string* value)
 {
     size_t begin, end;
@@ -482,8 +453,9 @@ bool enabled()
 
 void load()
 {
-    Lines cfg, ini;
-    readLines(s_cfgPath, &cfg);
+    std::string cfg;
+    pf::cfgfile::readFile(s_cfgPath.c_str(), &cfg);
+    Lines ini;
     const bool iniExists = readLines(s_iniPath, &ini);
     s_saved.assign(PageCount, {});
     for (int p = 0; p < PageCount; ++p)
@@ -492,7 +464,12 @@ void load()
             const Item& it = Pages[p].items[i];
             std::string v = it.def;
             if (it.store == Cfg)
-                cfgGet(cfg, it.key, &v);
+            {
+                // The default and the old key name are the settings table's (src/platform/settings.cpp).
+                if (const pf::Setting* setting = pf::findSetting(it.key))
+                    v = pf::defaultText(*setting);
+                pf::cfgfile::find(cfg, it.key, &v);
+            }
             else if (!strcmp(it.key, "Enable"))
             {
                 if (iniExists)      // Enable = 1 when the .ini has none, as roam_vita.cpp reads it
@@ -520,10 +497,12 @@ bool save()
 {
     if (!dirty())
         return true;
-    Lines cfg, ini;
-    readLines(s_cfgPath, &cfg);
+    std::string cfg;
+    pf::cfgfile::readFile(s_cfgPath.c_str(), &cfg);
+    std::vector<pf::cfgfile::Change> changes;
+    Lines ini;
     const bool haveIni = readLines(s_iniPath, &ini);
-    bool cfgChanged = false, iniChanged = false;
+    bool iniChanged = false;
     for (int p = 0; p < PageCount; ++p)
         for (int i = 0; i < Pages[p].count; ++i)
         {
@@ -532,8 +511,12 @@ bool save()
             const Item& it = Pages[p].items[i];
             if (it.store == Cfg)
             {
-                cfgSet(cfg, it.key, s_values[p][i]);
-                cfgChanged = true;
+                pf::cfgfile::Change change;
+                change.key = it.key;
+                change.value = s_values[p][i];
+                const pf::Setting* setting = pf::findSetting(it.key);
+                change.atDefault = setting && change.value == pf::defaultText(*setting);
+                changes.push_back(change);
             }
             else
             {
@@ -544,7 +527,7 @@ bool save()
             }
         }
     bool ok = true;
-    if (cfgChanged && !writeLines(s_cfgPath, cfg))
+    if (!changes.empty() && !pf::cfgfile::writeFile(s_cfgPath.c_str(), pf::cfgfile::apply(cfg, changes)))
     {
         pf::logError("options menu: %s could not be written", s_cfgPath.c_str());
         ok = false;
@@ -571,7 +554,10 @@ void restart()
 {
     pf::logInfo("options menu: restarting the game");
 #ifdef __vita__
-    const int result = sceAppMgrLoadExec("app0:eboot.bin", nullptr, nullptr);
+    // The game itself (app0:game.bin), past the start-up screen; eboot.bin when the game was copied over it.
+    int result = sceAppMgrLoadExec("app0:game.bin", nullptr, nullptr);
+    if (result < 0)
+        result = sceAppMgrLoadExec("app0:eboot.bin", nullptr, nullptr);
     pf::logError("options menu: sceAppMgrLoadExec failed: 0x%08x", result);
 #endif
 }
@@ -661,7 +647,7 @@ void setText(int g, int i, const std::string& text)
 bool applyLive(int g, int i)
 {
     // The settings read where they are used, rather than once at the start.
-    static const char* const Live[] = { "log_info", "garage_stick", "garage_stick_deadzone", "garage_stick_speed" };
+    static const char* const Live[] = { "log_info", "garage_stick", "garage_stick_deadzone" };
     const Item& it = item(g, i);
     if (it.store != Cfg)
         return false;

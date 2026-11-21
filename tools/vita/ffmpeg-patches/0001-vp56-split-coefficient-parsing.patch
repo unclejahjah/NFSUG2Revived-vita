@@ -1,0 +1,423 @@
+VP6: parse the separately coded (Huffman) coefficients of a frame on a helper thread, row by row, ahead of the
+macroblock loop (ff_vp56_set_split). Output is unchanged; without a helper the decoder works as before.
+
+diff --git a/libavcodec/vp56.c b/libavcodec/vp56.c
+index 1da47ca..255a8b5 100644
+--- a/libavcodec/vp56.c
++++ b/libavcodec/vp56.c
+@@ -23,6 +23,8 @@
+  * VP5 and VP6 compatible video decoder (common features)
+  */
+ 
++#include <limits.h>
++
+ #include "libavutil/mem.h"
+ #include "avcodec.h"
+ #include "bytestream.h"
+@@ -280,7 +282,7 @@ static VP56mb vp56_conceal_mv(VP56Context *s, int row, int col)
+     return s->mb_type;
+ }
+ 
+-static void vp56_add_predictors_dc(VP56Context *s, VP56Frame ref_frame)
++static void vp56_add_predictors_dc(VP56Context *s, VP56Frame ref_frame, int16_t (*block_coeff)[64])
+ {
+     int idx = s->idct_scantable[0];
+     int b;
+@@ -311,13 +313,13 @@ static void vp56_add_predictors_dc(VP56Context *s, VP56Frame ref_frame)
+         else if (count == 2)
+             dc /= 2;
+ 
+-        s->block_coeff[b][idx] += dc;
+-        s->prev_dc[ff_vp56_b2p[b]][ref_frame] = s->block_coeff[b][idx];
+-        ab->dc_coeff = s->block_coeff[b][idx];
++        block_coeff[b][idx] += dc;
++        s->prev_dc[ff_vp56_b2p[b]][ref_frame] = block_coeff[b][idx];
++        ab->dc_coeff = block_coeff[b][idx];
+         ab->ref_frame = ref_frame;
+-        lb->dc_coeff = s->block_coeff[b][idx];
++        lb->dc_coeff = block_coeff[b][idx];
+         lb->ref_frame = ref_frame;
+-        s->block_coeff[b][idx] *= s->dequant_dc;
++        block_coeff[b][idx] *= s->dequant_dc;
+     }
+ }
+ 
+@@ -426,18 +428,22 @@ static void vp56_idct_add(VP56Context *s, uint8_t * dest, ptrdiff_t stride, int1
+         s->vp3dsp.idct_dc_add(dest, stride, block);
+ }
+ 
+-static av_always_inline void vp56_render_mb(VP56Context *s, int row, int col, int is_alpha, VP56mb mb_type)
++static av_always_inline void vp56_render_mb(VP56Context *s, int row, int col, int is_alpha, VP56mb mb_type,
++                                            int16_t (*block_coeff)[64], const int *idct_selector)
+ {
+     int b, ab, b_max, plane, off;
+     AVFrame *frame_current, *frame_ref;
+     VP56Frame ref_frame = ff_vp56_reference_frame[mb_type];
+ 
+-    vp56_add_predictors_dc(s, ref_frame);
++    vp56_add_predictors_dc(s, ref_frame, block_coeff);
+ 
+     frame_current = s->frames[VP56_FRAME_CURRENT];
+     frame_ref = s->frames[ref_frame];
+-    if (mb_type != VP56_MB_INTRA && !frame_ref->data[0])
++    if (mb_type != VP56_MB_INTRA && !frame_ref->data[0]) {
++        if (block_coeff != s->block_coeff)
++            memset(block_coeff, 0, 6 * sizeof(*block_coeff));
+         return;
++    }
+ 
+     ab = 6*is_alpha;
+     b_max = 6 - 2*is_alpha;
+@@ -447,7 +453,7 @@ static av_always_inline void vp56_render_mb(VP56Context *s, int row, int col, in
+             for (b=0; b<b_max; b++) {
+                 plane = ff_vp56_b2p[b+ab];
+                 vp56_idct_put(s, frame_current->data[plane] + s->block_offset[b],
+-                                s->stride[plane], s->block_coeff[b], s->idct_selector[b]);
++                                s->stride[plane], block_coeff[b], idct_selector[b]);
+             }
+             break;
+ 
+@@ -460,7 +466,7 @@ static av_always_inline void vp56_render_mb(VP56Context *s, int row, int col, in
+                                              frame_ref->data[plane] + off,
+                                              s->stride[plane], 8);
+                 vp56_idct_add(s, frame_current->data[plane] + off,
+-                              s->stride[plane], s->block_coeff[b], s->idct_selector[b]);
++                              s->stride[plane], block_coeff[b], idct_selector[b]);
+             }
+             break;
+ 
+@@ -478,18 +484,72 @@ static av_always_inline void vp56_render_mb(VP56Context *s, int row, int col, in
+                 vp56_mc(s, b, plane, frame_ref->data[plane], s->stride[plane],
+                         16*col+x_off, 16*row+y_off);
+                 vp56_idct_add(s, frame_current->data[plane] + s->block_offset[b],
+-                              s->stride[plane], s->block_coeff[b], s->idct_selector[b]);
++                              s->stride[plane], block_coeff[b], idct_selector[b]);
+             }
+             break;
+     }
+ 
+     if (is_alpha) {
+-        s->block_coeff[4][0] = 0;
+-        s->block_coeff[5][0] = 0;
++        block_coeff[4][0] = 0;
++        block_coeff[5][0] = 0;
++    }
++}
++
++/* Parses a row of coefficients; the caller holds split_parser. */
++static void vp56_split_parse_row(VP56Context *s, int row)
++{
++    int mb = row * s->mb_width;
++    int end = mb + s->mb_width;
++
++    for (; mb < end; mb++) {
++        if (s->parse_coeff_to(s, s->split_coeff[mb], s->split_selector[mb]) < 0) {
++            atomic_store_explicit(&s->split_error_mb, mb, memory_order_relaxed);
++            break;
++        }
++    }
++    s->split_next_row = row + 1;
++    atomic_store_explicit(&s->split_rows, row + 1, memory_order_release);
++}
++
++/* Helper job: parses rows until all are done or one fails. */
++static void vp56_split_job(void *arg)
++{
++    VP56Context *s = arg;
++
++    for (;;) {
++        int done;
++        if (atomic_flag_test_and_set_explicit(&s->split_parser, memory_order_acquire)) {
++            s->split->wait(s->split->opaque);
++            continue;
++        }
++        done = s->split_next_row >= s->mb_height ||
++               atomic_load_explicit(&s->split_error_mb, memory_order_relaxed) != INT_MAX;
++        if (!done)
++            vp56_split_parse_row(s, s->split_next_row);
++        atomic_flag_clear_explicit(&s->split_parser, memory_order_release);
++        if (done)
++            return;
++    }
++}
++
++/* Waits for a row, parsing rows itself while the parser is free. */
++static void vp56_split_need(VP56Context *s, int row)
++{
++    while (atomic_load_explicit(&s->split_rows, memory_order_acquire) <= row) {
++        if (!atomic_flag_test_and_set_explicit(&s->split_parser, memory_order_acquire)) {
++            int failed = atomic_load_explicit(&s->split_error_mb, memory_order_relaxed) != INT_MAX;
++            if (!failed && s->split_next_row < s->mb_height)
++                vp56_split_parse_row(s, s->split_next_row);
++            atomic_flag_clear_explicit(&s->split_parser, memory_order_release);
++            if (failed)
++                return;
++        } else {
++            s->split->wait(s->split->opaque);
++        }
+     }
+ }
+ 
+-static int vp56_decode_mb(VP56Context *s, int row, int col, int is_alpha)
++static int vp56_decode_mb(VP56Context *s, int row, int col, int is_alpha, int split)
+ {
+     VP56mb mb_type;
+     int ret;
+@@ -499,25 +559,37 @@ static int vp56_decode_mb(VP56Context *s, int row, int col, int is_alpha)
+     else
+         mb_type = vp56_decode_mv(s, row, col);
+ 
++    if (split) {
++        int mb = row * s->mb_width + col;
++        if (mb >= atomic_load_explicit(&s->split_error_mb, memory_order_relaxed))
++            return AVERROR_INVALIDDATA;
++        vp56_render_mb(s, row, col, is_alpha, mb_type, s->split_coeff[mb], s->split_selector[mb]);
++        return 0;
++    }
++
+     ret = s->parse_coeff(s);
+     if (ret < 0)
+         return ret;
+ 
+-    vp56_render_mb(s, row, col, is_alpha, mb_type);
++    vp56_render_mb(s, row, col, is_alpha, mb_type, s->block_coeff, s->idct_selector);
+ 
+     return 0;
+ }
+ 
+-static int vp56_conceal_mb(VP56Context *s, int row, int col, int is_alpha)
++static int vp56_conceal_mb(VP56Context *s, int row, int col, int is_alpha, int split)
+ {
+     VP56mb mb_type;
++    int mb = row * s->mb_width + col;
+ 
+     if (s->frames[VP56_FRAME_CURRENT]->flags & AV_FRAME_FLAG_KEY)
+         mb_type = VP56_MB_INTRA;
+     else
+         mb_type = vp56_conceal_mv(s, row, col);
+ 
+-    vp56_render_mb(s, row, col, is_alpha, mb_type);
++    if (split)
++        vp56_render_mb(s, row, col, is_alpha, mb_type, s->split_coeff[mb], s->split_selector[mb]);
++    else
++        vp56_render_mb(s, row, col, is_alpha, mb_type, s->block_coeff, s->idct_selector);
+ 
+     return 0;
+ }
+@@ -554,6 +626,14 @@ static int vp56_size_changed(VP56Context *s)
+     av_free(s->edge_emu_buffer_alloc);
+     s->edge_emu_buffer_alloc = av_malloc(16*stride);
+     s->edge_emu_buffer = s->edge_emu_buffer_alloc;
++    av_freep(&s->split_coeff);
++    av_freep(&s->split_selector);
++    if (s->split) {
++        s->split_coeff = av_calloc(s->mb_width * s->mb_height, sizeof(*s->split_coeff));
++        s->split_selector = av_calloc(s->mb_width * s->mb_height, sizeof(*s->split_selector));
++        if (!s->split_coeff || !s->split_selector)
++            return AVERROR(ENOMEM);
++    }
+     if (!s->above_blocks || !s->macroblocks || !s->edge_emu_buffer_alloc)
+         return AVERROR(ENOMEM);
+     if (s->flip < 0)
+@@ -670,6 +750,7 @@ static int ff_vp56_decode_mbs(AVCodecContext *avctx, void *data,
+     ptrdiff_t stride_y, stride_uv;
+     int res;
+     int damaged = 0;
++    int split = 0;
+ 
+     if (p->flags & AV_FRAME_FLAG_KEY) {
+         p->pict_type = AV_PICTURE_TYPE_I;
+@@ -686,6 +767,15 @@ static int ff_vp56_decode_mbs(AVCodecContext *avctx, void *data,
+     if (s->parse_coeff_models(s))
+         goto next;
+ 
++    if (s->split && s->parse_coeff_to && s->split_coeff && !is_alpha) {
++        split = 1;
++        s->split_next_row = 0;
++        atomic_store_explicit(&s->split_rows, 0, memory_order_relaxed);
++        atomic_store_explicit(&s->split_error_mb, INT_MAX, memory_order_relaxed);
++        atomic_flag_clear_explicit(&s->split_parser, memory_order_release);
++        s->split->start(s->split->opaque, vp56_split_job, s);
++    }
++
+     memset(s->prev_dc, 0, sizeof(s->prev_dc));
+     s->prev_dc[1][VP56_FRAME_CURRENT] = 128;
+     s->prev_dc[2][VP56_FRAME_CURRENT] = 128;
+@@ -733,19 +823,29 @@ static int ff_vp56_decode_mbs(AVCodecContext *avctx, void *data,
+         s->block_offset[4] = (mb_row_flip*8 + mb_offset) * stride_uv;
+         s->block_offset[5] = s->block_offset[4];
+ 
++        if (split && !damaged)
++            vp56_split_need(s, mb_row);
++
+         for (mb_col=0; mb_col<s->mb_width; mb_col++) {
+             if (!damaged) {
+-                int ret = vp56_decode_mb(s, mb_row, mb_col, is_alpha);
++                int ret = vp56_decode_mb(s, mb_row, mb_col, is_alpha, split);
+                 if (ret < 0) {
+                     damaged = 1;
+                     if (!s->have_undamaged_frame || !avctx->error_concealment) {
+                         s->discard_frame = 1;
++                        if (split) {
++                            int failed;
++                            s->split->join(s->split->opaque);
++                            failed = atomic_load_explicit(&s->split_error_mb, memory_order_relaxed);
++                            if (failed < s->mb_width * s->mb_height)
++                                memset(s->split_coeff[failed], 0, sizeof(*s->split_coeff));
++                        }
+                         return AVERROR_INVALIDDATA;
+                     }
+                 }
+             }
+             if (damaged)
+-                vp56_conceal_mb(s, mb_row, mb_col, is_alpha);
++                vp56_conceal_mb(s, mb_row, mb_col, is_alpha, split);
+ 
+             for (y=0; y<4; y++) {
+                 s->above_block_idx[y] += 2;
+@@ -759,6 +859,9 @@ static int ff_vp56_decode_mbs(AVCodecContext *avctx, void *data,
+         }
+     }
+ 
++    if (split)
++        s->split->join(s->split->opaque);
++
+     if (!damaged)
+         s->have_undamaged_frame = 1;
+ 
+@@ -825,6 +928,13 @@ av_cold int ff_vp56_init_context(AVCodecContext *avctx, VP56Context *s,
+     return 0;
+ }
+ 
++void ff_vp56_set_split(AVCodecContext *avctx, const VP56SplitOps *ops)
++{
++    VP56Context *s = avctx->priv_data;
++
++    s->split = ops;
++}
++
+ av_cold int ff_vp56_free_context(VP56Context *s)
+ {
+     int i;
+@@ -832,6 +942,8 @@ av_cold int ff_vp56_free_context(VP56Context *s)
+     av_freep(&s->above_blocks);
+     av_freep(&s->macroblocks);
+     av_freep(&s->edge_emu_buffer_alloc);
++    av_freep(&s->split_coeff);
++    av_freep(&s->split_selector);
+ 
+     for (i = 0; i < FF_ARRAY_ELEMS(s->frames); i++)
+         av_frame_free(&s->frames[i]);
+diff --git a/libavcodec/vp56.h b/libavcodec/vp56.h
+index 9dc0b9c..e86d551 100644
+--- a/libavcodec/vp56.h
++++ b/libavcodec/vp56.h
+@@ -26,6 +26,8 @@
+ #ifndef AVCODEC_VP56_H
+ #define AVCODEC_VP56_H
+ 
++#include <stdatomic.h>
++
+ #include "libavutil/mem_internal.h"
+ 
+ #include "avcodec.h"
+@@ -83,6 +85,19 @@ typedef int  (*VP56ParseCoeffModels)(VP56Context *s);
+ typedef int  (*VP56ParseHeader)(VP56Context *s, const uint8_t *buf,
+                                 int buf_size);
+ 
++typedef int  (*VP56ParseCoeffTo)(VP56Context *s, int16_t (*coeff)[64], int *selector);
++
++/**
++ * Split decoding: a helper thread parses the separately coded (Huffman) coefficients row by row ahead of the
++ * macroblock loop.
++ */
++typedef struct VP56SplitOps {
++    void *opaque;
++    void (*start)(void *opaque, void (*job)(void *arg), void *arg); /* job(arg) on the helper thread */
++    void (*join)(void *opaque);                                      /* until that job has returned */
++    void (*wait)(void *opaque);                                      /* a short pause for the other thread */
++} VP56SplitOps;
++
+ typedef struct VP56RefDc {
+     uint8_t not_null_dc;
+     VP56Frame ref_frame;
+@@ -202,8 +217,21 @@ struct vp56_context {
+ 
+     int have_undamaged_frame;
+     int discard_frame;
++
++    /* split decoding */
++    VP56ParseCoeffTo parse_coeff_to;    /* set for coefficients coded apart from the modes */
++    const VP56SplitOps *split;
++    int16_t (*split_coeff)[6][64];      /* per macroblock, zero between frames */
++    int (*split_selector)[6];
++    int split_next_row;                 /* next row to parse, by the holder of split_parser */
++    atomic_int split_rows;              /* rows parsed */
++    atomic_int split_error_mb;          /* first macroblock whose coefficients failed, or INT_MAX */
++    atomic_flag split_parser;
+ };
+ 
++/** Enables split decoding (NULL: off); ops must outlive the codec. */
++void ff_vp56_set_split(AVCodecContext *avctx, const VP56SplitOps *ops);
++
+ 
+ /**
+  * Initializes an VP56Context. Expects its caller to clean up
+diff --git a/libavcodec/vp6.c b/libavcodec/vp6.c
+index 97d63a5..ed77e03 100644
+--- a/libavcodec/vp6.c
++++ b/libavcodec/vp6.c
+@@ -44,6 +44,7 @@
+ 
+ static int vp6_parse_coeff(VP56Context *s);
+ static int vp6_parse_coeff_huffman(VP56Context *s);
++static int vp6_parse_coeff_huffman_to(VP56Context *s, int16_t (*block_coeff)[64], int *idct_selector);
+ 
+ static int vp6_parse_header(VP56Context *s, const uint8_t *buf, int buf_size)
+ {
+@@ -163,6 +164,7 @@ static int vp6_parse_header(VP56Context *s, const uint8_t *buf, int buf_size)
+     s->use_huffman = vpx_rac_get(c);
+ 
+     s->parse_coeff = vp6_parse_coeff;
++    s->parse_coeff_to = NULL;
+     if (coeff_offset) {
+         buf      += coeff_offset;
+         buf_size -= coeff_offset;
+@@ -172,6 +174,7 @@ static int vp6_parse_header(VP56Context *s, const uint8_t *buf, int buf_size)
+         }
+         if (s->use_huffman) {
+             s->parse_coeff = vp6_parse_coeff_huffman;
++            s->parse_coeff_to = vp6_parse_coeff_huffman_to;
+             ret = init_get_bits8(&s->gb, buf, buf_size);
+             if (ret < 0)
+                 return ret;
+@@ -410,6 +413,11 @@ static unsigned vp6_get_nb_null(VP56Context *s)
+ }
+ 
+ static int vp6_parse_coeff_huffman(VP56Context *s)
++{
++    return vp6_parse_coeff_huffman_to(s, s->block_coeff, s->idct_selector);
++}
++
++static int vp6_parse_coeff_huffman_to(VP56Context *s, int16_t (*block_coeff)[64], int *idct_selector)
+ {
+     VP56Model *model = s->modelp;
+     uint8_t *permute = s->idct_scantable;
+@@ -456,7 +464,7 @@ static int vp6_parse_coeff_huffman(VP56Context *s)
+                     if (coeff_idx)
+                         coeff2 *= s->dequant_ac;
+                     idx = model->coeff_index_to_pos[coeff_idx];
+-                    s->block_coeff[b][permute[idx]] = coeff2;
++                    block_coeff[b][permute[idx]] = coeff2;
+                 }
+             }
+             coeff_idx+=run;
+@@ -465,7 +473,7 @@ static int vp6_parse_coeff_huffman(VP56Context *s)
+             cg = FFMIN(vp6_coeff_groups[coeff_idx], 3);
+             vlc_coeff = &s->ract_vlc[pt][ct][cg];
+         }
+-        s->idct_selector[b] = model->coeff_index_to_idct_selector[FFMIN(coeff_idx, 63)];
++        idct_selector[b] = model->coeff_index_to_idct_selector[FFMIN(coeff_idx, 63)];
+     }
+     return 0;
+ }

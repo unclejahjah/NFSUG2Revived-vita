@@ -27,7 +27,7 @@ using texture::Format;
 // frame may still read it, so the layer writes a busy resource only through a new copy.
 struct Resource
 {
-    uint32_t lastUse = 0;
+    std::atomic<uint32_t> lastUse{0};
 };
 
 struct TextureDesc
