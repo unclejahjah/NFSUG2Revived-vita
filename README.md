@@ -148,7 +148,8 @@ Text fields, such as a profile name, open the Vita keyboard. To quit, use the PS
 
 **Vita Settings**, the main menu icon where Online was (Online is not offered), opens the game's own Options screens
 with the settings of the browser version's Settings page that the Vita has, in the same groups: Multiplayer, Free
-Roam, Display, Sound, Controller and Game. It is also the last icon in the game's Options, and Select + Up opens it
+Roam, Display, Sound, Controller and Game, with the start-up screen's player settings (Performance), Worlds,
+Friends and crews, and Mods (NFSU2 Revived, free roam and EU Car Content, each switched on or off). It is also the last icon in the game's Options, and Select + Up opens it
 from any front-end menu (not in a race). Pick a group, then change a setting with left and right as in the game's options; Cross on a text
 setting, such as a name or the passphrase, opens the Vita keyboard. Each change is saved at once to the same files as
 a hand edit and as the start-up screen's: `NeedForSpeedUnderground2.cfg` and free roam's `scripts/NFSU2FreeRoam.ini`.

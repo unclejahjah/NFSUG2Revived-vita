@@ -105,15 +105,26 @@ const Item Multiplayer[] = {
       "Local Wi-Fi only: the community server the Online menu uses in place of EA's closed servers." },
 };
 
-const Item FreeRoam[] = {
-    { "Name", Ini, "Name", Text, nullptr, 0, "", 24, "Profile name",
-      "The name your friends see over your car." },
-    { "Room", Ini, "Room", Text, nullptr, 0, "", 32, "Everybody",
-      "Only players with the same room name see each other." },
+const Option Worlds[] = { { "", "Main world" }, { "World 1", "World 1" }, { "World 2", "World 2" },
+                          { "World 3", "World 3" }, { "World 4", "World 4 (no ghost cars)" } };
+
+// Free roam's worlds: a world is a room, and only the players in the same one see each other. World 1 to 4 are
+// rooms by a fixed name, so everyone who picks one meets there; the main world has no name. Both rows set Room.
+const Item WorldsPage[] = {
+    { "World", Ini, "Room", Choice, OPTIONS(Worlds), "", 0, nullptr,
+      "Free roam shows only the players in the same world. World 4 has ghost cars off for everyone in it." },
+    { "Own world", Ini, "Room", Text, nullptr, 0, "", 32, "Main world",
+      "A world of your own by its name: only the players who type the same name see each other." },
+};
+
+const Item FriendsPage[] = {
     { "Crews", Ini, "Crew", Text, nullptr, 0, "", 120, "None",
       "Up to 4 crews, joined by commas. Players who share one see each other's names and map arrows in its colour." },
     { "Crew colours", Ini, "CrewColours", Text, nullptr, 0, "", 40, "Cyan, magenta, violet, red",
       "Each crew's colour in the order of Crews, 6 hex digits each, joined by commas (3cd2ff, ff4646)." },
+};
+
+const Item FreeRoam[] = {
     { "Ghost mode", Ini, "Collide", Choice, OPTIONS(Collide), "0", 0, nullptr,
       "Ghost cars: drive through other players. Solid cars: they can shove yours. Ghost everything: traffic too." },
     { "Group size", Ini, "MaxPlayers", Choice, OPTIONS(MaxPlayers), "8", 0, nullptr,
@@ -207,6 +218,8 @@ const Page Pages[] = {
     { "Controller", OPTIONS(Controller) },
     { "Game", OPTIONS(Game) },
     { "Performance", OPTIONS(Performance) },
+    { "Worlds", OPTIONS(WorldsPage) },
+    { "Friends and crews", OPTIONS(FriendsPage) },
     { "Mods", OPTIONS(Mods) },
 };
 const int PageCount = int(sizeof(Pages) / sizeof(Pages[0]));
@@ -558,6 +571,12 @@ bool save()
             const Item& it = Pages[p].items[i];
             if (it.store == Cfg)
             {
+                if (!strcmp(it.key, "revived_name") && haveIni)
+                {
+                    // One name: free roam's own Name follows it (empty: the game profile's name, as before).
+                    iniSet(ini, FreeRoamSection, "Name", s_values[p][i]);
+                    iniChanged = true;
+                }
                 pf::cfgfile::Change change;
                 change.key = it.key;
                 change.value = s_values[p][i];
@@ -678,6 +697,19 @@ std::string itemText(int g, int i)
     return item(g, i).kind == Text ? s_values[g][i] : std::string();
 }
 
+// Rows of two pages that set one key (World and Own world) show the same value.
+void shareValue(int g, int i)
+{
+    const Item& it = item(g, i);
+    for (int p = 0; p < PageCount; ++p)
+        for (int k = 0; k < Pages[p].count; ++k)
+        {
+            const Item& other = Pages[p].items[k];
+            if ((p != g || k != i) && other.store == it.store && !strcmp(other.key, it.key))
+                s_values[p][k] = s_values[g][i];
+        }
+}
+
 void cycle(int g, int i, int delta)
 {
     if (!s_loaded)
@@ -689,6 +721,7 @@ void cycle(int g, int i, int delta)
     int o = optionIndex(it, v);
     o = o < 0 ? 0 : (o + delta + it.optionCount) % it.optionCount;
     v = it.options[o].value;
+    shareValue(g, i);
 }
 
 void setText(int g, int i, const std::string& text)
@@ -702,6 +735,7 @@ void setText(int g, int i, const std::string& text)
     if (int(v.size()) > it.maxLength)
         v.resize(size_t(it.maxLength));
     s_values[g][i] = v;
+    shareValue(g, i);
 }
 
 bool applyLive(int g, int i)
