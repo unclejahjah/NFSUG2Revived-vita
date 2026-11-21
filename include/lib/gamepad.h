@@ -119,6 +119,8 @@ public:
     enum TextResult { TextNone, TextPending, TextConfirmed, TextCancelled };
     static bool requestText(const char* title, const char* text, uint32_t maxLength, bool secret);
     static TextResult takeText(char* text, size_t size);
+    // True once after the Vita Settings chord, Select + Up, was pressed. Any thread.
+    static bool takeSettingsRequest();
     // For an editor that only appends and deletes at its end: clearing a field skips the End key.
     static void setTextAppendOnly(bool appendOnly);
     // Ends the edit of the field: a keyboard still open for it closes without typing.

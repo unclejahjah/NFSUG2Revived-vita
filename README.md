@@ -115,6 +115,7 @@ controller (Cross is shown as Button 3), and the tables below are the defaults.
 | Cross | Select |
 | Circle | Back |
 | Start | Start, skip movie |
+| Select + Up | Vita Settings |
 
 ### Driving
 
@@ -147,8 +148,8 @@ Text fields, such as a profile name, open the Vita keyboard. To quit, use the PS
 
 **Vita Settings**, the main menu icon where Online was (Online is not offered), opens the game's own Options screens
 with the settings of the browser version's Settings page that the Vita has, in the same groups: Multiplayer, Free
-Roam, Display, Sound, Controller and Game. It is also the last icon in the game's Options, from the main menu and from
-the race pause menu. Pick a group, then change a setting with left and right as in the game's options; Cross on a text
+Roam, Display, Sound, Controller and Game. It is also the last icon in the game's Options, and Select + Up opens it
+from any front-end menu (not in a race). Pick a group, then change a setting with left and right as in the game's options; Cross on a text
 setting, such as a name or the passphrase, opens the Vita keyboard. Each change is saved at once to the same files as
 a hand edit and as the start-up screen's: `NeedForSpeedUnderground2.cfg` and free roam's `scripts/NFSU2FreeRoam.ini`.
 `log_info` and the garage stick settings apply at once; the others apply when the game starts again, and the game says

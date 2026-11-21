@@ -23,6 +23,7 @@
 #include <lib/winapp.h>
 #include <recomp.h>
 
+#include <cstring>
 #include <map>
 #include <string>
 #include <vector>
@@ -34,7 +35,6 @@ void sub_4aee30_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_4b6230_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_4b8470_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_4ff9d0_guest(win32::WinApplication* app, x86::CPU& cpu);
-void sub_4c4bd0_guest(win32::WinApplication* app, x86::CPU& cpu);
 
 namespace
 {
@@ -63,19 +63,18 @@ const reg32 CategoryItem     = 0x007918C8;  // an options category class (catego
 const reg32 VitaIcon         = 0x5654A1C0;  // our icon texture, added to GLOBAL/GlobalB.lzc (tools/vita/vita_icon.py)
 const reg32 SwitchPackage    = 0x00537980;  // cdecl (from package, to package name, 0)
 const reg32 OptionsMainName  = 0x0078FA3C;  // "UI_OptionsMain.fng"
+// How UI_Main's Options class (React 0x4AECE0) opens UI_OptionsMain: the package Back returns to, a call, a flag.
+const reg32 OptionsReturn    = 0x0083635C;  // name of the package UI_OptionsMain's Back switches to
+const reg32 OptionsPrepare   = 0x0052A460;  // thiscall on OptionsPrepareThis (0)
+const reg32 OptionsPrepareThis = 0x0083A9D0;
+const reg32 OptionsReturnFlag = 0x00836360; // byte, from OptionsReturnFlagSource
+const reg32 OptionsReturnFlagSource = 0x00844AD8;
+const reg32 GameState        = 0x008654A4;  // 1 front end, 4 race (frontend.cpp)
+const reg32 FeManager        = 0x008384C4;  // +0x10 the packages on screen, a list with the top first
 const reg32 ShowDialog       = 0x00558790;  // cdecl: a one-button dialog (package, dialog package, ..., text hash)
 const reg32 SmallDialog      = 0x0078FA24;  // "GenericDialog_SMALL.fng"
 const reg32 DialogDone       = 0x56540D1A;  // the message our dialog sends back, swallowed
 const reg32 OptionsBack      = 0x911AB364;  // UI_OptionsMain: Circle
-// The race pause menu's options: UI_PauseOptionsMain (setup 0x4C3000, called by its constructor, adds 4 categories,
-// the last of class 0x7918D0) and its list UI_PauseOptions (setup 0x4C4BD0, a native here; rows added with 0x54F170).
-const reg32 PauseMainClass   = 0x00797CCC;  // UI_PauseOptionsMain's vtable
-const reg32 PauseMainReact   = 0x004A7D60;
-const reg32 PauseListReact   = 0x004A8010;
-const reg32 PauseListName    = 0x0078FA60;  // "UI_PauseOptions.fng"
-const reg32 AddPauseRow      = 0x0054F170;  // thiscall on the screen (row, 1)
-const reg32 PlayerItem       = 0x007918D0;  // the pause options' last category
-const reg32 InGameDialog     = 0x00795484;  // "IG_GenericDialog_SMALL.fng"
 const reg32 MainReact        = 0x004F98B0;  // UI_Main's React (thiscall; message, 3 more; ret 0x10)
 const reg32 OptionsMainReact = 0x004B6080;  // UI_OptionsMain's
 const reg32 OptionsReact     = 0x0049C690;  // UI_Options's
@@ -112,10 +111,6 @@ win32::MethodPtr s_addOption = nullptr;
 bool s_inMainSetup = false;
 reg32 s_pauseItem = 0;                  // the game's UI_OptionsMain: our icon among its categories
 reg32 s_gameOptionsMain = 0;
-win32::MethodPtr s_pauseMainReact = nullptr;
-win32::MethodPtr s_pauseListReact = nullptr;
-reg32 s_pauseMainItem = 0;              // our icon in UI_PauseOptionsMain
-bool s_inPause = false;                 // ours shown in the pause menu's list: groups first (s_group -1), then one
 bool s_restartShown = false;            // the restart dialog, once a list visit
 
 reg32 s_menu = 0, s_item = 0;           // UI_Main and our icon
@@ -235,7 +230,7 @@ void changed(win32::WinApplication* app, x86::CPU& cpu, int g, int i)
     const reg32 text = hashOf(KindDialog, 0, 0, 0);
     if (!setText(app, cpu, text, RestartText))
         return;
-    callGuest(app, cpu, ShowDialog, 0, { rc::ld32(s_options + 4), s_inPause ? InGameDialog : SmallDialog, 0x639, 0x541389E5, 0xEFEDCBA0,
+    callGuest(app, cpu, ShowDialog, 0, { rc::ld32(s_options + 4), SmallDialog, 0x639, 0x541389E5, 0xEFEDCBA0,
                                          DialogDone, DialogDone, 0, text });
 }
 
@@ -278,82 +273,7 @@ void addOption(win32::WinApplication* app, x86::CPU& cpu)
         rc::st32(item + 0x2C, LabelHash);
         s_item = item;
     }
-    const reg32 menu = cpu.ecx;
-    const bool pauseLast = item && rc::ld32(menu) == PauseMainClass && rc::ld32(item) == PlayerItem &&
-                           options::enabled();
     s_addOption(app, cpu);
-    // The race pause menu's options: Vita Settings after the game's last category.
-    if (pauseLast && setText(app, cpu, LabelHash, "Vita Settings"))
-    {
-        const reg32 ours = callGuest(app, cpu, OperatorNew, 0, { 0x48 });
-        if (ours)
-        {
-            callGuest(app, cpu, ItemConstructor, ours, { VitaIcon, LabelHash, 0 });
-            rc::st32(ours, CategoryItem);
-            callGuest(app, cpu, AddOption, menu, { ours });
-        }
-        s_pauseMainItem = ours;
-    }
-}
-
-// UI_PauseOptionsMain's React: Cross on our icon opens the list (its class does) with our groups.
-void pauseMainReact(win32::WinApplication* app, x86::CPU& cpu)
-{
-    const reg32 menu = cpu.ecx;
-    if (rc::ld32(menu) == PauseMainClass && rc::ld32(cpu.esp + 4) == Accept)
-    {
-        s_inPause = s_pauseMainItem && rc::ld32(menu + 0x58) == s_pauseMainItem;
-        s_vita = s_inPause;
-        if (s_inPause)
-        {
-            s_group = -1;
-            options::load();
-            pf::logInfo("menu entry: Vita Settings from the pause menu");
-        }
-    }
-    s_pauseMainReact(app, cpu);
-}
-
-// UI_PauseOptions's React, ours shown: Cross on a group opens it, Circle goes back to the groups; Cross on a text
-// row opens the keyboard.
-void pauseListReact(win32::WinApplication* app, x86::CPU& cpu)
-{
-    const reg32 screen = cpu.ecx;
-    if (s_vita && s_inPause && screen == s_options)
-    {
-        const reg32 message = rc::ld32(cpu.esp + 4);
-        const reg32 row = rc::ld32(screen + 0x54);
-        if (message == DialogDone)
-        {
-            cpu.esp += 4 + 16;
-            return;
-        }
-        if (message == Accept && isOurRow(row) && s_group < 0)
-        {
-            s_group = rowItem(row);
-            callGuest(app, cpu, SwitchPackage, 0, { rc::ld32(screen + 4), PauseListName, 0 });
-            cpu.esp += 4 + 16;
-            return;
-        }
-        if (message == Accept && isOurRow(row))
-            openEditor(row);
-        if (message == OptionsBack && s_group >= 0)
-        {
-            s_group = -1;
-            s_editRow = 0;
-            callGuest(app, cpu, SwitchPackage, 0, { rc::ld32(screen + 4), PauseListName, 0 });
-            cpu.esp += 4 + 16;
-            return;
-        }
-        if (message == OptionsBack)
-        {
-            s_vita = false;
-            s_inPause = false;
-            s_options = 0;
-            s_editRow = 0;
-        }
-    }
-    s_pauseListReact(app, cpu);
 }
 
 // UI_Main's React: Cross on our icon opens UI_OptionsMain (its class does) with our groups.
@@ -363,7 +283,6 @@ void mainReact(win32::WinApplication* app, x86::CPU& cpu)
     if (s_item && menu == s_menu && rc::ld32(cpu.esp + 4) == Accept)
     {
         s_vita = rc::ld32(menu + 0x58) == s_item;
-        s_inPause = false;
         if (s_vita)
         {
             options::load();
@@ -438,10 +357,47 @@ void optionsReact(win32::WinApplication* app, x86::CPU& cpu)
     s_optionsReact(app, cpu);
 }
 
-// Every frame: the keyboard's text.
+// Select + Up: Vita Settings as the main menu opens it (UI_Main's Options class 0x4AECE0 does the same), over the
+// front end's current screen, which Back in it returns to. Not in a race: the front end's screens are not loaded there.
+void openFromHotkey(win32::WinApplication* app, x86::CPU& cpu)
+{
+    if (!options::enabled())
+        return;
+    if (rc::ld32(GameState) != 1)
+    {
+        pf::logInfo("menu entry: Select + Up, not in the front end (state %u)", unsigned(rc::ld32(GameState)));
+        return;
+    }
+    const reg32 manager = rc::ld32(FeManager);
+    if (!manager || rc::ld32(manager + 0x10) == manager + 0x10)
+        return;
+    // The packages on screen, the top first: each node's +8 is its name.
+    const reg32 from = rc::ld32(rc::ld32(manager + 0x10) + 8);
+    char name[64] = {};
+    for (size_t k = 0; from && k + 1 < sizeof(name); ++k)
+        if (!(name[k] = char(rc::ld8(from + reg32(k)))))
+            break;
+    if (s_vita || s_editRow || strstr(name, "Dialog") || !strncmp(name, "UI_Options", 10) ||
+        !strncmp(name, "UI_PC", 5) || !name[0])
+    {
+        pf::logInfo("menu entry: Select + Up ignored over %s", name[0] ? name : "nothing");
+        return;
+    }
+    s_vita = true;
+    options::load();
+    rc::st32(OptionsReturn, from);
+    callGuest(app, cpu, OptionsPrepare, OptionsPrepareThis, { 0 });
+    callGuest(app, cpu, SwitchPackage, 0, { from, OptionsMainName, 0 });
+    rc::st8(OptionsReturnFlag, rc::ld8(OptionsReturnFlagSource));
+    pf::logInfo("menu entry: Vita Settings from Select + Up, over %s", name);
+}
+
+// Every frame: the hotkey, and the keyboard's text.
 void peekMessageHook(win32::WinApplication* app, x86::CPU& cpu)
 {
     s_peekMessage(app, cpu);
+    if (win32::Gamepad::takeSettingsRequest())
+        openFromHotkey(app, cpu);
     if (!s_editRow)
         return;
     char text[256];
@@ -491,8 +447,6 @@ void configure(win32::WinApplication& app)
     s_optionsReact = app.replaceMethod(OptionsReact, optionsReact);
     s_peekMessage = app.replaceMethod(rc::ld32(PeekMessageSlot), peekMessageHook);
     s_addOption = app.replaceMethod(AddOption, addOption);
-    s_pauseMainReact = app.replaceMethod(PauseMainReact, pauseMainReact);
-    s_pauseListReact = app.replaceMethod(PauseListReact, pauseListReact);
     app.registerMethod(RowReactAddress, { "vita settings row react", rowReact });
     app.registerMethod(RowTextsAddress, { "vita settings row texts", rowTexts });
     pf::logInfo("menu entry: Vita Settings in the main menu");
@@ -611,40 +565,6 @@ void sub_4b8470(win32::WinApplication* app, x86::CPU& cpu)
     }
     callGuest(app, cpu, SelectRow, screen, { 0 });
     pf::logInfo("menu entry: %s, %d settings", options::groupTitle(s_group), count);
-    cpu.esp += 4;
-}
-
-// UI_PauseOptions's setup: ours shown, the groups or one group's settings as rows, as UI_Options's (sub_4b8470).
-void sub_4c4bd0(win32::WinApplication* app, x86::CPU& cpu)
-{
-    const reg32 screen = cpu.ecx;
-    if (!s_vita || !s_inPause)
-    {
-        sub_4c4bd0_guest(app, cpu);
-        return;
-    }
-    const reg32 package = rc::ld32(screen + 4);
-    for (const reg32 hash : { 0x444969FDu, 0x444969FEu })
-        callGuest(app, cpu, HideObject, 0, { callGuest(app, cpu, FindObject, 0, { package, hash }) });
-    rc::st8(screen + 0x150, 0);
-    ensureRowClass(app, cpu);
-    s_options = screen;
-    s_editRow = 0;
-    s_restartShown = false;
-    const int count = s_group < 0 ? options::groupCount()
-                    : s_group < options::groupCount() ? options::itemCount(s_group) : 0;
-    for (int i = 0; s_rowClass && i < count; ++i)
-    {
-        const reg32 row = callGuest(app, cpu, OperatorNew, 0, { RowSize });
-        if (!row)
-            break;
-        callGuest(app, cpu, RowConstructor, row, { screen + 0xFC, screen + 0x10C, screen + 0x114, screen + 0x11C, 1 });
-        rc::st32(row, s_rowClass);
-        rc::st32(row + 0x54, reg32(i));
-        callGuest(app, cpu, AddPauseRow, screen, { row, 1 });
-    }
-    callGuest(app, cpu, SelectRow, screen, { 0 });
-    pf::logInfo("menu entry: pause menu, %s, %d rows", s_group < 0 ? "groups" : options::groupTitle(s_group), count);
     cpu.esp += 4;
 }
 

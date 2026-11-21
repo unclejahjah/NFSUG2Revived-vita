@@ -80,11 +80,13 @@ struct Chord
     uint32_t keys;
     int      button;    // -1 for none
     bool     ime;       // opens the on-screen keyboard
+    bool     settings;  // opens Vita Settings (src/ug2/menu_entry.cpp)
 };
 
 static const Chord s_chords[] =
 {
-    { Triangle,  0, -1, true  },    // text entry
+    { Triangle,  0, -1, true,  false },     // text entry
+    { DpadUp,    0, -1, false, true  },     // Vita Settings
 };
 
 // How long a Select tap holds its button, enough for one game frame at 10 fps.
@@ -473,6 +475,8 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
         m_selectUsed = true;
         if (chord->ime)
             state.openIme = true;
+        if (chord->settings)
+            state.openSettings = true;
     }
     if ((released & bit(Select)) && !m_selectUsed)
         m_selectPulseEndUs = nowUs + s_tapUs;
