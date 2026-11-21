@@ -14,6 +14,8 @@
 #include <winapi/wrapper.h>
 #include <platform/log.h>
 #include <platform/render.h>
+#include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <vector>
 
@@ -297,6 +299,14 @@ namespace bridge
 bool onQueueThread();
 // Queue thread: the object is deleted by the next drain.
 void deleteLater(Object* object);
+// While segments are pending, objects that reach zero references wait to be deleted at the last join.
+extern bool g_deferDeletes;
+// Segments opened and not yet closed; effect stores are not skipped while any is.
+extern uint32_t g_pendingSegments;
+extern void (*g_frameHook)(uint32_t frame);
+void deleteAtJoin(Object* object);
+// One segment less pending; the last one deletes what waited. Game thread.
+void joinDeletes();
 // Objects that only bindings hold: +1 when one becomes so, -1 when it is deleted. While there are any, calls that
 // change bindings are not deferred. Game thread.
 void countBoundOnly(int delta);
@@ -310,6 +320,14 @@ inline Device* deviceObject(reg32 guest)
     if (__builtin_expect(guest == g_hot.deviceGuest, 1))
         return static_cast<Device*>(g_hot.device);
     return deviceLookup(guest);
+}
+
+// Segment clone when cpu is a segment's, else the device.
+inline Device* deviceOf(const x86::CPU& cpu, reg32 guest)
+{
+    if (__builtin_expect(cpu.og != nullptr, 0))
+        return static_cast<Device*>(static_cast<const SegmentRef*>(cpu.og)->device);
+    return deviceObject(guest);
 }
 
 // The bridge methods whose quiet case runs beside the method (d3d9_device.cpp, d3dx9.cpp): every case, with deferral
@@ -606,12 +624,17 @@ public:
     HRESULT Unlock(WinApplication* app, x86::CPU& cpu);
     HRESULT GetVertexDesc(WinApplication* app, x86::CPU& cpu, D3DVERTEXBUFFER_DESC* desc);
     HRESULT GetIndexDesc(WinApplication* app, x86::CPU& cpu, D3DINDEXBUFFER_DESC* desc);
+    // Game thread: brings a stale GPU copy up to date before a segment draws from it.
+    void syncIfStale()                      { if (m_stale) syncStorage(); }
+    // Guest pointers of up to max stale buffers; returns their number.
+    static uint32_t staleGuests(x86::reg32* out, uint32_t max);
     // A draw's bytes start..end: the frame copy of the last DISCARD lock, else the GPU copy.
     const uint8_t* drawData(uint32_t frameIndex, uint64_t start, uint64_t end, render::BufferStorage** storage);
 
 private:
     // Gives the GPU copy every byte of the shadow.
     void syncStorage();
+    void setStale(bool stale);
 
     Device*                 m_device;
     UINT                    m_size;
@@ -635,6 +658,8 @@ public:
     DWORD fvf() const                           { return m_fvf; }
     // The layout of these elements at a stream stride (registered once per stride).
     uint8_t layout(uint32_t stride);
+    // The same with a cache of its own, for the segments (one thread at a time) beside the game thread's.
+    uint8_t layoutAt(uint32_t stride);
     // Components of the TEXCOORD0 input (0: none).
     uint32_t texComponents() const              { return m_texComponents; }
     bool positionT() const                      { return m_layout.positionT; }
@@ -653,6 +678,8 @@ private:
     uint32_t                        m_texComponents = 0;
     uint32_t                        m_stride = 0;
     uint8_t                         m_layoutId = 0;
+    uint32_t                        m_segmentStride = 0;
+    uint8_t                         m_segmentLayoutId = 0;
 };
 
 // ---- Recording: the game thread records state changes and draws; the render thread resolves them -----------------
@@ -668,7 +695,10 @@ enum Command : uint8_t
     CmdFixedState,          // FixedState, whole
     CmdValues,              // header: block << 8; offset | count << 16; count floats
     CmdDraw,                // DrawRecord
-    CmdProduct              // header: block << 8; offset | count << 16; FPSCR; count matrices, their product
+    CmdProduct,             // header: block << 8; offset | count << 16; FPSCR; count matrices, their product
+    CmdDrawCall,            // index of a draw the recorder resolved whole
+    CmdSplice,              // SpliceRecord: runs a segment's commands
+    CmdSkipIf               // header: flag << 8; words to skip while the flag is set
 };
 
 // The VFP status and control register of the calling thread: FPCR on AArch64 (the same control bits), 0 and no
@@ -709,10 +739,14 @@ enum Transform : uint8_t
 };
 
 // Growing word buffer, one per frame in flight.
+struct ValuesShadow;
+
 struct Stream
 {
-    uint32_t*   data = nullptr;
-    uint32_t    size = 0, capacity = 0;
+    uint32_t*       data = nullptr;
+    uint32_t        size = 0, capacity = 0;
+    uint32_t        minimum = 64 * 1024;    // words of its first allocation
+    ValuesShadow*   shadow = nullptr;       // a segment's effect value shadow; null in the frame stream
 
     uint32_t* append(uint32_t words)
     {
@@ -729,6 +763,8 @@ struct Stream
 Stream& frameStream(uint32_t frameIndex);
 // Render thread: completes the draws of a frame from its stream (Frame::resolve).
 void resolveFrame(render::Frame& frame);
+// Tests: the resolver forgets the state it mirrors, and which frames it resolved.
+void resetResolver();
 
 // Device state the draws read, mirrored on the render thread.
 struct FixedState
@@ -739,6 +775,318 @@ struct FixedState
     D3DMATRIX       transforms[TransformCount];
     D3DVIEWPORT9    viewport;
 };
+
+// The frame stream aligns its records to 4 bytes only, which host pointers exceed on a 64-bit host.
+#if UINTPTR_MAX > 0xffffffffu
+#define D3D_STREAM_RECORD __attribute__((packed, aligned(4)))
+#else
+#define D3D_STREAM_RECORD
+#endif
+
+struct SegmentBuf;
+
+// A stream's commands (one whole flush) run by the resolver at a CmdSplice.
+struct Segment
+{
+    const uint32_t* words = nullptr;
+    uint32_t        size = 0;
+    uint32_t        drawCount = 0;      // draws it recorded into the slots reserved for it
+    std::atomic<uint32_t> ready{1};     // 0: another thread still records it
+    void          (*await)(void* job) = nullptr;    // returns when it is ready; may run the job
+    void*           job = nullptr;
+};
+
+struct D3D_STREAM_RECORD SpliceRecord
+{
+    const Segment*  segment;
+    uint32_t        flags;      // set bits make CmdSkipIf commands of the segment skip their words
+    uint32_t        scene;      // the scene of the reserved draw slots
+    uint32_t        reserved;   // draw slots kept for the segment; unused ones are closed up by the resolver
+};
+
+// Recorder state of one command stream: where it appends and what the stream's reader has after the commands so far.
+// A context with unknown words records the first set of each of them.
+extern uint64_t g_extraStateWords[2];   // words recorded only as unknown after a boundary: parent, segment
+#ifdef DEV_TOOLS
+namespace probe { extern bool g_on; void parentSet(uint32_t word, uint32_t count); }
+#define D3D_PROBE_SET(at, n) do { if (probe::g_on && !segment) probe::parentSet(uint32_t(reinterpret_cast<const uint32_t*>(at) - reinterpret_cast<const uint32_t*>(&fixed)), n); } while (0)
+#else
+#define D3D_PROBE_SET(at, n) do {} while (0)
+#endif
+
+struct RecordContext
+{
+    Stream*     stream = nullptr;
+    FixedState  fixed = {};
+    bool        partial = false;        // some words of fixed are unknown
+    SegmentBuf* segment = nullptr;      // the open segment whose stream this is, if any
+    std::vector<uint64_t>* undo = nullptr;  // while a segment is open: fixed words (index << 32) and their old values
+
+    void unknownAll()
+    {
+        partial = true;
+        memset(m_known, 0, sizeof(m_known));
+    }
+    // Whether setting the word needs a command, and the set itself.
+    bool renderNeeds(uint32_t state, DWORD value) const
+    {
+        D3D_PROBE_SET(&fixed.renderStates[state], 1);
+        return need(fixed.renderStates[state] != value, RenderBase + state);
+    }
+    void renderSet(uint32_t state, DWORD value)
+    {
+        if (undo)
+            log(&fixed.renderStates[state], 1);
+        fixed.renderStates[state] = value;
+        if (partial)
+            mark(RenderBase + state);
+    }
+    bool stageNeeds(uint32_t stage, uint32_t type, DWORD value) const
+    {
+        D3D_PROBE_SET(&fixed.stageStates[stage][type], 1);
+        return need(fixed.stageStates[stage][type] != value, StageBase + stage * 33 + type);
+    }
+    void stageSet(uint32_t stage, uint32_t type, DWORD value)
+    {
+        if (undo)
+            log(&fixed.stageStates[stage][type], 1);
+        fixed.stageStates[stage][type] = value;
+        if (partial)
+            mark(StageBase + stage * 33 + type);
+    }
+    bool samplerNeeds(uint32_t sampler, uint32_t type, DWORD value) const
+    {
+        D3D_PROBE_SET(&fixed.samplerStates[sampler][type], 1);
+        return need(fixed.samplerStates[sampler][type] != value, SamplerBase + sampler * 14 + type);
+    }
+    void samplerSet(uint32_t sampler, uint32_t type, DWORD value)
+    {
+        if (undo)
+            log(&fixed.samplerStates[sampler][type], 1);
+        fixed.samplerStates[sampler][type] = value;
+        if (partial)
+            mark(SamplerBase + sampler * 14 + type);
+    }
+    bool transformNeeds(uint32_t transform, const D3DMATRIX& value) const
+    {
+        D3D_PROBE_SET(&fixed.transforms[transform], 16);
+        return need(memcmp(&fixed.transforms[transform], &value, sizeof(D3DMATRIX)) != 0, TransformBase + transform);
+    }
+    void transformSet(uint32_t transform, const D3DMATRIX& value)
+    {
+        if (undo && !(m_touched >> transform & 1))
+        {
+            m_touched |= 1u << transform;
+            log(&fixed.transforms[transform], sizeof(D3DMATRIX) / 4);
+        }
+        fixed.transforms[transform] = value;
+        if (partial)
+            mark(TransformBase + transform);
+    }
+    bool viewportNeeds(const D3DVIEWPORT9& value) const
+    {
+        D3D_PROBE_SET(&fixed.viewport, 6);
+        return need(memcmp(&fixed.viewport, &value, sizeof(value)) != 0, ViewportBit);
+    }
+    void viewportSet(const D3DVIEWPORT9& value)
+    {
+        if (undo && !(m_touched >> 4 & 1))
+        {
+            m_touched |= 1u << 4;
+            log(&fixed.viewport, sizeof(D3DVIEWPORT9) / 4);
+        }
+        fixed.viewport = value;
+        if (partial)
+            mark(ViewportBit);
+    }
+
+private:
+    enum : uint32_t
+    {
+        RenderBase = 0, StageBase = 256, SamplerBase = 256 + 8 * 33, TransformBase = SamplerBase + 16 * 14,
+        ViewportBit = TransformBase + 4, Bits = ViewportBit + 1
+    };
+
+public:
+    // The words and knowledge to put back when the segment ends: the segment records on the parent's state.
+    struct Saved
+    {
+        std::vector<uint64_t>   log;
+        uint64_t                known[(Bits + 63) / 64];
+        bool                    partial;
+    };
+    void open(Saved& s)
+    {
+        s.log.clear();
+        s.partial = partial;
+        memcpy(s.known, m_known, sizeof(m_known));
+        m_touched = 0;
+        undo = &s.log;
+    }
+    // Starts from the parent's words; nothing to put back.
+    void openClone(const RecordContext& p)
+    {
+        memcpy(&fixed, &p.fixed, sizeof(fixed));
+        partial = p.partial;
+        memcpy(m_known, p.m_known, sizeof(m_known));
+        m_touched = 0;
+        undo = nullptr;
+    }
+    void close(Saved& s)
+    {
+        uint32_t* words = reinterpret_cast<uint32_t*>(&fixed);
+        for (size_t i = s.log.size(); i > 0; --i)
+            words[s.log[i - 1] >> 32] = uint32_t(s.log[i - 1]);
+        undo = nullptr;
+        partial = s.partial;
+        memcpy(m_known, s.known, sizeof(m_known));
+    }
+
+private:
+    void log(const void* at, uint32_t words)
+    {
+        const uint32_t first = uint32_t(static_cast<const uint32_t*>(at) - reinterpret_cast<const uint32_t*>(&fixed));
+        for (uint32_t i = 0; i < words; ++i)
+            undo->push_back(uint64_t(first + i) << 32 | static_cast<const uint32_t*>(at)[i]);
+    }
+    bool need(bool changed, uint32_t bit) const
+    {
+        if (changed)
+            return true;
+        if (!partial || known(bit))
+            return false;
+        ++g_extraStateWords[segment != nullptr];
+        return true;
+    }
+    bool known(uint32_t bit) const  { return (m_known[bit >> 6] >> (bit & 63)) & 1; }
+    void mark(uint32_t bit)         { m_known[bit >> 6] |= uint64_t(1) << (bit & 63); }
+
+    uint64_t    m_known[(Bits + 63) / 64] = {};
+    uint32_t    m_touched = 0;      // transforms (bits 0-3) and viewport (bit 4) logged in this segment
+};
+
+// Shadow of effect value blocks for a segment, whose floats start unknown: each float carries the serial that
+// last stored it, so a new segment forgets everything by taking a new serial. One shadow serves one segment at a time.
+struct ValuesShadow
+{
+    // Starts a segment: every float is unknown.
+    void begin(uint32_t newSerial)
+    {
+        serial = newSerial;
+        touched.clear();
+        textures.clear();
+        textureWrites = 0;
+    }
+    // Whether the store changes what the reader has; updates the shadow.
+    template< uint32_t N >
+    __attribute__((always_inline)) inline bool store(uint32_t block, uint32_t offset, const float* data, uint32_t count)
+    {
+        if (N)
+            count = N;
+        if (__builtin_expect(block >= m_blocks.size() || offset + count > m_blocks[block].size(), 0))
+            grow(block, offset + count);
+        Entry* e = m_blocks[block].data() + offset;
+        uint32_t changed = 0, fresh = 0;
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            uint32_t bits;
+            memcpy(&bits, &data[i], 4);
+            fresh |= e[i].stamp ^ serial;
+            changed |= (e[i].stamp ^ serial) | (e[i].bits ^ bits);
+            e[i].stamp = serial;
+            e[i].bits = bits;
+        }
+        if (fresh)
+            touched.push_back(Range{ uint16_t(block), uint16_t(offset), uint16_t(count) });
+        return changed != 0;
+    }
+    bool store(uint32_t block, uint32_t offset, const float* data, uint32_t count)
+    {
+        return store<0>(block, offset, data, count);
+    }
+    // The float's last stored value in this segment, if it stored one.
+    bool known(uint32_t block, uint32_t offset, float& value) const
+    {
+        if (block >= m_blocks.size() || offset >= m_blocks[block].size() || m_blocks[block][offset].stamp != serial)
+            return false;
+        memcpy(&value, &m_blocks[block][offset].bits, 4);
+        return true;
+    }
+
+    // Names the context: pending matrix products recorded under another serial record again.
+    uint32_t serial = 0;
+    struct Range { uint16_t block, offset, count; };
+    std::vector<Range> touched;     // first stores of the segment
+    // Last value stored at a logged float.
+    uint32_t bitsAt(uint32_t block, uint32_t offset) const { return m_blocks[block][offset].bits; }
+    struct TextureSet { uint16_t block, param; Object* texture; };
+    std::vector<TextureSet> textures;   // effect textures set in this segment
+    uint32_t textureWrites = 0;
+    Object* const* textureOf(uint32_t block, uint32_t param) const
+    {
+        for (const TextureSet& t : textures)
+            if (t.block == block && t.param == param)
+                return &t.texture;
+        return nullptr;
+    }
+    // The texture the parent has at the marker, unless the segment set one.
+    void addBase(uint32_t block, uint32_t param, Object* texture)
+    {
+        if (!textureOf(block, param))
+            textures.push_back(TextureSet{ uint16_t(block), uint16_t(param), texture });
+    }
+    void setTexture(uint32_t block, uint32_t param, Object* texture)
+    {
+        ++textureWrites;
+        for (TextureSet& t : textures)
+            if (t.block == block && t.param == param)
+            {
+                t.texture = texture;
+                return;
+            }
+        textures.push_back(TextureSet{ uint16_t(block), uint16_t(param), texture });
+    }
+
+private:
+    struct Entry
+    {
+        uint32_t    bits;
+        uint32_t    stamp;      // serial of the segment that stored bits; 0 never
+    };
+    void grow(uint32_t block, uint32_t floats);
+    std::vector<std::vector<Entry>> m_blocks;
+};
+
+// Records an effect value store into a segment's stream unless its shadow has the values.
+template< uint32_t N >
+__attribute__((always_inline)) inline void segmentRecord(Stream& stream, uint32_t id, uint32_t offset, const void* data,
+                                                         uint32_t n)
+{
+    if (N)
+        n = N;
+    if (!stream.shadow->store<N>(id, offset, static_cast<const float*>(data), n))
+        return;
+    uint32_t* w = stream.append(2 + n);
+    w[0] = CmdValues | id << 8;
+    w[1] = offset | n << 16;
+    memcpy(w + 2, data, n * 4);
+}
+
+// Opens a segment of the frame's recording at this point of the context's stream (a CmdSplice there): the context
+// records into the segment, its words unknown. Game thread, between frameStream and the submit.
+void beginSegment(RecordContext& ctx, uint32_t frameIndex);
+// Closes the segment: the context records into its stream again, its words unknown.
+void endSegment(RecordContext& ctx);
+// Opens a segment for a clone context of the parent.
+// await non-null: the segment is ready later (publishSegmentClone), and the resolver calls await(job) until then.
+void beginSegmentClone(RecordContext& parent, RecordContext& clone, uint32_t frameIndex, void (*await)(void*),
+                       void* job, uint32_t scene = 0, uint32_t reserved = 0);
+// The thread that recorded it: the resolver may read the segment.
+void publishSegmentClone(RecordContext& clone, uint32_t draws = 0);
+// Game thread, after the publish: the clone's shadow and serial are released.
+void endSegmentClone(RecordContext& clone, uint32_t draws = 0);
+// Names the context effect stores record into (see ValuesShadow::serial).
+uint32_t effectRecordSerial(const Stream* stream);
 
 enum : uint16_t
 {
@@ -757,16 +1105,9 @@ struct EffectDraw
     uint8_t     pad[2];
 };
 
-// The frame stream aligns its records to 4 bytes only, which host pointers exceed on a 64-bit host.
-#if UINTPTR_MAX > 0xffffffffu
-#define D3D_STREAM_RECORD __attribute__((packed, aligned(4)))
-#else
-#define D3D_STREAM_RECORD
-#endif
-
 struct D3D_STREAM_RECORD DrawRecord
 {
-    uint32_t                        draw;       // index in Frame::draws; the game thread filled its geometry
+    uint32_t                        draw;       // slot in Frame::draws; the recorder wrote its geometry there
     uint8_t                         primitive, layout, texComponents, positionT;
     EffectDraw                      effect;
     const render::TextureStorage*   textures[render::MaxSamplers];  // stage 0, or the pass's samplers
@@ -820,6 +1161,14 @@ public:
 void syncEffectValues(Stream& stream);
 // Game thread: every value block sent whole with the next frame.
 void markEffectValuesDirty();
+// A clone segment overwrote these floats on the stream: the next store of each is sent even if equal.
+void forgetSegmentEffects(ValuesShadow& shadow);
+// Takes a segment's stores and textures into the effects (a segment on the game thread's own device).
+void mergeSegmentEffects(ValuesShadow& shadow);
+#ifdef DEV_TOOLS
+// Dev: checks segment merges; null when they hold.
+const char* effectMergeTest();
+#endif
 // Render thread: floats of a value block.
 uint32_t effectBlockFloats();
 // An effect draw's binding, reused while its inputs match.
@@ -934,7 +1283,7 @@ public:
         return m_effectPass && !m_effectPass->alwaysDrawn && !m_effectPass->drawn();
     }
     // The stream of the frame being recorded; null between frames.
-    Stream* stream() const                      { return m_stream; }
+    Stream* stream() const                      { return m_ctx.stream; }
     // What draws need bound: stream 0 and its stride, indices, a declaration, the FVF.
     void bindings(bool& stream, UINT& stride, bool& indices, bool& declaration, DWORD& fvf) const
     {
@@ -1048,7 +1397,7 @@ public:
     HRESULT GetPixelShader(WinApplication* app, x86::CPU& cpu, x86::reg32* shader);
 
 private:
-    struct State : FixedState
+    struct State
     {
         Object*             textures[MaxSamplerStages];
         VertexDeclaration*  declaration;
@@ -1070,17 +1419,30 @@ private:
     render::Frame* frame(WinApplication* app, x86::CPU& cpu);
     render::Scene* scene();
     render::Scene* scene(const render::Target& target, uint16_t width, uint16_t height);
+    // Allocates from a clone's arena share.
+    void* arenaAllocate(uint32_t bytes);
     // False when the frame's viewport table is full (the frame then takes no more draws).
     bool viewportIndex(render::Frame& frame, const render::Viewport& viewport, uint16_t* index);
     bool drawViewport(render::Frame& frame, uint16_t* index);
     // Records a state change for the render thread (header and one value word).
     void record(uint32_t header, DWORD value);
     void recordWords(uint32_t header, const void* payload, uint32_t words);
+    void recordDrawCall();
     void submit();
 public:
     // Shows the frame recorded so far; false when there is none.
     bool showEarly(WinApplication* app, x86::CPU& cpu, uint32_t* frameIndex);
+    // The draws until segmentEnd record into a segment spliced at this point; false with no frame open.
+    bool segmentBegin();
+    void segmentEnd();
+    // A device clone for one segment; null: not opened.
+    Device* segmentClone(uint32_t arenaBytes, uint32_t draws, void (*await)(void*), void* job);
+    void segmentCloseClone(Device* clone);
+    // The thread that ran the clone's segment: publishes it to the resolver.
+    void segmentFinishClone(Device* clone);
+    uint32_t frameIndexOpen() const { return m_frame ? m_frame->index : 0; }
 private:
+    explicit Device(Device& parent);
     HRESULT draw(WinApplication* app, x86::CPU& cpu, DWORD type, UINT primitives, const void* vertices,
                  const uint16_t* indices, uint32_t vertexCount, uint8_t layout, uint32_t texComponents,
                  bool positionT, render::BufferStorage* vertexStorage, render::BufferStorage* indexStorage);
@@ -1102,6 +1464,7 @@ private:
     DWORD                   m_lights[8][26] = {};
     BOOL                    m_lightEnabled[8] = {};
     DWORD                   m_material[17] = {};
+    RecordContext           m_ctx;          // the recorder state: stream and shadow of the fixed-function state
     State                   m_state;        // from here on: the fields draws read, together
     Surface*                m_backBuffer = nullptr;
     Surface*                m_autoDepth = nullptr;
@@ -1115,7 +1478,9 @@ private:
     bool                    m_shownEarly = false;   // showEarly submitted the frame the next Present is for
     uint32_t                m_vblanks;
     bool                    m_frameFull = false;
-    Stream*                 m_stream = nullptr;
+    uint32_t                m_drawCount = 0, m_sceneDraws = 0;   // draws recorded in the frame and its last scene
+    uint32_t                m_drawLimit = 0;                     // a clone: the draws the parent reserved for it
+    uint32_t                m_segFirst = 0;                      // a clone: its first reserved slot in Frame::draws
     bool                    m_stateDirty = true;    // changed while no frame recorded: sent whole before a draw
     bool                    m_viewportChanged = true;   // m_state.viewport written since drawViewport
     uint32_t                m_viewportFrame = 0, m_viewportCount = 0;   // frame and table size at drawViewport
@@ -1125,6 +1490,17 @@ private:
     uint32_t                m_sceneFrame = 0, m_sceneCount = 0, m_sceneEpoch = 0;   // frame, scene count, texture epoch
     uint32_t                m_markFrame = 0, m_markEpoch = 0;   // m_marked holds what this frame marked at this epoch
     const void*             m_marked[render::MaxSamplers + 2] = {};
+
+    Device*                 m_parent = nullptr;
+    uint32_t                m_segFrame = 0;         // a clone: the frame its segment belongs to
+    static const uint32_t   MaxClones = 32;
+    std::vector<Device*>    m_clones;               // device clones of the segments in flight and spare ones
+    bool                    m_segBusy = false;      // a clone: its segment is in flight
+    render::Scene*          m_segScene = nullptr;
+    uint16_t                m_segViewport = 0;
+    uint8_t                 m_segTag = 0;
+    uint8_t*                m_arena = nullptr;
+    uint32_t                m_arenaUsed = 0, m_arenaSize = 0;
 };
 
 }}

@@ -23,6 +23,8 @@
 #include <string>
 #include <vector>
 
+namespace ug2 { namespace native { namespace flush { void fence(); }}}
+
 namespace ug2 { namespace boot {
 
 namespace {
@@ -30,6 +32,7 @@ namespace {
 using x86::reg32;
 
 const reg32 SkipFe = 0x00864FAC;               // main 0x580E00 starts the race (0x53FEB0); cleared at track unload
+const reg32 IntroScene = 0x00827E90;           // set by 0x437160, which the loader 0x57FA94 skips with SkipFe; 0 no intro
 const reg32 SkipFeTrack = 0x007FAA18;          // the settings below are read by 0x53FEB0
 const reg32 SkipFeHumans = 0x007FAA1C;
 const reg32 SkipFeOpponents = 0x00864FB0;
@@ -135,6 +138,7 @@ struct Settings
     bool aiDriver = true;
     bool seed = true;
     bool crowd = false;
+    bool intro = false;
     bool freeRoam = false;
     bool url = false;
     bool blindDrive = false;
@@ -146,6 +150,7 @@ Settings s_settings;
 reg32 s_drawHud = 1;                           // the game's value while the boot race hides it
 bool s_hudHidden = false;
 bool s_aiDriving = false;
+bool s_introRace = false;                      // SkipFe cleared for this boot race's intro
 reg32 s_raceStart = 0;                         // frame of the race start
 win32::MethodPtr s_trackTableLoader = nullptr;
 win32::MethodPtr s_trackLoad = nullptr;
@@ -156,6 +161,7 @@ int s_mainThread = 0;
 reg32 s_frame = 0;
 int s_frameState = -1;                         // coordinator state at the last frame end, -1 without one
 int s_heldFrames = 0;                          // loading frames of the current race with the world clock held
+reg32 s_loadEnd = 0;                           // frame the last held loading ended
 
 // Writes a guest dword and logs it with its previous value.
 void set(const char* name, reg32 address, reg32 value)
@@ -380,6 +386,11 @@ void trackLoadHook(win32::WinApplication* app, x86::CPU& cpu)
         logUpgrades();
         if (s_settings.seed)
             set("random seed", RandomSeed, fixedSeed());
+        if (s_settings.intro)
+        {
+            s_introRace = true;
+            set("skip front end, for the intro", SkipFe, 0);
+        }
     }
     s_trackLoad(app, cpu);
 }
@@ -403,8 +414,10 @@ void endBootRace()
 template <int I>
 void trackUnloadHook(win32::WinApplication* app, x86::CPU& cpu)
 {
+    native::flush::fence();
     bench::raceEnded("track unloaded");
     endBootRace();
+    s_introRace = false;
     s_trackUnloads[I](app, cpu);
 }
 
@@ -442,7 +455,7 @@ void logGraphics()
 // Boot race: state log, race-start seed and the AI driver.
 void stateEntered(int state)
 {
-    if (!rc::ld32(SkipFe))
+    if (!rc::ld32(SkipFe) && !s_introRace)
         return;
     static int s_previous = -1;
     const int previous = s_previous;
@@ -450,6 +463,15 @@ void stateEntered(int state)
     const reg32 coordinator = rc::ld32(RaceCoordinator);
     pf::logInfo("boot: race coordinator state %d at frame %u", coordinator ? int(rc::ld32(coordinator)) : state,
                 unsigned(rc::ld32(FramesRendered)));
+    static reg32 s_preRaceFrame = 0;
+    if (state == PreRaceState)
+        s_preRaceFrame = rc::ld32(FramesRendered);
+    if (state == RacingState && s_introRace && !rc::ld32(SkipFe))
+    {
+        pf::logInfo("boot: intro %s, %u frames", rc::ld32(IntroScene) ? "played" : "not found by the game",
+                    unsigned(rc::ld32(FramesRendered) - s_preRaceFrame));
+        set("skip front end, after the intro", SkipFe, 1);
+    }
     if (state == RacingState && previous == PreRaceState)
     {
         s_raceStart = rc::ld32(FramesRendered);
@@ -548,29 +570,34 @@ uint64_t writeShown(const char* path)
     }
 }
 
-// debug_shot_frames=a,b,c: shot_<n>.bmp and hash at those race frames.
-void shotAt(int raceFrame)
+// debug_shot_frames=a,b,c: race frames; fN rendered frame N; lN N frames after loading.
+void shotAt(int raceFrame, int frame, int afterLoad)
 {
-    static const std::vector<int> s_frames = [] {
-        std::vector<int> frames;
+    struct Shot { int n; char kind; };
+    static const std::vector<Shot> s_frames = [] {
+        std::vector<Shot> frames;
         const char* text = pf::Config::getString("debug_shot_frames", "");
         while (text && *text)
         {
-            frames.push_back(atoi(text));
+            const char kind = (*text == 'f' || *text == 'l') ? *text : 0;
+            frames.push_back({atoi(text + (kind != 0)), kind});
             text = strchr(text, ',');
             text = text ? text + 1 : nullptr;
         }
         return frames;
     }();
-    for (int n : s_frames)
+    for (const Shot& s : s_frames)
     {
-        if (n != raceFrame)
+        if (s.n != (s.kind == 'f' ? frame : s.kind == 'l' ? afterLoad : raceFrame))
             continue;
         pf::sleepMs(500);
         char path[64];
-        snprintf(path, sizeof(path), "ux0:data/NeedForSpeedUnderground2/shot_%d.bmp", n);
+        snprintf(path, sizeof(path), "ux0:data/NeedForSpeedUnderground2/shot_%s%d.bmp",
+                 s.kind == 'f' ? "f" : s.kind == 'l' ? "l" : "", s.n);
         const uint64_t hash = writeShown(path);
-        pf::logInfo("boot: shot of race frame %d: hash %08x%08x", n, unsigned(hash >> 32), unsigned(hash));
+        pf::logInfo("boot: shot of %s frame %d: hash %08x%08x",
+                    s.kind == 'f' ? "rendered" : s.kind == 'l' ? "after-load" : "race", s.n, unsigned(hash >> 32),
+                    unsigned(hash));
     }
 }
 
@@ -591,11 +618,12 @@ void frameEnded()
         pf::logInfo("boot: virtual clock: world time held at its start for %d loading frames (race coordinator "
                     "state %d)", s_heldFrames, LoadingState);
         s_heldFrames = 0;
+        s_loadEnd = rc::ld32(FramesRendered);
     }
     s_frameState = state;
     static const int s_hold = pf::Config::getInt("debug_hold_frame", 0);
-    if (state == RacingState && s_raceStart)
-        shotAt(int(rc::ld32(FramesRendered) - s_raceStart));
+    shotAt(state == RacingState && s_raceStart ? int(rc::ld32(FramesRendered) - s_raceStart) : -1,
+           int(rc::ld32(FramesRendered)), s_loadEnd ? int(rc::ld32(FramesRendered) - s_loadEnd) : -1);
     if (s_hold > 0 && state == RacingState && s_raceStart && rc::ld32(FramesRendered) - s_raceStart == reg32(s_hold))
     {
         pf::logInfo("boot: holding the game thread at race frame %d", s_hold);
@@ -679,9 +707,10 @@ void configure(win32::WinApplication& app)
                                                         : s_settings.drift ? DriftTrack : DefaultTrack);
     s_settings.car = pf::Config::getString("boot_car", "");
     s_settings.aiDriver = !s_settings.freeRoam && pf::Config::getBool("boot_ai_driver", true);
-    s_settings.blindDrive = s_settings.freeRoam && pf::Config::getBool("boot_drive", true);
+    s_settings.blindDrive = drive::available && s_settings.freeRoam && pf::Config::getBool("boot_drive", true);
     s_settings.seed = pf::Config::getBool("boot_seed", true);
     s_settings.crowd = pf::Config::getBool("boot_crowd", false);
+    s_settings.intro = !s_settings.freeRoam && pf::Config::getBool("boot_intro", false);
     s_settings.manual = (s_settings.freeRoam || s_settings.drag) && pf::Config::getBool("boot_manual", true);
     s_settings.upgrades = s_settings.freeRoam ? std::min(std::max(pf::Config::getInt("boot_upgrades", 2), 0), 3) : 0;
     const int laps = std::min(std::max(pf::Config::getInt("boot_laps", 2), 1), 10);
@@ -693,16 +722,18 @@ void configure(win32::WinApplication& app)
     const int opponents = s_settings.freeRoam ? 0
                           : std::min(std::max(pf::Config::getInt("boot_opponents", s_settings.url ? UrlOpponents : s_settings.drift ? DriftOpponents : 0), 0), MaxOpponents);
     pf::logInfo("boot: direct boot into %s (boot_race=off for the front end): track %d, %d laps, car %s, %s, "
-                "%d AI opponents, traffic %s, crowd %s, HUD %s, audio %s, seed %s 0x%08X",
+                "%d AI opponents, traffic %s, crowd %s, intro %s, HUD %s, audio %s, seed %s 0x%08X",
                 s_settings.freeRoam ? "free roam (boot_mode=freeroam)" : s_settings.url ? "a URL race (boot_mode=url)" : s_settings.drag ? "a drag race (boot_mode=drag)"
                 : s_settings.drift ? "a drift race (boot_mode=drift)" : "a race",
                 s_settings.track, laps,
                 s_settings.car.empty() ? "the game's" : s_settings.car.c_str(),
                 s_settings.blindDrive ? "driven blind" : s_settings.freeRoam ? "the player drives" : s_settings.aiDriver ? "the AI drives" : "the player drives",
                 opponents, traffic ? "on" : "off",
-                s_settings.crowd ? "on" : "off", hud ? "on" : "off", audio ? "on" : "off",
+                s_settings.crowd ? "on" : "off", s_settings.intro ? "on" : "off", hud ? "on" : "off", audio ? "on" : "off",
                 s_settings.seed ? "fixed" : "from the ticker, not", unsigned(fixedSeed()));
 
+    if (s_settings.intro && !s_settings.crowd)
+        pf::logError("boot: boot_intro needs boot_crowd=on: the game plays no intro with the crowd off (0x4368C8)");
     bench::configure(s_settings.freeRoam ? FreeRoamSeconds : 0, s_settings.freeRoam ? FreeRoamWindow : 0);
     if (s_settings.blindDrive)
     {

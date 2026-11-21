@@ -4,6 +4,7 @@
 // the next lock of the level returns it instead of reading the GPU copy back.
 
 #include <winapi/d3d9_internal.h>
+#include <winapi/d3d9_probe.h>
 #include <platform/cached.h>
 #include <platform/config.h>
 #include <platform/gxm.h>
@@ -737,8 +738,40 @@ Buffer::Buffer(Device* device, Kind kind, UINT size, DWORD usage, DWORD pool, DW
     device->addRef();
 }
 
+namespace
+{
+std::vector<Buffer*> s_staleBuffers;
+}
+
+void Buffer::setStale(bool stale)
+{
+    if (stale == m_stale)
+        return;
+    m_stale = stale;
+    if (stale)
+        s_staleBuffers.push_back(this);
+    else
+        s_staleBuffers.erase(std::find(s_staleBuffers.begin(), s_staleBuffers.end(), this));
+}
+
+uint32_t Buffer::staleGuests(x86::reg32* out, uint32_t max)
+{
+    uint32_t n = 0;
+    for (Buffer* b : s_staleBuffers)
+    {
+        if (n == max)
+        {
+            b->syncStorage();
+            continue;
+        }
+        out[n++] = b->guest();
+    }
+    return n;
+}
+
 Buffer::~Buffer()
 {
+    setStale(false);
     delete m_shadow;
     if (m_storage)
         gpu().release(m_storage);
@@ -848,7 +881,7 @@ HRESULT Buffer::Unlock(WinApplication* app, x86::CPU& cpu)
             m_frameIndex = m_device->frameIndex();
             m_frameStart = m_lockOffset;
             m_frameEnd = m_lockOffset + m_lockSize;
-            m_stale = true;
+            setStale(true);
             return D3D_OK;
         }
     }
@@ -877,7 +910,10 @@ HRESULT Buffer::Unlock(WinApplication* app, x86::CPU& cpu)
 
 void Buffer::syncStorage()
 {
-    m_stale = false;
+#ifdef DEV_TOOLS
+    probe::count(probe::g_inSegment ? probe::SyncStorageClone : probe::SyncStorageParent);
+#endif
+    setStale(false);
     const uint8_t* shadow = host(m_shadow->getBlockStart());
     if (gpu().busy(*m_storage))
     {
@@ -1061,8 +1097,23 @@ uint8_t VertexDeclaration::layout(uint32_t stride)
         layout.stride = uint16_t(stride);
         m_layoutId = render::registerLayout(layout);
         m_stride = stride;
+#ifdef DEV_TOOLS
+        probe::count(probe::g_inSegment ? probe::LayoutMissClone : probe::LayoutMissParent);
+#endif
     }
     return m_layoutId;
+}
+
+uint8_t VertexDeclaration::layoutAt(uint32_t stride)
+{
+    if (stride != m_segmentStride || !m_segmentStride)
+    {
+        render::VertexLayout layout = m_layout;
+        layout.stride = uint16_t(stride);
+        m_segmentLayoutId = render::registerLayout(layout);
+        m_segmentStride = stride;
+    }
+    return m_segmentLayoutId;
 }
 
 HRESULT VertexDeclaration::GetDevice(WinApplication* app, x86::CPU& cpu, x86::reg32* device)

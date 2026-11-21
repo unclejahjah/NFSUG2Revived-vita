@@ -1,6 +1,7 @@
 // Native sub_5bd140: shader-constant upload of the draw queue. The fixed-function light path stays guest code by design (partial conversion).
 
 #include <native/common.h>
+#include <native/flush_context.h>
 #include <native/shadow.h>
 #include <platform/switches.h>
 #include <platform/cached.h>
@@ -18,11 +19,6 @@ namespace native
 namespace
 {
 
-const float* floatsAt(x86::reg32 address)
-{
-    return reinterpret_cast<const float*>(rc::host(address));
-}
-
 void body(win32::WinApplication* app, x86::CPU& cpu)
 {
     if (!NFSU_NATIVE("light_upload_native"))
@@ -30,7 +26,7 @@ void body(win32::WinApplication* app, x86::CPU& cpu)
         sub_5bd140_guest(app, cpu);
         return;
     }
-    const x86::reg32 group = rc::ld32(0x870910);
+    const x86::reg32 group = flush::ld32<0x870910>(cpu);
     const x86::reg32 kind = rc::ld32(group + 4);
     if (kind == 5 && rc::ld8(group + 0x18) == 0)
     {
@@ -47,8 +43,8 @@ void body(win32::WinApplication* app, x86::CPU& cpu)
     const x86::reg32 table = rc::ld32(group + 0x1c);
     const x86::reg32 effect = rc::ld32(group + 0x20);
     // No CallGroup (UG2 opens no deferral window); bridge calls never write guest memory.
-    win32::d3d9::bridge::effectSetVectorArray(app, cpu, effect, rc::ld32(table + 0x4fc), floatsAt(context + 0x120), 10);
-    cpu.eax = win32::d3d9::bridge::effectSetVector(app, cpu, effect, rc::ld32(table + 0x5ec), floatsAt(context + 0xc0));
+    win32::d3d9::bridge::effectSetVectorArray(app, cpu, effect, rc::ld32(table + 0x4fc), flush::lightArray(cpu, context), 10);
+    cpu.eax = win32::d3d9::bridge::effectSetVector(app, cpu, effect, rc::ld32(table + 0x5ec), flush::lightVector(cpu, context));
     cpu.esp += 4;
 }
 

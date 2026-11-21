@@ -193,6 +193,8 @@ const Setting s_vitaSettings[] = {
     { "g_TintingEnable", 1 },
     { "g_RainEnable", 1 },
     { "g_PerformanceLevel", 2 },
+    { "g_RoadReflectionEnable", 1 },
+    { "g_WorldLodLevel", 2 },
 };
 
 // gfx_preset=max: the highest values of preset 0x5BE870 and caps 0x5BE200; clamp 0x5BE690 may lower them.

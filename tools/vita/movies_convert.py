@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Converts the game's EA .vp6 movies to H.264 MP4 for movies=native (video only, no B-frames).
+"""Converts the game's EA .vp6 movies to MP4 for movies=native: H.264 (no B-frames) and AAC sound.
 
 ffmpeg's EA demuxer stops at the first SCEl (audio end) chunk and drops the video after it, so those chunks are
-removed first. The game plays its own audio. Usage: movies_convert.py <MOVIES folder> [output folder]
+removed first. Usage: movies_convert.py <MOVIES folder> [output folder]
 Without an output folder the .mp4 files go beside the .vp6 files, where the port looks for them.
 """
 import os
@@ -47,9 +47,9 @@ def main():
             with open(path, 'wb') as f:
                 f.write(data)
             out = os.path.join(target, name[:-4] + '.mp4')
-            subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', path, '-an', '-c:v', 'libx264', '-profile:v', 'main',
+            subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', path, '-c:v', 'libx264', '-profile:v', 'main',
                             '-level', '3.1', '-pix_fmt', 'yuv420p', '-bf', '0', '-crf', '18', '-fps_mode', 'passthrough',
-                            '-movflags', '+faststart', out], check=True)
+                            '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-movflags', '+faststart', out], check=True)
             frames = [frame_count(p) for p in (path, out)]
         print(name, '->', out, 'frames', frames[0], frames[1], '' if frames[0] == frames[1] else 'MISMATCH')
 

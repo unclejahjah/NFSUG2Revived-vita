@@ -1,7 +1,14 @@
 # NFSU2VITA - Need for Speed Underground 2 (static recompilation) -> PS Vita. ELF -> SELF -> VPK.
 cmake_minimum_required(VERSION 3.20)
 
-# The PS Vita build (the VPK). The macOS test build is on the development branch.
+# vita: the VPK (default). host: the macOS development build (cmake/host.cmake).
+set(NFSU_PLATFORM "vita" CACHE STRING "Target: vita or host")
+set_property(CACHE NFSU_PLATFORM PROPERTY STRINGS vita host)
+if(NFSU_PLATFORM STREQUAL "host")
+  project(NFSU2HOST C CXX)
+  include(cmake/host.cmake)
+  return()
+endif()
 
 option(NFSU_RUNTIME_CHECK "Only compile the runtime sources that build without the generated code (CI)" OFF)
 # Built with clang and lld only (cmake/vita-clang.cmake, LLVM from NFSU_LLVM), with ThinLTO and PGO.
@@ -24,8 +31,8 @@ endif()
 
 set(VITA_APP_NAME "NFS Underground 2")
 set(VITA_TITLEID  "NFSU2VITA")
-set(NFSU_VERSION  "0.8.3")
-set(VITA_VERSION  "00.83")
+set(NFSU_VERSION  "0.8.4")
+set(VITA_VERSION  "00.84")
 
 option(NFSU_LOG_DEBUG        "Verbose runtime logging" OFF)
 option(NFSU_ASSERT_SOFT      "Log failed assertions instead of trapping" OFF)
@@ -53,9 +60,25 @@ if(NFSU_PGO_DEFAULT AND NOT NFSU_PGO_GENERATE AND NOT NFSU_PGO_USE
 endif()
 
 include(cmake/shaders.cmake)
+# Diagnostics for development (src/dev: hitch log, mixer counters, benchmark figures, blind driver, scene log).
+option(DEV_TOOLS "Development: compile the diagnostics in src/dev (they need that folder)" OFF)
 include(cmake/sources.cmake)
 
 nfsu_add_shaders(NFSU_SHADER_SOURCES)
+
+# Native VP6 movies (movies=vp6): the minimal FFmpeg that tools/vita/build_ffmpeg_vp6.py builds, linked when present.
+set(NFSU_FFMPEG_DIR "${CMAKE_SOURCE_DIR}/build-ffmpeg-vp6/install" CACHE PATH "FFmpeg for VP6 (build_ffmpeg_vp6.py)")
+set(NFSU_FFMPEG_LIBS "")
+if(EXISTS "${NFSU_FFMPEG_DIR}/lib/libavcodec.a" AND EXISTS "${NFSU_FFMPEG_DIR}/lib/libavutil.a")
+  # FFmpeg is built without short enums: this file uses libavcodec's structures directly, and stays out of LTO,
+  # which refuses to merge modules with different enum sizes.
+  set_source_files_properties(src/ug2/vp6native.cpp PROPERTIES COMPILE_DEFINITIONS NFSU_VP6_NATIVE
+                              COMPILE_OPTIONS "-I${NFSU_FFMPEG_DIR}/include;-fno-short-enums;-fno-lto")
+  set(NFSU_FFMPEG_LIBS "${NFSU_FFMPEG_DIR}/lib/libavcodec.a" "${NFSU_FFMPEG_DIR}/lib/libavutil.a")
+  message(STATUS "Native VP6 movies: FFmpeg from ${NFSU_FFMPEG_DIR}")
+else()
+  message(STATUS "Native VP6 movies: off (run tools/vita/build_ffmpeg_vp6.py to enable)")
+endif()
 
 set(NFSU_ARCH_FLAGS -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard)
 # Every multiply and add rounded on its own (the VFPv3 unit has no fused multiply-add).
@@ -92,7 +115,20 @@ endforeach()
 if(DEV_SETTINGS)
   list(APPEND NFSU_DEFINES DEV_SETTINGS)
 endif()
+if(DEV_TOOLS)
+  list(APPEND NFSU_DEFINES DEV_TOOLS)
+endif()
 set(NFSU_RUNTIME_DEFINES ${NFSU_DEFINES} NFSU_VERSION="${NFSU_VERSION}")
+# Offload renderer: where the draw flushes are recorded. 0: inline on the game thread, 1: inside the render thread
+# at the splice, 2: a worker on core 2. Empty: off.
+# A compile-time choice; no settings key selects the core.
+set(NFSU_OFFLOAD_CORE "2" CACHE STRING "Offload renderer producer core: 0 inline, 1 render thread, 2 worker on core 2; empty off")
+if(NOT NFSU_OFFLOAD_CORE STREQUAL "")
+  if(NOT NFSU_OFFLOAD_CORE MATCHES "^[0-2]$")
+    message(FATAL_ERROR "NFSU_OFFLOAD_CORE=${NFSU_OFFLOAD_CORE}: use 0 (game thread), 1 (render thread) or 2 (core 2)")
+  endif()
+  list(APPEND NFSU_RUNTIME_DEFINES NFSU_OFFLOAD_CORE=${NFSU_OFFLOAD_CORE})
+endif()
 if(NFSU_LOG_DEBUG)
   list(APPEND NFSU_RUNTIME_DEFINES NFSU_LOG_DEBUG)
 endif()
@@ -173,6 +209,7 @@ set_target_properties(NFSU2VITA.elf PROPERTIES LINK_DEPENDS "${NFSU_LLD_SCRIPT}"
 target_link_libraries(NFSU2VITA.elf
   ${NFSU_REVIVED_LIBRARIES}
   stdc++
+  ${NFSU_FFMPEG_LIBS}
   SceShaccCg_stub_weak
   SceKernelModulemgr_stub
   SceIofilemgr_stub
@@ -201,6 +238,39 @@ target_link_libraries(NFSU2VITA.elf
 
 vita_create_self(NFSU2VITA.self NFSU2VITA.elf UNSAFE)
 
+# The launcher (src/launcher): the start-up screen and settings manager, then the game as a fresh process. With
+# NFSU_LAUNCHER the VPK ships it as eboot.bin and the game as game.bin; NFSU2VITA.self alone is still the whole game.
+option(NFSU_LAUNCHER "VPK: the launcher as eboot.bin, the game as game.bin" ON)
+add_executable(NFSU2LAUNCH.elf
+  src/launcher/main.cpp src/launcher/cfgui.cpp src/launcher/cfgui_draw.cpp src/launcher/cfgui_assets.cpp
+  src/launcher/cfgui_sysfont.cpp src/launcher/mods_edit.cpp src/launcher/save.cpp src/launcher/log.cpp
+  src/launcher/mods_registry.cpp src/ug2/mods_require.cpp src/ug2/mods_hook.cpp src/ug2/notice_text.cpp
+  src/platform/settings.cpp src/platform/cfgfile.cpp src/platform/textfile.cpp)
+target_compile_options(NFSU2LAUNCH.elf PRIVATE ${NFSU_COMMON_FLAGS} -O2)
+target_compile_definitions(NFSU2LAUNCH.elf PRIVATE ${NFSU_RUNTIME_DEFINES})
+target_include_directories(NFSU2LAUNCH.elf PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src/ug2
+                           ${CMAKE_SOURCE_DIR}/src/launcher)
+target_link_options(NFSU2LAUNCH.elf PRIVATE -Wl,--gc-sections "-Wl,-T,${NFSU_LLD_SCRIPT}")
+set_target_properties(NFSU2LAUNCH.elf PROPERTIES LINK_DEPENDS "${NFSU_LLD_SCRIPT}")
+target_link_libraries(NFSU2LAUNCH.elf
+  stdc++
+  SceAppMgr_stub
+  SceCtrl_stub
+  SceDisplay_stub
+  SceIofilemgr_stub
+  SceKernelThreadMgr_stub
+  SceLibKernel_stub
+  ScePgf_stub
+  ScePower_stub
+  SceProcessmgr_stub
+  SceSysmem_stub
+  SceSysmodule_stub
+  SceTouch_stub
+  c
+  m
+)
+vita_create_self(NFSU2LAUNCH.self NFSU2LAUNCH.elf UNSAFE)
+
 configure_file(
   ${CMAKE_SOURCE_DIR}/sce_sys/livearea/contents/template.xml.in
   ${CMAKE_BINARY_DIR}/generated/livearea/template.xml
@@ -216,6 +286,14 @@ message(STATUS "Icon and LiveArea images: ${NFSU_ART_DIR}")
 
 # Packaged here, not with vita_create_vpk: that macro breaks on folders with spaces in their names.
 set(NFSU_SELF "${CMAKE_BINARY_DIR}/NFSU2VITA.self")
+set(NFSU_LAUNCH_SELF "${CMAKE_BINARY_DIR}/NFSU2LAUNCH.self")
+if(NFSU_LAUNCHER)
+  set(NFSU_VPK_EBOOT "${NFSU_LAUNCH_SELF}")
+  set(NFSU_VPK_GAME -a "${NFSU_SELF}=game.bin")
+else()
+  set(NFSU_VPK_EBOOT "${NFSU_SELF}")
+  set(NFSU_VPK_GAME "")
+endif()
 set(NFSU_SFO "${CMAKE_BINARY_DIR}/NFSU2VITA.vpk_param.sfo")
 set(NFSU_VPK "${CMAKE_BINARY_DIR}/NFSU2VITA.vpk")
 set(NFSU_TEMPLATE "${CMAKE_BINARY_DIR}/generated/livearea/template.xml")
@@ -232,10 +310,11 @@ add_custom_command(OUTPUT "${NFSU_VPK}"
           -a "${NFSU_ART_DIR}/livearea/contents/bg.png=sce_sys/livearea/contents/bg.png"
           -a "${NFSU_ART_DIR}/livearea/contents/startup.png=sce_sys/livearea/contents/startup.png"
           -a "${NFSU_TEMPLATE}=sce_sys/livearea/contents/template.xml"
-          -s "${NFSU_SFO}" -b "${NFSU_SELF}" "${NFSU_VPK}"
-  DEPENDS "${NFSU_SFO}" "${NFSU_SELF}" "${NFSU_TEMPLATE}" "${NFSU_ART_DIR}/icon0.png"
+          ${NFSU_VPK_GAME}
+          -s "${NFSU_SFO}" -b "${NFSU_VPK_EBOOT}" "${NFSU_VPK}"
+  DEPENDS "${NFSU_SFO}" "${NFSU_SELF}" "${NFSU_LAUNCH_SELF}" "${NFSU_TEMPLATE}" "${NFSU_ART_DIR}/icon0.png"
           "${NFSU_ART_DIR}/livearea/contents/bg.png" "${NFSU_ART_DIR}/livearea/contents/startup.png"
   COMMENT "Building NFSU2VITA.vpk"
   VERBATIM)
 add_custom_target(NFSU2VITA.vpk-vpk ALL DEPENDS "${NFSU_VPK}")
-add_dependencies(NFSU2VITA.vpk-vpk NFSU2VITA.self-self)
+add_dependencies(NFSU2VITA.vpk-vpk NFSU2VITA.self-self NFSU2LAUNCH.self-self)

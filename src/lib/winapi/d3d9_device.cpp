@@ -2,6 +2,7 @@
 // of platform/render.h; Present hands the frame to the device (render thread on the Vita).
 
 #include <winapi/d3d9_internal.h>
+#include <winapi/d3d9_probe.h>
 #include <winapi/support.h>
 #include <lib/memlog.h>
 #include <platform/switches.h>
@@ -58,6 +59,7 @@ const bool s_fastDraw = RENDER_FAST_PATHS != 0;
 
 // debug_frame_dump=on (development): one frame in 150, 40 frames in all, is written to the log call by call.
 std::atomic<bool> s_dumping{false};
+uint64_t s_recorded = 0;    // draws recorded in the frames submitted so far
 
 bool dumpThisFrame(uint32_t index)
 {
@@ -164,8 +166,26 @@ Device::Device(WinApplication* app, Direct3D* d3d, const D3DPRESENT_PARAMETERS& 
     defaults();
 }
 
+Device::Device(Device& parent)
+    :   Object(KindDevice)
+    ,   m_app(parent.m_app)
+    ,   m_d3d(parent.m_d3d)
+    ,   m_params(parent.m_params)
+    ,   m_window(parent.m_window)
+    ,   m_flags(parent.m_flags)
+    ,   m_parent(&parent)
+{
+    memset(&m_state, 0, sizeof(m_state));
+    m_fastLayer = parent.m_fastLayer;
+    m_vblanks = parent.m_vblanks;
+}
+
 Device::~Device()
 {
+    if (m_parent)
+        return;
+    for (Device* clone : m_clones)
+        delete clone;
     bridge::deviceGone(this);
     if (g_streamDevice == this)
     {
@@ -194,6 +214,11 @@ void Device::bindSlot(T*& slot, T* object)
 {
     if (slot == object)
         return;
+    if (__builtin_expect(m_parent != nullptr, 0))
+    {
+        slot = object;
+        return;
+    }
     if constexpr (std::is_same<T, Buffer>::value || std::is_same<T, VertexDeclaration>::value)
     {
         if (m_fastLayer)
@@ -250,8 +275,8 @@ void Device::resetBackBuffer(const D3DPRESENT_PARAMETERS& params)
 
 void Device::defaults()
 {
-    DWORD* rs = m_state.renderStates;
-    memset(rs, 0, sizeof(m_state.renderStates));
+    DWORD* rs = m_ctx.fixed.renderStates;
+    memset(rs, 0, sizeof(m_ctx.fixed.renderStates));
     rs[D3DRS_ZENABLE] = m_autoDepth ? 1 : 0;
     rs[8] = 3;                      // FILLMODE solid
     rs[9] = 2;                      // SHADEMODE gouraud
@@ -269,8 +294,8 @@ void Device::defaults()
     rs[D3DRS_BLENDFACTOR] = 0xffffffffu;
     for (DWORD s = 0; s < MaxStages; ++s)
     {
-        DWORD* tss = m_state.stageStates[s];
-        memset(tss, 0, sizeof(m_state.stageStates[s]));
+        DWORD* tss = m_ctx.fixed.stageStates[s];
+        memset(tss, 0, sizeof(m_ctx.fixed.stageStates[s]));
         tss[D3DTSS_COLOROP] = s == 0 ? D3DTOP_MODULATE : D3DTOP_DISABLE;
         tss[D3DTSS_COLORARG1] = D3DTA_TEXTURE;
         tss[D3DTSS_COLORARG2] = D3DTA_CURRENT;
@@ -281,17 +306,17 @@ void Device::defaults()
     }
     for (DWORD s = 0; s < MaxSamplerStages; ++s)
     {
-        DWORD* ss = m_state.samplerStates[s];
-        memset(ss, 0, sizeof(m_state.samplerStates[s]));
+        DWORD* ss = m_ctx.fixed.samplerStates[s];
+        memset(ss, 0, sizeof(m_ctx.fixed.samplerStates[s]));
         ss[D3DSAMP_ADDRESSU] = ss[D3DSAMP_ADDRESSV] = ss[3] = 1;   // WRAP
         ss[D3DSAMP_MAGFILTER] = ss[D3DSAMP_MINFILTER] = 1;         // POINT
         ss[10] = 1;                                                 // MAXANISOTROPY
     }
-    for (D3DMATRIX& m : m_state.transforms)
+    for (D3DMATRIX& m : m_ctx.fixed.transforms)
         m = s_identity;
     bindSlot(m_state.target, m_backBuffer);
     bindSlot(m_state.depth, m_autoDepth);
-    m_state.viewport = D3DVIEWPORT9{ 0, 0, m_params.BackBufferWidth, m_params.BackBufferHeight, 0.0f, 1.0f };
+    m_ctx.fixed.viewport = D3DVIEWPORT9{ 0, 0, m_params.BackBufferWidth, m_params.BackBufferHeight, 0.0f, 1.0f };
     m_viewportChanged = true;
     m_sceneOpen = false;
     m_stateDirty = true;
@@ -315,6 +340,8 @@ render::Frame* Device::frame(WinApplication* app, x86::CPU& cpu)
         app->unlockContext(cpu);
         m_frame = gpu().beginFrame(m_params.BackBufferWidth, m_params.BackBufferHeight);
         app->lockContext(cpu);
+        if (bridge::g_frameHook)
+            bridge::g_frameHook(m_frame->index);
         if (timed)
         {
             const uint32_t waited = pf::perf::now() - start;
@@ -325,9 +352,11 @@ render::Frame* Device::frame(WinApplication* app, x86::CPU& cpu)
         }
         m_sceneOpen = false;
         m_frameFull = false;
-        m_stream = &frameStream(m_frame->index);
+        m_drawCount = 0;
+        m_sceneDraws = 0;
+        m_ctx.stream = &frameStream(m_frame->index);
         if (g_streamDevice == this)
-            bridge::g_hot.stream = m_stream;
+            bridge::g_hot.stream = m_ctx.stream;
         s_dumping = dumpThisFrame(m_frame->index);
         if (__builtin_expect(s_dumping.load(std::memory_order_relaxed), 0))
             pf::logInfo("dump: frame %u, back buffer %ux%u", m_frame->index, unsigned(m_params.BackBufferWidth),
@@ -344,17 +373,29 @@ bool dumpingFrame()
     return s_dumping;
 }
 
+uint64_t recordedDraws()
+{
+    return s_recorded;
+}
+
 }
 
 // Hands the recorded frame to the device.
 void Device::submit()
 {
+    s_recorded += m_drawCount;
+    m_frame->drawCount = m_drawCount;
+    if (m_frame->sceneCount)
+    {
+        render::Scene& last = m_frame->scenes[m_frame->sceneCount - 1];
+        last.drawCount = m_drawCount - last.firstDraw;
+    }
     m_frame->resolve = &resolveFrame;
-    m_frame->commands = m_stream->data;
-    m_frame->commandCount = m_stream->size;
+    m_frame->commands = m_ctx.stream->data;
+    m_frame->commandCount = m_ctx.stream->size;
     gpu().submitFrame(m_frame, m_vblanks);
     m_frame = nullptr;
-    m_stream = nullptr;
+    m_ctx.stream = nullptr;
     if (g_streamDevice == this)
         bridge::g_hot.stream = nullptr;
     if (!bridge::onQueueThread())
@@ -375,28 +416,180 @@ bool Device::showEarly(WinApplication* app, x86::CPU& cpu, uint32_t* frameIndex)
     return true;
 }
 
+bool Device::segmentBegin()
+{
+    if (!m_ctx.stream || m_ctx.segment)
+        return false;
+    if (m_stateDirty)
+    {
+        recordWords(CmdFixedState, &m_ctx.fixed, sizeof(FixedState) / 4);
+        m_stateDirty = false;
+    }
+    syncEffectValues(*m_ctx.stream);
+    beginSegment(m_ctx, m_frame->index);
+    if (g_streamDevice == this)
+        bridge::g_hot.stream = m_ctx.stream;
+    return true;
+}
+
+void Device::segmentEnd()
+{
+    mergeSegmentEffects(*m_ctx.stream->shadow);
+    endSegment(m_ctx);
+    if (g_streamDevice == this)
+        bridge::g_hot.stream = m_ctx.stream;
+}
+
+Device* Device::segmentClone(uint32_t arenaBytes, uint32_t draws, void (*await)(void*), void* job)
+{
+    if (!m_ctx.stream || m_ctx.segment || m_parent || m_frameFull)
+        return nullptr;
+    render::Frame& f = *m_frame;
+    if (m_drawCount + draws > f.drawCapacity)
+        return nullptr;
+    Device* spare = nullptr;
+    for (Device* d : m_clones)
+        if (!d->m_segBusy)
+        {
+            spare = d;
+            break;
+        }
+    if (!spare)
+    {
+        if (m_clones.size() == MaxClones)
+            return nullptr;
+        m_clones.push_back(spare = new Device(*this));
+    }
+    render::Scene* s = scene();
+    uint16_t viewport;
+    if (!s || !drawViewport(f, &viewport))
+        return nullptr;
+    uint8_t* arena = nullptr;
+    if (arenaBytes && !(arena = static_cast<uint8_t*>(render::allocateVertices(f, arenaBytes))))
+        return nullptr;
+    if (m_stateDirty)
+    {
+        recordWords(CmdFixedState, &m_ctx.fixed, sizeof(FixedState) / 4);
+        m_stateDirty = false;
+    }
+    syncEffectValues(*m_ctx.stream);
+    Device& c = *spare;
+    c.m_segBusy = true;
+    c.m_segFrame = f.index;
+    memcpy(&c.m_state, &m_state, sizeof(m_state));
+    c.m_frame = m_frame;
+    c.m_frameFull = false;
+    c.m_drawCount = 0;
+    c.m_drawLimit = draws;
+    c.m_segFirst = m_drawCount;
+    c.m_sceneDraws = m_sceneDraws;
+    m_drawCount += draws;
+    c.m_segScene = s;
+    c.m_segViewport = viewport;
+    c.m_segTag = render::g_drawTag ? render::g_drawTag() : 0;
+    c.m_arena = arena;
+    c.m_arenaUsed = 0;
+    c.m_arenaSize = arenaBytes;
+    c.m_effectPass = nullptr;
+    c.m_deviceSamplers = c.m_deviceStates = 0;
+    c.m_stateDirty = false;
+    beginSegmentClone(m_ctx, c.m_ctx, f.index, await, job, uint32_t(s - f.scenes), draws);
+    bridge::g_deferDeletes = true;
+    ++bridge::g_pendingSegments;
+    return &c;
+}
+
+void Device::segmentCloseClone(Device* clone)
+{
+    Device& c = *clone;
+#ifdef DEV_TOOLS
+    if (probe::on())
+    {
+        const void* a[22];
+        const void* b[22];
+        for (uint32_t i = 0; i < 16; ++i)
+        {
+            a[i] = m_state.textures[i];
+            b[i] = c.m_state.textures[i];
+        }
+        a[16] = m_state.declaration; b[16] = c.m_state.declaration;
+        a[17] = m_state.stream; b[17] = c.m_state.stream;
+        a[18] = m_state.indices; b[18] = c.m_state.indices;
+        a[19] = m_state.target; b[19] = c.m_state.target;
+        a[20] = m_state.depth; b[20] = c.m_state.depth;
+        a[21] = reinterpret_cast<const void*>(uintptr_t(m_state.fvf)); b[21] = reinterpret_cast<const void*>(uintptr_t(c.m_state.fvf));
+        probe::segmentClosed(reinterpret_cast<const uint32_t*>(&m_ctx.fixed), reinterpret_cast<const uint32_t*>(&c.m_ctx.fixed),
+                             sizeof(FixedState) / 4, a, b, 22);
+        probe::count(probe::SegmentDraws, c.m_drawCount);
+        if (c.m_arena)
+        {
+            probe::count(probe::ArenaSegments);
+            probe::count(probe::ArenaReserved, c.m_arenaSize);
+            probe::count(probe::ArenaUsed, c.m_arenaUsed);
+            probe::count(probe::ArenaShrinks, c.m_arenaUsed != c.m_arenaSize);
+        }
+    }
+#endif
+    forgetSegmentEffects(*c.m_ctx.stream->shadow);
+    endSegmentClone(c.m_ctx, c.m_drawCount);
+    if (--bridge::g_pendingSegments == 0)
+        bridge::joinDeletes();
+    if (m_frame && m_frame->index == c.m_segFrame)
+    {
+        m_sceneDraws = c.m_sceneDraws;
+        m_frameFull = m_frameFull || c.m_frameFull;
+    }
+    c.m_arena = nullptr;
+    c.m_frame = nullptr;
+    c.m_segBusy = false;
+}
+
+void Device::segmentFinishClone(Device* clone)
+{
+    publishSegmentClone(clone->m_ctx, clone->m_drawCount);
+}
+
+void* Device::arenaAllocate(uint32_t bytes)
+{
+    const uint32_t start = (m_arenaUsed + 15) & ~15u;
+    if (start + bytes > m_arenaSize)
+        return nullptr;
+    m_arenaUsed = start + bytes;
+    return m_arena + start;
+}
+
 void Device::record(uint32_t header, DWORD value)
 {
-    if (!m_stream)
+    if (!m_ctx.stream)
     {
         m_stateDirty = true;
         return;
     }
-    uint32_t* w = m_stream->append(2);
+    uint32_t* w = m_ctx.stream->append(2);
     w[0] = header;
     w[1] = value;
 }
 
 void Device::recordWords(uint32_t header, const void* payload, uint32_t words)
 {
-    if (!m_stream)
+    if (!m_ctx.stream)
     {
         m_stateDirty = true;
         return;
     }
-    uint32_t* w = m_stream->append(1 + words);
+    uint32_t* w = m_ctx.stream->append(1 + words);
     w[0] = header;
     memcpy(w + 1, payload, words * 4);
+}
+
+// Records the frame's next draw slot as filled whole.
+void Device::recordDrawCall()
+{
+    uint32_t* w = m_ctx.stream->append(2);
+    w[0] = CmdDrawCall;
+    w[1] = m_drawCount;
+    ++m_drawCount;
+    ++m_sceneDraws;
 }
 
 __attribute__((always_inline)) inline render::Scene* Device::scene()
@@ -445,16 +638,22 @@ render::Scene* Device::scene(const render::Target& target, uint16_t width, uint1
         m_frameFull = true;
         return nullptr;
     }
+    if (f.sceneCount)
+    {
+        render::Scene& last = f.scenes[f.sceneCount - 1];
+        last.drawCount = m_drawCount - last.firstDraw;
+    }
     render::Scene& s = f.scenes[f.sceneCount++];
     memset(&s, 0, sizeof(s));
     s.target = target;
     s.width = width;
     s.height = height;
-    s.firstDraw = f.drawCount;
+    s.firstDraw = m_drawCount;
+    m_sceneDraws = 0;
     if (target.color)
-        const_cast<render::TextureStorage*>(target.color)->lastUse = f.index;
+        const_cast<render::TextureStorage*>(target.color)->lastUse.store(f.index, std::memory_order_relaxed);
     if (target.depth)
-        const_cast<render::DepthStorage*>(target.depth)->lastUse = f.index;
+        const_cast<render::DepthStorage*>(target.depth)->lastUse.store(f.index, std::memory_order_relaxed);
     m_sceneOpen = true;
     return &s;
 }
@@ -467,7 +666,7 @@ inline bool Device::drawViewport(render::Frame& f, uint16_t* index)
         *index = uint16_t(m_viewportCount - 1);
         return true;
     }
-    const D3DVIEWPORT9& vp = m_state.viewport;
+    const D3DVIEWPORT9& vp = m_ctx.fixed.viewport;
     if (!viewportIndex(f, render::Viewport{ float(vp.X), float(vp.Y), float(vp.Width), float(vp.Height), vp.MinZ,
                                             vp.MaxZ }, index))
         return false;
@@ -511,21 +710,21 @@ __attribute__((always_inline)) inline void Device::markRead(
         const render::TextureStorage* t = textures[i];
         if (!t || t == m_marked[i])
             continue;
-        const_cast<render::TextureStorage*>(t)->lastUse = f.index;
+        const_cast<render::TextureStorage*>(t)->lastUse.store(f.index, std::memory_order_relaxed);
         if (t->uploads.load(std::memory_order_relaxed))
-            f.uploads = true;
+            __atomic_store_n(&f.uploads, true, __ATOMIC_RELAXED);
         if (m_fastLayer)
             m_marked[i] = t;
     }
     if (vertexStorage && vertexStorage != m_marked[render::MaxSamplers])
     {
-        vertexStorage->lastUse = f.index;
+        vertexStorage->lastUse.store(f.index, std::memory_order_relaxed);
         if (m_fastLayer)
             m_marked[render::MaxSamplers] = vertexStorage;
     }
     if (indexStorage && indexStorage != m_marked[render::MaxSamplers + 1])
     {
-        indexStorage->lastUse = f.index;
+        indexStorage->lastUse.store(f.index, std::memory_order_relaxed);
         if (m_fastLayer)
             m_marked[render::MaxSamplers + 1] = indexStorage;
     }
@@ -542,7 +741,7 @@ __attribute__((always_inline)) inline void Device::drawLayout(VertexDeclaration*
         positionT = m_state.layoutPositionT;
         return;
     }
-    layout = declaration->layout(stride);
+    layout = m_parent ? declaration->layoutAt(stride) : declaration->layout(stride);
     texComponents = declaration->texComponents();
     positionT = declaration->positionT();
     if (m_fastLayer)
@@ -576,40 +775,53 @@ __attribute__((always_inline)) inline HRESULT Device::draw(
         f = frame(app, cpu);
     if (m_frameFull)
         return D3D_OK;
-    render::Scene* s = scene();
-    if (!s)
-        return D3D_OK;
-    if (f->drawCount == f->drawCapacity)
-    {
-        pf::logError("d3d9: frame %u: draw limit reached, draws dropped", f->index);
-        m_frameFull = true;
-        return D3D_OK;
-    }
-    const D3DVIEWPORT9& vp = m_state.viewport;
+    render::Scene* s;
     uint16_t viewport;
-    if (!drawViewport(*f, &viewport))
-        return D3D_OK;
-    if (m_stateDirty)
+    uint8_t tag;
+    uint32_t slot = m_drawCount;
+    if (__builtin_expect(m_parent != nullptr, 0))
     {
-        recordWords(CmdFixedState, static_cast<const FixedState*>(&m_state), sizeof(FixedState) / 4);
-        m_stateDirty = false;
+        s = m_segScene;
+        viewport = m_segViewport;
+        tag = m_segTag;
+        slot += m_segFirst;
+        if (m_drawCount == m_drawLimit)
+        {
+            pf::logError("d3d9: frame %u: draw limit reached, draws dropped", f->index);
+            m_frameFull = true;
+            return D3D_OK;
+        }
     }
-    syncEffectValues(*m_stream);
-
-    render::DrawCall& d = f->draws[f->drawCount];
-    d.vertices = vertices;
-    d.indices = indices;
-    d.count = inputs;
-    d.vertexCount = count;
-    d.tag = render::g_drawTag ? render::g_drawTag() : 0;
+    else
+    {
+        s = scene();
+        if (!s)
+            return D3D_OK;
+        if (m_drawCount == f->drawCapacity)
+        {
+            pf::logError("d3d9: frame %u: draw limit reached, draws dropped", f->index);
+            m_frameFull = true;
+            return D3D_OK;
+        }
+        if (!drawViewport(*f, &viewport))
+            return D3D_OK;
+        if (m_stateDirty)
+        {
+            recordWords(CmdFixedState, &m_ctx.fixed, sizeof(FixedState) / 4);
+            m_stateDirty = false;
+        }
+        syncEffectValues(*m_ctx.stream);
+        tag = render::g_drawTag ? render::g_drawTag() : 0;
+    }
+    const D3DVIEWPORT9& vp = m_ctx.fixed.viewport;
     if (__builtin_expect(s_dumping.load(std::memory_order_relaxed), 0))
     {
         const Object* t = m_state.textures[0];
         const Texture* texture = t && t->kind() == KindTexture ? static_cast<const Texture*>(t) : nullptr;
-        const DWORD* rs = m_state.renderStates;
+        const DWORD* rs = m_ctx.fixed.renderStates;
         pf::logInfo("dump: draw %u to %s %ux%u, viewport %lu,%lu %lux%lu, type %lu, %u vertices, positionT %d, "
                     "texture %ux%u%s, blend %lu (%lu, %lu), alpha test %lu, z %lu/%lu, cull %lu, fvf %lx, effect %d",
-                    f->drawCount, s->target.color ? "texture" : "back buffer", unsigned(s->width),
+                    m_drawCount, s->target.color ? "texture" : "back buffer", unsigned(s->width),
                     unsigned(s->height), (unsigned long)vp.X, (unsigned long)vp.Y, (unsigned long)vp.Width,
                     (unsigned long)vp.Height, (unsigned long)type, count, int(positionT),
                     texture ? unsigned(texture->desc().width) : 0u, texture ? unsigned(texture->desc().height) : 0u,
@@ -619,12 +831,18 @@ __attribute__((always_inline)) inline HRESULT Device::draw(
                     (unsigned long)rs[D3DRS_ZWRITEENABLE], (unsigned long)rs[D3DRS_CULLMODE],
                     (unsigned long)m_state.fvf, int(m_effectPass != nullptr));
     }
-    d.viewport = viewport;
 
-    uint32_t* w = m_stream->append(1 + sizeof(DrawRecord) / 4);
+    uint32_t* w = m_ctx.stream->append(1 + sizeof(DrawRecord) / 4);
     w[0] = CmdDraw;
     DrawRecord& r = *reinterpret_cast<DrawRecord*>(w + 1);
-    r.draw = f->drawCount;
+    render::DrawCall& d = f->draws[slot];
+    d.vertices = vertices;
+    d.indices = indices;
+    d.count = inputs;
+    d.vertexCount = count;
+    d.viewport = viewport;
+    d.tag = tag;
+    r.draw = slot;
     r.primitive = primitive(type);
     r.layout = layout;
     r.texComponents = uint8_t(texComponents);
@@ -651,9 +869,9 @@ __attribute__((always_inline)) inline HRESULT Device::draw(
         {
             const render::TextureStorage* t = textures[0];
             pf::logInfo("dump: draw %u effect %s pass %u, sampler 0 %ux%u%s, %u texture coordinates, stage 0 TTF 0x%x",
-                        f->drawCount, effectName(r.effect), unsigned(r.effect.pass), t ? unsigned(t->desc.width) : 0u,
+                        m_drawCount, effectName(r.effect), unsigned(r.effect.pass), t ? unsigned(t->desc.width) : 0u,
                         t ? unsigned(t->desc.height) : 0u, t && t->desc.linear ? " linear" : "",
-                        unsigned(texComponents), unsigned(m_state.stageStates[0][D3DTSS_TEXTURETRANSFORMFLAGS]));
+                        unsigned(texComponents), unsigned(m_ctx.fixed.stageStates[0][D3DTSS_TEXTURETRANSFORMFLAGS]));
         }
     }
     else
@@ -666,13 +884,15 @@ __attribute__((always_inline)) inline HRESULT Device::draw(
     }
     memcpy(r.textures, textures, sizeof(textures));
     markRead(*f, textures, vertexStorage, indexStorage);
-    ++f->drawCount;
-    s->drawCount = f->drawCount - s->firstDraw;
+    ++m_drawCount;
+    ++m_sceneDraws;
     return D3D_OK;
 }
 
 VertexDeclaration* Device::fvfDeclaration(DWORD fvf)
 {
+    if (m_parent)
+        return m_parent->fvfDeclaration(fvf);
     for (VertexDeclaration* d : m_fvfDeclarations)
     {
         if (d->fvf() == fvf)
@@ -821,9 +1041,12 @@ HRESULT Device::Present(WinApplication* app, x86::CPU& cpu, const RECT* source, 
     // A frame without draws still shows (black), so the pacing stays the same.
     frame(app, cpu);
     if (__builtin_expect(s_dumping.load(std::memory_order_relaxed), 0))
-        pf::logInfo("dump: present frame %u, %u draws, %u scenes", m_frame->index, m_frame->drawCount,
+        pf::logInfo("dump: present frame %u, %u draws, %u scenes", m_frame->index, m_drawCount,
                     m_frame->sceneCount);
     s_dumping = false;
+#ifdef DEV_TOOLS
+    probe::frameEnd();
+#endif
     submit();
     m_sceneOpen = false;
     drawFrameDone();
@@ -1090,14 +1313,17 @@ HRESULT Device::SetRenderTarget(WinApplication* app, x86::CPU& cpu, DWORD index,
     bindSlot(m_state.target, surface);
     m_sceneCached = false;
     // A new render target resets the viewport to the whole target.
-    m_state.viewport = D3DVIEWPORT9{ 0, 0, surface->width(), surface->height(), 0.0f, 1.0f };
+    m_ctx.viewportSet(D3DVIEWPORT9{ 0, 0, surface->width(), surface->height(), 0.0f, 1.0f });
     m_viewportChanged = true;
-    recordWords(CmdViewport, &m_state.viewport, sizeof(D3DVIEWPORT9) / 4);
+    recordWords(CmdViewport, &m_ctx.fixed.viewport, sizeof(D3DVIEWPORT9) / 4);
     return D3D_OK;
 }
 
 HRESULT Device::GetRenderTarget(WinApplication* app, x86::CPU& cpu, DWORD index, x86::reg32* surface)
 {
+#ifdef DEV_TOOLS
+    probe::deviceRead(probe::ReadTarget, m_parent != nullptr, 19, cpu.esp);
+#endif
     RC_USE(app);
     RC_USE(cpu);
     if (!surface)
@@ -1175,7 +1401,7 @@ HRESULT Device::StretchRect(WinApplication* app, x86::CPU& cpu, Surface* source,
     render::Scene* s = scene(target, uint16_t(dw), uint16_t(dh));
     if (!s)
         return D3D_OK;
-    if (f->drawCount == f->drawCapacity)
+    if (m_drawCount == f->drawCapacity)
     {
         m_frameFull = true;
         return D3D_OK;
@@ -1196,7 +1422,7 @@ HRESULT Device::StretchRect(WinApplication* app, x86::CPU& cpu, Surface* source,
     Vertex* v = static_cast<Vertex*>(render::allocateVertices(*f, 4 * sizeof(Vertex)));
     float* vc = nullptr;
     float* fc = nullptr;
-    render::DrawCall& d = f->draws[f->drawCount];
+    render::DrawCall& d = f->draws[m_drawCount];
     memset(&d, 0, sizeof(d));
     if (v)
         vc = render::allocateConstants(*f, sizeof(render::FixedVertexConstants) / 4, &d.vertexConstants);
@@ -1243,11 +1469,10 @@ HRESULT Device::StretchRect(WinApplication* app, x86::CPU& cpu, Surface* source,
     d.count = 4;
     d.vertexCount = 4;
     d.viewport = viewport;
-    const_cast<render::TextureStorage*>(from)->lastUse = f->index;
+    const_cast<render::TextureStorage*>(from)->lastUse.store(f->index, std::memory_order_relaxed);
     if (from->uploads.load(std::memory_order_relaxed))
-        f->uploads = true;
-    ++f->drawCount;
-    s->drawCount = f->drawCount - s->firstDraw;
+        __atomic_store_n(&f->uploads, true, __ATOMIC_RELAXED);
+    recordDrawCall();
     return D3D_OK;
 }
 
@@ -1264,6 +1489,9 @@ HRESULT Device::SetDepthStencilSurface(WinApplication* app, x86::CPU& cpu, Surfa
 
 HRESULT Device::GetDepthStencilSurface(WinApplication* app, x86::CPU& cpu, x86::reg32* surface)
 {
+#ifdef DEV_TOOLS
+    probe::deviceRead(probe::ReadDepth, m_parent != nullptr, 20, cpu.esp);
+#endif
     RC_USE(app);
     RC_USE(cpu);
     if (!surface)
@@ -1303,7 +1531,7 @@ HRESULT Device::Clear(WinApplication* app, x86::CPU& cpu, DWORD count, const D3D
         return D3D_OK;
     if (!s->target.depth)
         flags &= ~D3DCLEAR_ZBUFFER;
-    const D3DVIEWPORT9& vp = m_state.viewport;
+    const D3DVIEWPORT9& vp = m_ctx.fixed.viewport;
     const LONG vx0 = LONG(vp.X), vy0 = LONG(vp.Y);
     const LONG vx1 = std::min<LONG>(vx0 + LONG(vp.Width), s->width), vy1 = std::min<LONG>(vy0 + LONG(vp.Height), s->height);
     if (__builtin_expect(s_dumping.load(std::memory_order_relaxed), 0))
@@ -1326,7 +1554,7 @@ HRESULT Device::Clear(WinApplication* app, x86::CPU& cpu, DWORD count, const D3D
             continue;
         DWORD what = flags;
         // A whole depth clear before the scene's first draw is the scene's starting depth.
-        if ((what & D3DCLEAR_ZBUFFER) && s->drawCount == 0 && x0 == 0 && y0 == 0 && x1 == s->width && y1 == s->height)
+        if ((what & D3DCLEAR_ZBUFFER) && m_sceneDraws == 0 && x0 == 0 && y0 == 0 && x1 == s->width && y1 == s->height)
         {
             s->depthCleared = true;
             s->clearDepth = z;
@@ -1334,7 +1562,7 @@ HRESULT Device::Clear(WinApplication* app, x86::CPU& cpu, DWORD count, const D3D
         }
         if (!(what & (D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER)))
             continue;
-        if (f->drawCount == f->drawCapacity)
+        if (m_drawCount == f->drawCapacity)
         {
             m_frameFull = true;
             return D3D_OK;
@@ -1342,7 +1570,7 @@ HRESULT Device::Clear(WinApplication* app, x86::CPU& cpu, DWORD count, const D3D
         uint16_t viewport;
         if (!viewportIndex(*f, render::Viewport{ 0, 0, float(s->width), float(s->height), 0.0f, 1.0f }, &viewport))
             return D3D_OK;
-        render::DrawCall& d = f->draws[f->drawCount];
+        render::DrawCall& d = f->draws[m_drawCount];
         memset(&d, 0, sizeof(d));
         render::VertexLayout layout;
         memset(&layout, 0, sizeof(layout));
@@ -1377,8 +1605,7 @@ HRESULT Device::Clear(WinApplication* app, x86::CPU& cpu, DWORD count, const D3D
         d.vertexCount = 4;
         d.vertexConstants = render::NoConstants;
         d.viewport = viewport;
-        ++f->drawCount;
-        s->drawCount = f->drawCount - s->firstDraw;
+        recordDrawCall();
     }
     return D3D_OK;
 }
@@ -1398,25 +1625,28 @@ HRESULT Device::SetTransform(WinApplication* app, x86::CPU& cpu, DWORD state, co
     case D3DTS_TEXTURE0:    t = TransformTexture0; break;
     default:                D3D_LOG_ONCE("d3d9: transform %u ignored", state); return D3D_OK;
     }
-    if (sameWords(&m_state.transforms[t], matrix, sizeof(D3DMATRIX) / 4))
+    if (!m_ctx.transformNeeds(t, *matrix))
         return D3D_OK;
-    m_state.transforms[t] = *matrix;
+    m_ctx.transformSet(t, *matrix);
     recordWords(CmdTransform | t << 8, matrix, 16);
     return D3D_OK;
 }
 
 HRESULT Device::GetTransform(WinApplication* app, x86::CPU& cpu, DWORD state, D3DMATRIX* matrix)
 {
+#ifdef DEV_TOOLS
+    probe::deviceRead(probe::ReadTransform, m_parent != nullptr, 744 + 16 * (state == D3DTS_WORLD ? TransformWorld : state == D3DTS_VIEW ? TransformView : state == D3DTS_PROJECTION ? TransformProjection : TransformTexture0), cpu.esp);
+#endif
     RC_USE(app);
     RC_USE(cpu);
     if (!matrix)
         return D3DERR_INVALIDCALL;
     switch (state)
     {
-    case D3DTS_WORLD:       *matrix = m_state.transforms[TransformWorld]; break;
-    case D3DTS_VIEW:        *matrix = m_state.transforms[TransformView]; break;
-    case D3DTS_PROJECTION:  *matrix = m_state.transforms[TransformProjection]; break;
-    case D3DTS_TEXTURE0:    *matrix = m_state.transforms[TransformTexture0]; break;
+    case D3DTS_WORLD:       *matrix = m_ctx.fixed.transforms[TransformWorld]; break;
+    case D3DTS_VIEW:        *matrix = m_ctx.fixed.transforms[TransformView]; break;
+    case D3DTS_PROJECTION:  *matrix = m_ctx.fixed.transforms[TransformProjection]; break;
+    case D3DTS_TEXTURE0:    *matrix = m_ctx.fixed.transforms[TransformTexture0]; break;
     default:                *matrix = s_identity; break;
     }
     return D3D_OK;
@@ -1439,9 +1669,9 @@ HRESULT Device::SetViewport(WinApplication* app, x86::CPU& cpu, const D3DVIEWPOR
     RC_USE(cpu);
     if (!viewport)
         return D3DERR_INVALIDCALL;
-    if (sameWords(&m_state.viewport, viewport, sizeof(D3DVIEWPORT9) / 4))
+    if (!m_ctx.viewportNeeds(*viewport))
         return D3D_OK;
-    m_state.viewport = *viewport;
+    m_ctx.viewportSet(*viewport);
     m_viewportChanged = true;
     recordWords(CmdViewport, viewport, sizeof(D3DVIEWPORT9) / 4);
     return D3D_OK;
@@ -1449,11 +1679,14 @@ HRESULT Device::SetViewport(WinApplication* app, x86::CPU& cpu, const D3DVIEWPOR
 
 HRESULT Device::GetViewport(WinApplication* app, x86::CPU& cpu, D3DVIEWPORT9* viewport)
 {
+#ifdef DEV_TOOLS
+    probe::deviceRead(probe::ReadViewport, m_parent != nullptr, 808, cpu.esp);
+#endif
     RC_USE(app);
     RC_USE(cpu);
     if (!viewport)
         return D3DERR_INVALIDCALL;
-    *viewport = m_state.viewport;
+    *viewport = m_ctx.fixed.viewport;
     return D3D_OK;
 }
 
@@ -1469,6 +1702,9 @@ HRESULT Device::SetMaterial(WinApplication* app, x86::CPU& cpu, const DWORD* mat
 
 HRESULT Device::GetMaterial(WinApplication* app, x86::CPU& cpu, DWORD* material)
 {
+#ifdef DEV_TOOLS
+    probe::deviceRead(probe::ReadMaterial, m_parent != nullptr, 23, cpu.esp);
+#endif
     RC_USE(app);
     RC_USE(cpu);
     if (!material)
@@ -1489,6 +1725,9 @@ HRESULT Device::SetLight(WinApplication* app, x86::CPU& cpu, DWORD index, const 
 
 HRESULT Device::GetLight(WinApplication* app, x86::CPU& cpu, DWORD index, DWORD* light)
 {
+#ifdef DEV_TOOLS
+    probe::deviceRead(probe::ReadLight, m_parent != nullptr, 23, cpu.esp);
+#endif
     RC_USE(app);
     RC_USE(cpu);
     if (!light || index >= 8)
@@ -1509,6 +1748,9 @@ HRESULT Device::LightEnable(WinApplication* app, x86::CPU& cpu, DWORD index, BOO
 
 HRESULT Device::GetLightEnable(WinApplication* app, x86::CPU& cpu, DWORD index, BOOL* enable)
 {
+#ifdef DEV_TOOLS
+    probe::deviceRead(probe::ReadLightEnable, m_parent != nullptr, 23, cpu.esp);
+#endif
     RC_USE(app);
     RC_USE(cpu);
     if (index >= 8 || !enable)
@@ -1536,25 +1778,31 @@ HRESULT Device::SetRenderState(WinApplication* app, x86::CPU& cpu, DWORD state, 
     // A write after the effect pass wins over the pass's state even when the value is the same.
     if (const int s = passStateOf(state); s >= 0)
         m_deviceStates |= 1u << s;
-    if (m_state.renderStates[state] == value)
+    if (!m_ctx.renderNeeds(state, value))
         return D3D_OK;
-    m_state.renderStates[state] = value;
+    m_ctx.renderSet(state, value);
     record(CmdRenderState | state << 8, value);
     return D3D_OK;
 }
 
 HRESULT Device::GetRenderState(WinApplication* app, x86::CPU& cpu, DWORD state, DWORD* value)
 {
+#ifdef DEV_TOOLS
+    probe::deviceRead(probe::ReadRender, m_parent != nullptr, state & 255, cpu.esp);
+#endif
     RC_USE(app);
     RC_USE(cpu);
     if (state >= MaxRenderStates || !value)
         return D3DERR_INVALIDCALL;
-    *value = m_state.renderStates[state];
+    *value = m_ctx.fixed.renderStates[state];
     return D3D_OK;
 }
 
 HRESULT Device::GetTexture(WinApplication* app, x86::CPU& cpu, DWORD stage, x86::reg32* texture)
 {
+#ifdef DEV_TOOLS
+    probe::deviceRead(probe::ReadTexture, m_parent != nullptr, stage & 15, cpu.esp);
+#endif
     RC_USE(app);
     RC_USE(cpu);
     if (stage >= MaxSamplerStages || !texture)
@@ -1585,11 +1833,14 @@ HRESULT Device::SetTexture(WinApplication* app, x86::CPU& cpu, DWORD stage, Obje
 
 HRESULT Device::GetTextureStageState(WinApplication* app, x86::CPU& cpu, DWORD stage, DWORD type, DWORD* value)
 {
+#ifdef DEV_TOOLS
+    probe::deviceRead(probe::ReadStage, m_parent != nullptr, 256 + (stage & 7) * 33 + (type < 33 ? type : 0), cpu.esp);
+#endif
     RC_USE(app);
     RC_USE(cpu);
     if (stage >= MaxStages || type >= D3DTSS_COUNT || !value)
         return D3DERR_INVALIDCALL;
-    *value = m_state.stageStates[stage][type];
+    *value = m_ctx.fixed.stageStates[stage][type];
     return D3D_OK;
 }
 
@@ -1599,20 +1850,23 @@ HRESULT Device::SetTextureStageState(WinApplication* app, x86::CPU& cpu, DWORD s
     RC_USE(cpu);
     if (stage >= MaxStages || type >= D3DTSS_COUNT)
         return D3DERR_INVALIDCALL;
-    if (m_state.stageStates[stage][type] == value)
+    if (!m_ctx.stageNeeds(stage, type, value))
         return D3D_OK;
-    m_state.stageStates[stage][type] = value;
+    m_ctx.stageSet(stage, type, value);
     record(CmdStageState | stage << 8 | type << 16, value);
     return D3D_OK;
 }
 
 HRESULT Device::GetSamplerState(WinApplication* app, x86::CPU& cpu, DWORD sampler, DWORD type, DWORD* value)
 {
+#ifdef DEV_TOOLS
+    probe::deviceRead(probe::ReadSampler, m_parent != nullptr, 520 + (sampler & 15) * 14 + (type < 14 ? type : 0), cpu.esp);
+#endif
     RC_USE(app);
     RC_USE(cpu);
     if (sampler >= MaxSamplerStages || type >= MaxSamplerStates || !value)
         return D3DERR_INVALIDCALL;
-    *value = m_state.samplerStates[sampler][type];
+    *value = m_ctx.fixed.samplerStates[sampler][type];
     return D3D_OK;
 }
 
@@ -1629,9 +1883,9 @@ HRESULT Device::SetSamplerState(WinApplication* app, x86::CPU& cpu, DWORD sample
                            : type == D3DSAMP_MIPFILTER ? DeviceMipFilter : 0u;
         m_deviceSamplers |= bit << (sampler * 8);
     }
-    if (m_state.samplerStates[sampler][type] == value)
+    if (!m_ctx.samplerNeeds(sampler, type, value))
         return D3D_OK;
-    m_state.samplerStates[sampler][type] = value;
+    m_ctx.samplerSet(sampler, type, value);
     record(CmdSamplerState | sampler << 8 | type << 16, value);
     return D3D_OK;
 }
@@ -1731,7 +1985,7 @@ HRESULT Device::DrawIndexedPrimitive(WinApplication* app, x86::CPU& cpu, DWORD t
 void* Device::frameVertices(WinApplication* app, x86::CPU& cpu, uint32_t bytes)
 {
     render::Frame* f = frame(app, cpu);
-    void* data = render::allocateVertices(*f, bytes);
+    void* data = m_parent ? arenaAllocate(bytes) : render::allocateVertices(*f, bytes);
     if (!data)
     {
         if (!m_frameFull)
@@ -1780,7 +2034,7 @@ HRESULT Device::DrawPrimitiveUP(WinApplication* app, x86::CPU& cpu, DWORD type, 
         return D3D_OK;
     const uint32_t vertices = vertexCount(type, count);
     render::Frame* f = frame(app, cpu);
-    void* copy = render::allocateVertices(*f, vertices * stride);
+    void* copy = m_parent ? arenaAllocate(vertices * stride) : render::allocateVertices(*f, vertices * stride);
     if (!copy)
     {
         if (!m_frameFull)
@@ -1834,8 +2088,8 @@ HRESULT Device::DrawIndexedPrimitiveUP(WinApplication* app, x86::CPU& cpu, DWORD
     const uint32_t inputs = vertexCount(type, count);
     const uint32_t reach = minIndex + vertices;
     render::Frame* f = frame(app, cpu);
-    void* vcopy = render::allocateVertices(*f, reach * stride);
-    void* icopy = render::allocateVertices(*f, inputs * 2);
+    void* vcopy = m_parent ? arenaAllocate(reach * stride) : render::allocateVertices(*f, reach * stride);
+    void* icopy = m_parent ? arenaAllocate(inputs * 2) : render::allocateVertices(*f, inputs * 2);
     if (!vcopy || !icopy)
     {
         m_frameFull = true;
@@ -1843,7 +2097,7 @@ HRESULT Device::DrawIndexedPrimitiveUP(WinApplication* app, x86::CPU& cpu, DWORD
     }
     memcpy(vcopy, data, size_t(reach) * stride);
     memcpy(icopy, indices, size_t(inputs) * 2);
-    return draw(app, cpu, type, count, vcopy, static_cast<const uint16_t*>(icopy), reach, decl->layout(stride),
+    return draw(app, cpu, type, count, vcopy, static_cast<const uint16_t*>(icopy), reach, m_parent ? decl->layoutAt(stride) : decl->layout(stride),
                 decl->texComponents(), decl->positionT(), nullptr, nullptr);
 }
 
@@ -1872,6 +2126,9 @@ HRESULT Device::SetVertexDeclaration(WinApplication* app, x86::CPU& cpu, VertexD
 
 HRESULT Device::GetVertexDeclaration(WinApplication* app, x86::CPU& cpu, x86::reg32* declaration)
 {
+#ifdef DEV_TOOLS
+    probe::deviceRead(probe::ReadDeclaration, m_parent != nullptr, 16, cpu.esp);
+#endif
     RC_USE(app);
     RC_USE(cpu);
     if (!declaration)
@@ -1894,6 +2151,9 @@ HRESULT Device::SetFVF(WinApplication* app, x86::CPU& cpu, DWORD fvf)
 
 HRESULT Device::GetFVF(WinApplication* app, x86::CPU& cpu, DWORD* fvf)
 {
+#ifdef DEV_TOOLS
+    probe::deviceRead(probe::ReadFvf, m_parent != nullptr, 21, cpu.esp);
+#endif
     RC_USE(app);
     RC_USE(cpu);
     if (!fvf)
@@ -1944,6 +2204,9 @@ HRESULT Device::SetStreamSource(WinApplication* app, x86::CPU& cpu, UINT stream,
 HRESULT Device::GetStreamSource(WinApplication* app, x86::CPU& cpu, UINT stream, x86::reg32* buffer, UINT* offset,
                                 UINT* stride)
 {
+#ifdef DEV_TOOLS
+    probe::deviceRead(probe::ReadStream, m_parent != nullptr, 17, cpu.esp);
+#endif
     RC_USE(app);
     RC_USE(cpu);
     if (stream != 0 || !buffer || !offset || !stride)
@@ -1978,6 +2241,9 @@ HRESULT Device::SetIndices(WinApplication* app, x86::CPU& cpu, Buffer* buffer)
 
 HRESULT Device::GetIndices(WinApplication* app, x86::CPU& cpu, x86::reg32* buffer)
 {
+#ifdef DEV_TOOLS
+    probe::deviceRead(probe::ReadIndices, m_parent != nullptr, 18, cpu.esp);
+#endif
     RC_USE(app);
     RC_USE(cpu);
     if (!buffer)
@@ -2017,14 +2283,14 @@ namespace bridge
 HRESULT setRenderState(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD state, DWORD value)
 {
     if (__builtin_expect(quiet(), 1))
-        return deviceObject(guest)->SetRenderState(app, cpu, state, value);
+        return deviceOf(cpu, guest)->SetRenderState(app, cpu, state, value);
     return setRenderStateSlow(app, cpu, guest, state, value);
 }
 
 HRESULT setVertexDeclaration(WinApplication* app, x86::CPU& cpu, reg32 guest, reg32 declaration)
 {
     if (__builtin_expect(quiet() && !g_hot.deferDevice, 1))
-        return deviceObject(guest)->SetVertexDeclaration(app, cpu, static_cast<VertexDeclaration*>(lookup(declaration)));
+        return deviceOf(cpu, guest)->SetVertexDeclaration(app, cpu, static_cast<VertexDeclaration*>(lookup(declaration)));
     return setVertexDeclarationSlow(app, cpu, guest, declaration);
 }
 
@@ -2032,7 +2298,7 @@ HRESULT setStreamSource(WinApplication* app, x86::CPU& cpu, reg32 guest, UINT st
                         UINT stride)
 {
     if (__builtin_expect(quiet() && !g_hot.deferDevice, 1))
-        return deviceObject(guest)->SetStreamSource(app, cpu, stream, static_cast<Buffer*>(lookup(buffer)), offset,
+        return deviceOf(cpu, guest)->SetStreamSource(app, cpu, stream, static_cast<Buffer*>(lookup(buffer)), offset,
                                                     stride);
     return setStreamSourceSlow(app, cpu, guest, stream, buffer, offset, stride);
 }
@@ -2040,7 +2306,7 @@ HRESULT setStreamSource(WinApplication* app, x86::CPU& cpu, reg32 guest, UINT st
 HRESULT setIndices(WinApplication* app, x86::CPU& cpu, reg32 guest, reg32 buffer)
 {
     if (__builtin_expect(quiet() && !g_hot.deferDevice, 1))
-        return deviceObject(guest)->SetIndices(app, cpu, static_cast<Buffer*>(lookup(buffer)));
+        return deviceOf(cpu, guest)->SetIndices(app, cpu, static_cast<Buffer*>(lookup(buffer)));
     return setIndicesSlow(app, cpu, guest, buffer);
 }
 
@@ -2048,7 +2314,7 @@ HRESULT drawIndexedPrimitive(WinApplication* app, x86::CPU& cpu, reg32 guest, DW
                              UINT minIndex, UINT vertices, UINT startIndex, UINT count)
 {
     if (__builtin_expect(quiet() && !g_hot.deferDevice, 1))
-        return deviceObject(guest)->DrawIndexedPrimitive(app, cpu, type, baseVertex, minIndex, vertices, startIndex,
+        return deviceOf(cpu, guest)->DrawIndexedPrimitive(app, cpu, type, baseVertex, minIndex, vertices, startIndex,
                                                          count);
     return drawIndexedPrimitiveSlow(app, cpu, guest, type, baseVertex, minIndex, vertices, startIndex, count);
 }
@@ -2057,7 +2323,7 @@ HRESULT drawPrimitiveUP(WinApplication* app, x86::CPU& cpu, reg32 guest, DWORD t
                         UINT stride)
 {
     if (__builtin_expect(quiet() && !g_hot.deferDevice, 1))
-        return deviceObject(guest)->DrawPrimitiveUP(app, cpu, type, count, data, stride);
+        return deviceOf(cpu, guest)->DrawPrimitiveUP(app, cpu, type, count, data, stride);
     return drawPrimitiveUPSlow(app, cpu, guest, type, count, data, stride);
 }
 

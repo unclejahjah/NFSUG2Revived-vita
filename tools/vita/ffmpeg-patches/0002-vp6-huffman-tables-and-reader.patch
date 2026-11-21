@@ -1,0 +1,90 @@
+VP6: keep each Huffman table while the model it was built from is unchanged, and read the coefficients with the
+unchecked bit reader (every symbol is preceded by a bits-left test, and packets carry zeroed padding). Output is
+unchanged.
+
+diff --git a/libavcodec/vp56.h b/libavcodec/vp56.h
+index e86d551..e7e7703 100644
+--- a/libavcodec/vp56.h
++++ b/libavcodec/vp56.h
+@@ -213,6 +213,9 @@ struct vp56_context {
+     VLC dccv_vlc[2];
+     VLC runv_vlc[2];
+     VLC ract_vlc[2][3][6];
++    uint8_t dccv_built[2][11];        /* the models the tables above were built from */
++    uint8_t runv_built[2][14];
++    uint8_t ract_built[2][3][6][11];
+     unsigned int nb_null[2][2];       /* number of consecutive NULL DC/AC */
+ 
+     int have_undamaged_frame;
+diff --git a/libavcodec/vp6.c b/libavcodec/vp6.c
+index ed77e03..5c0eae8 100644
+--- a/libavcodec/vp6.c
++++ b/libavcodec/vp6.c
+@@ -29,6 +29,9 @@
+ 
+ #include <stdlib.h>
+ 
++/* The coefficient reader checks the bits left before every symbol, and packets carry zeroed padding. */
++#define UNCHECKED_BITSTREAM_READER 1
++
+ #include "avcodec.h"
+ #include "codec_internal.h"
+ #include "decode.h"
+@@ -268,10 +271,14 @@ static int vp6_huff_cmp(const void *va, const void *vb)
+ }
+ 
+ static int vp6_build_huff_tree(VP56Context *s, uint8_t coeff_model[],
+-                               const uint8_t *map, unsigned size, VLC *vlc)
++                               const uint8_t *map, unsigned size, VLC *vlc,
++                               uint8_t *built)
+ {
+     Node nodes[2*VP6_MAX_HUFF_SIZE], *tmp = &nodes[size];
+-    int a, b, i;
++    int a, b, i, ret;
++
++    if (vlc->table && !memcmp(built, coeff_model, size - 1))
++        return 0;
+ 
+     /* first compute probabilities from model */
+     tmp[0].count = 256;
+@@ -284,9 +291,14 @@ static int vp6_build_huff_tree(VP56Context *s, uint8_t coeff_model[],
+ 
+     ff_vlc_free(vlc);
+     /* then build the huffman tree according to probabilities */
+-    return ff_huff_build_tree(s->avctx, vlc, size, FF_HUFFMAN_BITS,
+-                              nodes, vp6_huff_cmp,
+-                              FF_HUFFMAN_FLAG_HNODE_FIRST);
++    ret = ff_huff_build_tree(s->avctx, vlc, size, FF_HUFFMAN_BITS,
++                             nodes, vp6_huff_cmp,
++                             FF_HUFFMAN_FLAG_HNODE_FIRST);
++    if (ret)
++        ff_vlc_free(vlc);
++    else
++        memcpy(built, coeff_model, size - 1);
++    return ret;
+ }
+ 
+ static int vp6_parse_coeff_models(VP56Context *s)
+@@ -335,16 +347,19 @@ static int vp6_parse_coeff_models(VP56Context *s)
+     if (s->use_huffman) {
+         for (pt=0; pt<2; pt++) {
+             if (vp6_build_huff_tree(s, model->coeff_dccv[pt],
+-                                    vp6_huff_coeff_map, 12, &s->dccv_vlc[pt]))
++                                    vp6_huff_coeff_map, 12, &s->dccv_vlc[pt],
++                                    s->dccv_built[pt]))
+                 return -1;
+             if (vp6_build_huff_tree(s, model->coeff_runv[pt],
+-                                    vp6_huff_run_map, 9, &s->runv_vlc[pt]))
++                                    vp6_huff_run_map, 9, &s->runv_vlc[pt],
++                                    s->runv_built[pt]))
+                 return -1;
+             for (ct=0; ct<3; ct++)
+                 for (cg = 0; cg < 6; cg++)
+                     if (vp6_build_huff_tree(s, model->coeff_ract[pt][ct][cg],
+                                             vp6_huff_coeff_map, 12,
+-                                            &s->ract_vlc[pt][ct][cg]))
++                                            &s->ract_vlc[pt][ct][cg],
++                                            s->ract_built[pt][ct][cg]))
+                         return -1;
+         }
+         memset(s->nb_null, 0, sizeof(s->nb_null));

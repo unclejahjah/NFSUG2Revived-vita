@@ -20,6 +20,7 @@ set(NFSU_D3D9_SOURCES
 
 set(NFSU_PLATFORM_SOURCES
   ${NFSU_RENDER_SOURCES}
+  src/platform/cfgfile.cpp
   src/platform/config.cpp
   src/platform/cores.cpp
   src/platform/filesystem.cpp
@@ -32,11 +33,13 @@ set(NFSU_PLATFORM_SOURCES
   src/platform/limiter.cpp
   src/platform/perf.cpp
   src/platform/sampler.cpp
+  src/platform/settings.cpp
   src/platform/stall.cpp
   src/platform/time.cpp
   src/platform/video.cpp
   src/platform/sha256.cpp
   src/platform/sync.cpp
+  src/platform/textfile.cpp
   src/platform/msgqueue.cpp
   src/platform/mmx_selftest.cpp
   src/platform/fpu_selftest.cpp
@@ -105,6 +108,10 @@ set(NFSU_WINAPI_SOURCES
 file(GLOB NFSU_GAME_PORT_SOURCES CONFIGURE_DEPENDS RELATIVE ${CMAKE_SOURCE_DIR}
      ${CMAKE_SOURCE_DIR}/src/ug2/*.cpp ${CMAKE_SOURCE_DIR}/src/ug2/native/*.cpp)
 list(REMOVE_ITEM NFSU_GAME_PORT_SOURCES src/ug2/main.cpp)
+if(DEV_TOOLS)
+  file(GLOB NFSU_DEV_SOURCES CONFIGURE_DEPENDS RELATIVE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src/dev/*.cpp)
+  list(APPEND NFSU_GAME_PORT_SOURCES ${NFSU_DEV_SOURCES})
+endif()
 
 # Runtime sources that include headers generated from the game binary (ug2_layout.h).
 set(NFSU_GENERATED_HEADER_SOURCES

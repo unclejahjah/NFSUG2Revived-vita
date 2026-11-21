@@ -1,0 +1,121 @@
+VP3/VP6: NEON intrinsics for idct10 (blocks with up to 10 coefficients), bit-exact with the C version for every
+input; on 32-bit ARM and AArch64.
+
+diff --git a/libavcodec/vp3dsp.c b/libavcodec/vp3dsp.c
+index b4621f0..8b9e719 100644
+--- a/libavcodec/vp3dsp.c
++++ b/libavcodec/vp3dsp.c
+@@ -338,15 +338,113 @@ static av_always_inline void idct10(uint8_t *dst, ptrdiff_t stride,
+     }
+ }
+ 
++#if HAVE_INTRINSICS_NEON
++#include <arm_neon.h>
++
++/* M() on 32-bit lanes: low product half, signed shift. */
++#define MQ(c, x) vshrq_n_s32(vmulq_s32((x), vdupq_n_s32(c)), 16)
++
++/* idct10() without its zero tests, which only skip no-op work. */
++static av_always_inline void idct10_neon(uint8_t *dst, ptrdiff_t stride, int16_t *input, int type)
++{
++    int16_t t[32];
++    int16x8x4_t u;
++    int i, half;
++    int16x4_t out[8];
++
++    {
++        int32x4_t r0 = vmovl_s16(vld1_s16(input));
++        int32x4_t r1 = vmovl_s16(vld1_s16(input + 8));
++        int32x4_t r2 = vmovl_s16(vld1_s16(input + 16));
++        int32x4_t r3 = vmovl_s16(vld1_s16(input + 24));
++        int32x4_t A = MQ(xC1S7, r1), B = MQ(xC7S1, r1);
++        int32x4_t C = MQ(xC3S5, r3), D = vnegq_s32(MQ(xC5S3, r3));
++        int32x4_t Ad = MQ(xC4S4, vsubq_s32(A, C)), Bd = MQ(xC4S4, vsubq_s32(B, D));
++        int32x4_t Cd = vaddq_s32(A, C), Dd = vaddq_s32(B, D);
++        int32x4_t E = MQ(xC4S4, r0), F = E;
++        int32x4_t G = MQ(xC2S6, r2), H = MQ(xC6S2, r2);
++        int32x4_t Ed = vsubq_s32(E, G), Gd = vaddq_s32(E, G);
++        int32x4_t Add = vaddq_s32(F, Ad), Bdd = vsubq_s32(Bd, H);
++        int32x4_t Fd = vsubq_s32(F, Ad), Hd = vaddq_s32(Bd, H);
++        out[0] = vmovn_s32(vaddq_s32(Gd, Cd));
++        out[7] = vmovn_s32(vsubq_s32(Gd, Cd));
++        out[1] = vmovn_s32(vaddq_s32(Add, Hd));
++        out[2] = vmovn_s32(vsubq_s32(Add, Hd));
++        out[3] = vmovn_s32(vaddq_s32(Ed, Dd));
++        out[4] = vmovn_s32(vsubq_s32(Ed, Dd));
++        out[5] = vmovn_s32(vaddq_s32(Fd, Bdd));
++        out[6] = vmovn_s32(vsubq_s32(Fd, Bdd));
++    }
++    for (i = 0; i < 8; i++)
++        vst1_s16(t + 4 * i, out[i]);
++    u = vld4q_s16(t);
++
++    {
++        int16x8_t res[8];
++        for (half = 0; half < 2; half++) {
++            int32x4_t u0 = vmovl_s16(half ? vget_high_s16(u.val[0]) : vget_low_s16(u.val[0]));
++            int32x4_t u1 = vmovl_s16(half ? vget_high_s16(u.val[1]) : vget_low_s16(u.val[1]));
++            int32x4_t u2 = vmovl_s16(half ? vget_high_s16(u.val[2]) : vget_low_s16(u.val[2]));
++            int32x4_t u3 = vmovl_s16(half ? vget_high_s16(u.val[3]) : vget_low_s16(u.val[3]));
++            int32x4_t A = MQ(xC1S7, u1), B = MQ(xC7S1, u1);
++            int32x4_t C = MQ(xC3S5, u3), D = vnegq_s32(MQ(xC5S3, u3));
++            int32x4_t Ad = MQ(xC4S4, vsubq_s32(A, C)), Bd = MQ(xC4S4, vsubq_s32(B, D));
++            int32x4_t Cd = vaddq_s32(A, C), Dd = vaddq_s32(B, D);
++            int32x4_t E = MQ(xC4S4, u0), F, G, H, Ed, Gd, Add, Bdd, Fd, Hd;
++            int16x4_t o[8];
++            if (type == 1)
++                E = vaddq_s32(E, vdupq_n_s32(16 * 128));
++            F = E;
++            G = MQ(xC2S6, u2);
++            H = MQ(xC6S2, u2);
++            Ed = vaddq_s32(vsubq_s32(E, G), vdupq_n_s32(8));
++            Gd = vaddq_s32(vaddq_s32(E, G), vdupq_n_s32(8));
++            Add = vaddq_s32(vaddq_s32(F, Ad), vdupq_n_s32(8));
++            Bdd = vsubq_s32(Bd, H);
++            Fd = vaddq_s32(vsubq_s32(F, Ad), vdupq_n_s32(8));
++            Hd = vaddq_s32(Bd, H);
++            o[0] = vqmovn_s32(vshrq_n_s32(vaddq_s32(Gd, Cd), 4));
++            o[7] = vqmovn_s32(vshrq_n_s32(vsubq_s32(Gd, Cd), 4));
++            o[1] = vqmovn_s32(vshrq_n_s32(vaddq_s32(Add, Hd), 4));
++            o[2] = vqmovn_s32(vshrq_n_s32(vsubq_s32(Add, Hd), 4));
++            o[3] = vqmovn_s32(vshrq_n_s32(vaddq_s32(Ed, Dd), 4));
++            o[4] = vqmovn_s32(vshrq_n_s32(vsubq_s32(Ed, Dd), 4));
++            o[5] = vqmovn_s32(vshrq_n_s32(vaddq_s32(Fd, Bdd), 4));
++            o[6] = vqmovn_s32(vshrq_n_s32(vsubq_s32(Fd, Bdd), 4));
++            for (i = 0; i < 8; i++)
++                res[i] = half ? vcombine_s16(vget_low_s16(res[i]), o[i]) : vcombine_s16(o[i], o[i]);
++        }
++        for (i = 0; i < 8; i++) {
++            uint8_t *row = dst + i * stride;
++            if (type == 1) {
++                vst1_u8(row, vqmovun_s16(res[i]));
++            } else {
++                int16x8_t d = vreinterpretq_s16_u16(vmovl_u8(vld1_u8(row)));
++                vst1_u8(row, vqmovun_s16(vqaddq_s16(d, res[i])));
++            }
++        }
++    }
++}
++#undef MQ
++#endif
++
+ void ff_vp3dsp_idct10_put(uint8_t *dest, ptrdiff_t stride, int16_t *block)
+ {
++#if HAVE_INTRINSICS_NEON
++    idct10_neon(dest, stride, block, 1);
++#else
+     idct10(dest, stride, block, 1);
++#endif
+     memset(block, 0, sizeof(*block) * 64);
+ }
+ 
+ void ff_vp3dsp_idct10_add(uint8_t *dest, ptrdiff_t stride, int16_t *block)
+ {
++#if HAVE_INTRINSICS_NEON
++    idct10_neon(dest, stride, block, 2);
++#else
+     idct10(dest, stride, block, 2);
++#endif
+     memset(block, 0, sizeof(*block) * 64);
+ }
+ 

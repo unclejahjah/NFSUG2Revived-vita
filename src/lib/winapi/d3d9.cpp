@@ -3,6 +3,7 @@
 #include <winapi/d3d9.h>
 #include <winapi/d3d9_internal.h>
 #include <winapi/d3d9_native.h>
+#include <winapi/d3d9_probe.h>
 #include <lib/fpucontrol.h>
 #include <platform/gxm.h>
 #include <platform/log.h>
@@ -27,7 +28,14 @@ x86::reg32              s_vtableNext = 0;
 x86::reg32              s_vtables[KindCount] = {};
 x86::reg32              s_objectStart = 0;          // guest range of s_objectMemory
 x86::reg32              s_objectEnd = 0;
-std::vector<Object*>    s_objects(1, nullptr);      // handle 0 is never used
+std::vector<Object*> makeObjects()
+{
+    std::vector<Object*> objects(1, nullptr);   // handle 0 is never used
+    objects.reserve(1 << 14);
+    return objects;
+}
+
+std::vector<Object*>    s_objects = makeObjects();
 std::vector<uint32_t>   s_freeHandles;
 std::vector<x86::reg32> s_freeBlocks;
 x86::reg32              s_blockNext = 0;
@@ -88,10 +96,20 @@ Object::~Object()
 ULONG Object::release()
 {
     const ULONG refs = --m_refs;
+#ifdef DEV_TOOLS
+    if (probe::g_on)
+    {
+        probe::count(probe::g_pending ? probe::ReleasePending : probe::ReleaseOther);
+        if (!refs)
+            probe::count(probe::g_pending ? probe::DestroyPending : probe::DestroyOther);
+    }
+#endif
     if (!refs)
     {
         if (bridge::onQueueThread())
             bridge::deleteLater(this);
+        else if (__builtin_expect(bridge::g_deferDeletes, 0))
+            bridge::deleteAtJoin(this);
         else
             delete this;
     }
