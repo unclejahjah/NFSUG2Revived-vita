@@ -77,7 +77,7 @@ const unsigned AcceptSound   = 8;
 const int MaxGroups          = 15;
 
 // The game's own category icons for ours, and the last for Save and Restart.
-const reg32 GroupIcons[] = { 0x8A006328, 0x4DF98FB2, 0xD708EFEF, 0xF37AF144, 0xA04A7B26, 0x51009E20 };
+const reg32 GroupIcons[] = { 0xD708EFEF, 0x4DF98FB2, 0x8A006328, 0xF37AF144, 0xA04A7B26, 0x51009E20 };
 const reg32 RestartIcon = 0x83070A37;
 const char RestartLabel[] = "Save and Restart";
 
