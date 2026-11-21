@@ -36,6 +36,7 @@
 #include <psp2/system_param.h>
 
 #include <mbedtls/base64.h>
+#include <mbedtls/pkcs5.h>
 #include <mbedtls/sha1.h>
 
 #include <pthread.h>
@@ -408,7 +409,9 @@ public:
     {
         m_server = pf::Config::getString("revived_server", "nfsu2.xyz");
         m_name = playerName();
-        pf::logInfo("revived: the server is %s, the player %s", m_server.c_str(), m_name.c_str());
+        m_claim = claimToken();
+        pf::logInfo("revived: the server is %s, the player %s%s", m_server.c_str(), m_name.c_str(),
+                    m_claim.empty() ? "" : ", with the passphrase of its claimed name");
         for (;;)
         {
             const bool want = m_lan.wants() || m_roam.wants();
@@ -468,6 +471,60 @@ private:
         if (name.size() > 24)
             name.resize(24);
         return name;
+    }
+
+    // The token of the player's nfsu2.xyz passphrase (revived_passphrase, the one of its cloud saves), as the browser
+    // makes it (web/src/app/vault.ts readPhrase and keysOf): the words in lower case after "nfsu2-xyz", PBKDF2 with
+    // SHA-256 (100,000 rounds, its salt), the second 32 bytes of 64 in base64url. The hello names it ("claim"), so
+    // the server lets this Vita play under the names that passphrase claimed. The passphrase never leaves the Vita.
+    static std::string claimToken()
+    {
+        const std::string text = pf::Config::getString("revived_passphrase", "");
+        std::vector<std::string> words;
+        std::string w;
+        for (size_t i = 0; i <= text.size(); ++i)
+        {
+            const char c = i < text.size() ? char(tolower(static_cast<unsigned char>(text[i]))) : 0;
+            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))
+                w += c;
+            else if (!w.empty())
+            {
+                words.push_back(w);
+                w.clear();
+            }
+        }
+        size_t first = words.size() >= 2 && words[0] == "nfsu2" && words[1] == "xyz" ? 2 : 0;
+        if (words.size() - first != 8)
+        {
+            if (!text.empty())
+                pf::logError("revived: revived_passphrase is not a passphrase (8 words after nfsu2-xyz): not used");
+            return {};
+        }
+        std::string phrase = "nfsu2-xyz";
+        for (size_t i = first; i < words.size(); ++i)
+            phrase += "-" + words[i];
+        static const char Salt[] = "nfsu2-xyz keyphrase saves v1";
+        uint8_t bits[64];
+        if (mbedtls_pkcs5_pbkdf2_hmac_ext(MBEDTLS_MD_SHA256, reinterpret_cast<const uint8_t*>(phrase.data()),
+                                          phrase.size(), reinterpret_cast<const uint8_t*>(Salt), sizeof(Salt) - 1,
+                                          100000, sizeof(bits), bits) != 0)
+        {
+            pf::logError("revived: the passphrase's token could not be made");
+            return {};
+        }
+        uint8_t b64[64];
+        size_t n = 0;
+        mbedtls_base64_encode(b64, sizeof(b64), &n, bits + 32, 32);
+        std::string token;
+        for (size_t i = 0; i < n; ++i)
+            if (b64[i] == '+')
+                token += '-';
+            else if (b64[i] == '/')
+                token += '_';
+            else if (b64[i] != '=')
+                token += char(b64[i]);
+        memset(bits, 0, sizeof(bits));
+        return token;
     }
 
     void setPage(uint32_t state)
@@ -650,6 +707,8 @@ private:
             hello += ",\"vip\":" + jsonText(ipText(m_vip)) + ",\"token\":" + jsonText(m_token);
         if (!m_ticket.empty())
             hello += ",\"ticket\":" + jsonText(m_ticket);
+        if (!m_claim.empty())
+            hello += ",\"claim\":" + jsonText(m_claim);
         hello += "}";
         sendFrame(0x1, hello.data(), hello.size());
         m_nextPing = nowMs() + PingMs;
@@ -1142,7 +1201,7 @@ private:
     Endpoint m_lan { "lan", nullptr, {} };
     Endpoint m_roam { "roam", nullptr, {} };
     pf::tls::Stream m_stream;
-    std::string m_server, m_name;
+    std::string m_server, m_name, m_claim;
     std::vector<uint8_t> m_rx, m_message, m_out;
     uint8_t m_messageOpcode = 0;
     bool m_opened = false;          // the WebSocket is up (the hello sent)
