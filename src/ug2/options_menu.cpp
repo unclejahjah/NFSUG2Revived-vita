@@ -123,12 +123,6 @@ const Option Worlds[] = { { "", "Main world" }, { "World 1", "World 1" }, { "Wor
 
 // Free roam's worlds: a world is a room, and only the players in the same one see each other. World 1 to 4 are
 // rooms by a fixed name, so everyone who picks one meets there; the main world has no name. Both rows set Room.
-const Item WorldsPage[] = {
-    { "World", Ini, "Room", Choice, OPTIONS(Worlds), "", 0, nullptr,
-      "Free roam shows only the players in the same world. World 4 has ghost cars off for everyone in it." },
-    { "Own world", Ini, "Room", Text, nullptr, 0, "", 32, "Main world",
-      "A world of your own by its name: only the players who type the same name see each other." },
-};
 
 const Item FriendsPage[] = {
     { "Crews", Ini, "Crew", Text, nullptr, 0, "", 120, "None",
@@ -138,6 +132,10 @@ const Item FriendsPage[] = {
 };
 
 const Item FreeRoam[] = {
+    { "World", Ini, "Room", Choice, OPTIONS(Worlds), "", 0, nullptr,
+      "Free roam shows only the players in the same world. World 4 has ghost cars off for everyone in it." },
+    { "Own world", Ini, "Room", Text, nullptr, 0, "", 32, "Main world",
+      "A world of your own by its name: only the players who type the same name see each other." },
     { "Ghost mode", Ini, "Collide", Choice, OPTIONS(Collide), "0", 0, nullptr,
       "Ghost cars: drive through other players. Solid cars: they can shove yours. Ghost everything: traffic too." },
     { "Group size", Ini, "MaxPlayers", Choice, OPTIONS(MaxPlayers), "8", 0, nullptr,
@@ -231,7 +229,6 @@ const Page Pages[] = {
     { "Controller", OPTIONS(Controller) },
     { "Game", OPTIONS(Game) },
     { "Performance", OPTIONS(Performance) },
-    { "Worlds", OPTIONS(WorldsPage) },
     { "Friends and crews", OPTIONS(FriendsPage) },
     { "Saves", OPTIONS(Saves) },
     { "Mods", OPTIONS(Mods) },

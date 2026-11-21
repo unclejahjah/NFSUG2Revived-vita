@@ -94,10 +94,7 @@ const int MaxGroups          = 15;
 // The game's own category icons for ours (GlobalB's, which race pause menus have too), and the last for Save and
 // Restart.
 const reg32 GroupIcons[] = { 0xD708EFEF, 0x4DF98FB2, 0x8A006328, 0xF37AF144, 0xA04A7B26, VitaIcon };
-const reg32 RestartIcon = 0x83070A37;
-const char RestartLabel[] = "Save and Restart";
-const char RestartText[] = "This setting applies the next time the game starts. Use Save and Restart in Vita Settings "
-                           "to restart now.";
+const char RestartText[] = "This setting applies the next time the game starts. Restart the game to use it.";
 
 enum TextKind { KindName = 0, KindValue = 1, KindGroup = 2, KindDialog = 3 };
 
@@ -328,14 +325,6 @@ void optionsMainReact(win32::WinApplication* app, x86::CPU& cpu)
         {
             if (s_groupItems[g] != current)
                 continue;
-            if (g + 1 == s_groupItems.size())
-            {
-                playAccept(app, cpu, menu);
-                options::save();
-                options::restart();
-                cpu.esp += 4 + 16;
-                return;
-            }
             s_group = int(g);
         }
     }
@@ -525,12 +514,11 @@ void sub_4b6230(win32::WinApplication* app, x86::CPU& cpu)
     s_optionsMain = menu;
     s_groupItems.clear();
     const int groups = options::groupCount() < MaxGroups ? options::groupCount() : MaxGroups;
-    for (int g = 0; g <= groups; ++g)
+    for (int g = 0; g < groups; ++g)
     {
-        const bool restart = g == groups;
         const reg32 label = hashOf(KindGroup, g, 0, 0);
-        setText(app, cpu, label, restart ? RestartLabel : options::groupTitle(g));
-        const reg32 icon = restart ? RestartIcon : GroupIcons[g % (sizeof(GroupIcons) / sizeof(GroupIcons[0]))];
+        setText(app, cpu, label, options::groupTitle(g));
+        const reg32 icon = GroupIcons[g % (sizeof(GroupIcons) / sizeof(GroupIcons[0]))];
         const reg32 item = callGuest(app, cpu, OperatorNew, 0, { 0x48 });
         if (item)
         {
