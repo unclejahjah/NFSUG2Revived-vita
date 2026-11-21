@@ -6,8 +6,11 @@
 
 namespace win32 { class WinApplication; }
 
-// Winsock 2. The port is offline: WSAStartup reports the network subsystem as not ready, every socket call fails
-// with WSANOTINITIALISED, name lookups find nothing.
+// Winsock 2 on the Vita's own network stack (SceNet), with Windows semantics: what DirtySock (the game's LAN
+// discovery, lobby client and race links) relies on. With network=revived (the default) every call goes to the
+// Revived server's virtual LAN instead (include/winapi/revived.h); network=direct uses this layer. Settings:
+// network=off keeps the port offline (WSAStartup reports the network as not ready); online_server names the community server that every *.ea.com name resolves to
+// (default eahub.eu; off leaves EA's names unresolved, so the game's Online menu says it cannot connect).
 namespace win32 { namespace ws2_32
 {
 
@@ -43,6 +46,11 @@ int getpeername(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 name, x
 int getsockname(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 name, x86::reg32 namelen);
 x86::reg32 gethostbyname(WinApplication* app, x86::CPU& cpu, LPCSTR name);
 int gethostname(WinApplication* app, x86::CPU& cpu, x86::reg32 name, int namelen);
+
+// SceNet up (network=off: false), for the Revived link (include/winapi/revived.h).
+bool netStart();
+// The Wi-Fi adapter's MAC address (Netbios NCBASTAT: the lobby's machine id); false while the network is off.
+bool adapterAddress(unsigned char mac[6]);
 
 }}
 

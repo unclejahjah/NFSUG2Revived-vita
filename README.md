@@ -170,11 +170,46 @@ Delete the file to get a fresh copy on the next start.
 | `music_hw_decode` | `on` (default), `off` | Music decoded by the Vita's hardware MP3 decoder instead of the game's own decoder, which frees the CPU. If the hardware decoder cannot start, the game's decoder plays it |
 | `audio_mix_rate` | `0` (default: the game's choice, 44100 with the Vita preset), `32000`, `22050` | Rate the game mixes its sound at. `32000` matches most of the game's sounds and music and needs less CPU; `22050` is cheaper still but duller |
 | `audio_mixer_split` | `on` (default), `off` | The sound mixer holds the game's sound lock for a shorter time, so the game waits on it less. Worth about 1 fps in busy races |
+| `network` | `revived` (default), `direct`, `off` | The game's LAN and Online menus through the NFSU2 Revived server, over the Vita's own Wi-Fi network, or offline as before |
+| `revived_server` | `nfsu2.xyz` (default), a host name | The NFSU2 Revived server (`network=revived`) |
+| `revived_name` | empty (default: the Vita's user name), a name | The name other players see on the Revived server |
+| `online_server` | `eahub.eu` (default), a host name or address, `off` | `network=direct`: the community server the Online menu uses in place of EA's closed servers |
 | `boot_race` | `off` (default), `on` | Skip the menus and start a test race |
 | `log_info` | `off` (default), `on` | Write a detailed log to `NeedForSpeedUnderground2.log`, useful when reporting a problem. Errors are logged either way |
 
 The graphics settings can be changed in the game's own Display menu, and they are kept between sessions. The
 resolution stays at 960x544. Above the Medium detail setting the Vita will definitely struggle with performance.
+
+## Online and LAN play
+
+The game's own network code runs as it does on a PC. Wi-Fi must be connected; without it the game says the network
+is not available, as before. Two ways to play, chosen with `network`:
+
+- **`revived` (default): the NFSU2 Revived server** ([nfsu2.xyz](https://nfsu2.xyz)), the server of NFSU2 in the
+  browser. The Vita joins its virtual LAN over a secure WebSocket (`wss://nfsu2.xyz/lan`), the same link the browser
+  game uses, with the same Winsock layer (nfsu2-web's `winsock.c` and `net_lan.c`, in `src/lib/winapi/revived`):
+  - **Online:** the game's Online menu reaches the server's own lobby (any name logs in), as in the browser.
+  - **LAN:** the LAN menu lists the races of everyone on the server who has it open, in the browser or on a Vita.
+  The server sees the player under `revived_name`, by default the Vita's user name. The link connects when the game
+  opens its LAN or Online screens and lets the server go 10 seconds after it leaves them.
+- **`direct`: the Vita's own network.** LAN races with PCs running NFSU2 v1.2 and other Vitas on the same Wi-Fi, found
+  by broadcast as on PC. Online: every `*.ea.com` name the game looks up goes to the community server in
+  `online_server` (default `eahub.eu`), the same redirect the PC `eanationhub` mod uses, and the lobby link is plain
+  TCP to port 20920 (the game's `*pcnfs05.ea.com` loses its `*`, which asked for SSL 2.0).
+
+**Free roam with other players** (NFSU2 Revived's free-roam mod) installs the way the PC mod does. On PC it is
+`NFSU2FreeRoam.asi` and `NFSU2FreeRoam.ini` in the game's `scripts` folder; on the Vita the code is built in, so only
+the settings file goes there: copy [`extras/scripts/NFSU2FreeRoam.ini`](extras/scripts/NFSU2FreeRoam.ini) to
+`ux0:data/NeedForSpeedUnderground2/scripts/NFSU2FreeRoam.ini`. It has the PC plugin's settings (`Enable`, `Name`,
+`Room`, `Crew`, `CrewColours`, `Collide`, ...) and writes `scripts/NFSU2FreeRoam.log`. The game side is the PC
+plugin's (runtime/roam_game.c built as for Windows), run from the same place in the game's main loop; the cars of the
+players near you come from the Revived server's free-roam hub, so this needs `network=revived`. Without the file, or
+with `Enable = 0`, the game is as before.
+
+Not yet tested on a real Vita. With
+`log_info=on` the link logs its steps with a `revived:` prefix (`ws2_32:` in `direct` mode), which helps when reporting
+a problem. In `direct` mode, the race link uses UDP port 3658, which the Vita also uses for ad hoc play; if binding it
+fails, the log says so.
 
 ## Mods
 
@@ -191,7 +226,7 @@ beside it may crash or misbehave.
 - At lower settings the framerate is very stable and can even hit 60fps during gameplay if the framerate is set to unlocked mode.
 - On-screen button prompts show PC key names, such as "Enter", not Vita buttons.
 - World objects sometimes show the wrong texture for a while. A fix is in testing.
-- No online or LAN play.
+- Online and LAN play are new and not yet tested on a real Vita; see [Online and LAN play](#online-and-lan-play).
 - Sound bug where sometimes the music continues playing after entering the pause menu or changing scenes.
 
 ## Build
@@ -276,6 +311,9 @@ and the option above is only its default. The first lines of the log say which k
   needs fixed; none of its code is used
 - [nfsu2-recompiled](https://github.com/codepdbh/nfsu2-recompiled): another recompilation of the same game, read as
   a reference for how the game works; none of its code is used
+- [nfsu2-web](https://github.com/th0mk/nfsu2-web) (NFSU2 Revived, MIT): its Winsock layer and virtual LAN
+  (`src/lib/winapi/revived`), and its server at nfsu2.xyz, which the Vita plays on;
+  [NFSU2-Revived-Android](https://github.com/mininxd/NFSU2-Revived-Android): its switch client, read as a reference
 
 ## License
 

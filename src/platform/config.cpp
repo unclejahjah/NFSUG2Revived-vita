@@ -61,6 +61,8 @@ const char* const Known[] =
     "boot_script", "fe_log", "fe_files", "ime_test", "ime_test_field", "movies_skip", "fe_msg", "fe_orbit", "fe_grep_words", "fe_grep", "fe_grep_frame", "fe_scan_file", "fe_scan_every", "boot_steps", "fe_dump", "boot_quit_after", "fe_gfx_apply", "fe_gfx_apply_delay",
     // Save folder (src/lib/file.cpp).
     "save_dir", "save_log", "save_sync", "save_atomic", "file_lazy_seek", "file_handle_cache",
+    // Network play (src/lib/winapi/ws2_32.cpp, src/lib/winapi/revived).
+    "network", "online_server", "revived_server", "revived_name", "revived_passphrase",
     // Host build.
     "host_gpu_latency", "limiter_log", "debug_scene_finish", "display_vblank_wait", "wait_probe", "frame_stats", "d3d_fast_effects", "d3d_fast_draw", "d3d_fast_layer", "flush_direct", "host_check_ranges",
 };

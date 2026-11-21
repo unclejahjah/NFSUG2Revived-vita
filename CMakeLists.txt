@@ -150,6 +150,10 @@ target_include_directories(nfsu_runtime PRIVATE ${NFSU_INCLUDES})
 # The run-time helpers the code generator calls stay out of link-time optimisation, which would drop them.
 set_source_files_properties(src/platform/memfuncs.cpp PROPERTIES COMPILE_OPTIONS -fno-lto)
 
+# LAN play and Online through the NFSU2 Revived server (include/winapi/revived.h).
+include(cmake/revived.cmake)
+nfsu_revived_libraries(NFSU_REVIVED_LIBRARIES)
+
 add_executable(NFSU2VITA.elf src/ug2/main.cpp tools/shadercomp/shadercomp.cpp ${NFSU_CLANG_SOURCES}
                $<TARGET_OBJECTS:nfsu_game> $<TARGET_OBJECTS:nfsu_runtime>)
 target_compile_options(NFSU2VITA.elf PRIVATE ${NFSU_COMMON_FLAGS} -O2 ${NFSU_CLANG_FLAGS})
@@ -167,6 +171,7 @@ target_link_options(NFSU2VITA.elf PRIVATE ${NFSU_CLANG_LINK_FLAGS})
 target_link_libraries(NFSU2VITA.elf ${NFSU_CLANG_LIBRARIES})
 set_target_properties(NFSU2VITA.elf PROPERTIES LINK_DEPENDS "${NFSU_LLD_SCRIPT}")
 target_link_libraries(NFSU2VITA.elf
+  ${NFSU_REVIVED_LIBRARIES}
   stdc++
   SceShaccCg_stub_weak
   SceKernelModulemgr_stub
@@ -181,12 +186,15 @@ target_link_libraries(NFSU2VITA.elf
   SceAudiodec_stub
   SceVideodec_stub
   SceSysmodule_stub
+  SceNet_stub
+  SceNetCtl_stub
   ScePower_stub
   SceRtc_stub
   SceLibKernel_stub
   SceKernelThreadMgr_stub
   SceSysmem_stub
   SceProcessmgr_stub
+  pthread
   c
   m
 )
