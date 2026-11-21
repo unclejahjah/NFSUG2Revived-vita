@@ -1403,6 +1403,11 @@ int rc_peer_friend(const rc_session *s, int i){
 /* the group's most players: with the server's hub answering, its lists (RC_LIST_MAX, ours past it: the players
  * we get cars from and the ones we send ours to, one-way links), else max_players (a LAN's group by broadcast) */
 static int group_max(const rc_session *s){
+#ifdef ROAM_GROUP_CAP
+    /* (the Vita: max_players with the hub too.  With the hub's lists alone, 40 to 59 players near took free roam
+     * 4 to 10 ms a frame on its 444 MHz cores; the players past the cap are the ones the hub listed last) */
+    return s->conf.max_players;
+#endif
     return s->hub_was == 2 && s->conf.max_players < RC_LIST_MAX + 1 ? RC_LIST_MAX + 1 : s->conf.max_players;
 }
 static int group_count(const rc_session *s){

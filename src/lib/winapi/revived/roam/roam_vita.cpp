@@ -16,6 +16,8 @@
 
 #include <psp2/kernel/processmgr.h>
 
+#include <pthread.h>
+
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -152,6 +154,9 @@ void roam_log(const char* fmt, ...)
     size_t n = strlen(line);
     while (n && line[n - 1] == '\n')
         line[--n] = 0;
+    // the game's thread and the network thread both log: one line at a time
+    static pthread_mutex_t s_lock = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_lock(&s_lock);
     pf::logInfo("%s", line);
     if (!s_log && optOn(roam_opt("NFSU2_ROAM_LOG")))
         s_log = fopen(LogPath, "w");
@@ -160,6 +165,7 @@ void roam_log(const char* fmt, ...)
         fprintf(s_log, "%s\n", line);
         fflush(s_log);
     }
+    pthread_mutex_unlock(&s_lock);
 }
 
 int roam_win_committed(uint32_t a)
