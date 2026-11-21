@@ -38,6 +38,13 @@ const Setting s_table[] =
     STR("revived_passphrase", General, "", "Passphrase of the Revived account; set it in Vita Settings. Never shown or logged.", SECRET),
     STR("online_server", General, "eahub.eu", "network=direct: the community server the Online menu uses, or off.", 0),
 
+    // ---- General: network play (src/lib/winapi/ws2_32.cpp, src/lib/winapi/revived) ----
+    ENUM("network", General, 0, "revived|direct|off", "LAN and Online through the NFSU2 Revived server, over local Wi-Fi only, or offline.", 0),
+    STR("revived_server", General, "nfsu2.xyz", "The NFSU2 Revived server (network=revived).", 0),
+    STR("revived_name", General, "", "Name other players see on the Revived server; empty uses the Vita's user name.", 0),
+    STR("revived_passphrase", General, "", "Your nfsu2.xyz passphrase, to play under the name it claimed. Never shown or logged.", SECRET),
+    STR("online_server", General, "eahub.eu", "network=direct: the community server the Online menu uses, or off.", 0),
+
     // ---- Display ----
     ENUM("frame_rate", Display, 0, "30|60|0", "30 locks to 30 fps for steady pacing; 60 shows each frame for one vblank; 0 unlocks.", 0),
     BOOL("widescreen", Display, 1, "On fills the 16:9 screen with the HUD at the edges; off is the original 4:3 with black bars.", 0),
