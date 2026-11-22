@@ -105,8 +105,10 @@ struct StickShape
     float linear = 0.6f;
 };
 
-// steering=digital: how far the left stick goes before it counts as the D-pad.
+// steering=digital: how far the left stick goes before it counts, and the seconds to full lock and to the centre.
 static const float s_digitalThreshold = 0.5f;
+static const float s_digitalTurnS = 0.25f;
+static const float s_digitalReturnS = 0.12f;
 
 static bool digitalSteering()
 {
@@ -495,6 +497,8 @@ Mapper::Mapper()
     ,   m_chorded(0)
     ,   m_selectUsed(false)
     ,   m_selectPulseEndUs(0)
+    ,   m_steer(0.0f)
+    ,   m_steerUs(0)
 {
 }
 
@@ -528,13 +532,25 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
         m_selectPulseEndUs = nowUs + s_tapUs;
     m_previous = inputs;
 
-    uint32_t normal = inputs & ~m_chorded;
-    // steering=digital: the left stick's left and right are the D-pad's, and its X axis stays centred.
+    const uint32_t normal = inputs & ~m_chorded;
+    // steering=digital: the left stick is left, centre or right, and its X axis ramps to full lock and back as a
+    // keyboard's steering does (the D-pad is not involved).
     const bool digital = digitalSteering();
-    if (digital && pad.sticks[0] <= -s_digitalThreshold)
-        normal |= bit(DpadLeft);
-    else if (digital && pad.sticks[0] >= s_digitalThreshold)
-        normal |= bit(DpadRight);
+    float steerX = pad.sticks[0];
+    if (digital)
+    {
+        const float target = pad.sticks[0] <= -s_digitalThreshold ? -1.0f
+                           : pad.sticks[0] >= s_digitalThreshold ? 1.0f : 0.0f;
+        const float seconds = m_steerUs ? std::fmin(0.1f, float(nowUs - m_steerUs) / 1e6f) : 0.0f;
+        // Full lock in s_digitalTurnS; back to the centre, or across it, faster.
+        const bool returning = target == 0.0f || target * m_steer < 0.0f;
+        const float step = seconds / (returning ? s_digitalReturnS : s_digitalTurnS);
+        m_steer = target > m_steer ? std::fmin(target, m_steer + step) : std::fmax(target, m_steer - step);
+        steerX = m_steer;
+    }
+    else
+        m_steer = 0.0f;
+    m_steerUs = nowUs;
     for (const ButtonMapping& mapping : s_buttons)
     {
         if (normal & bit(mapping.input))
@@ -556,7 +572,7 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
     if (nowUs < m_selectPulseEndUs)
         state.buttons |= uint32_t(1) << s_selectTapButton;
 
-    state.axes[AxisX] = digital ? 0.0f : pad.sticks[0];
+    state.axes[AxisX] = steerX;
     state.axes[AxisY] = pad.sticks[1];
     state.axes[AxisZ] = pad.sticks[3];
     state.axes[AxisRz] = pad.sticks[2];
