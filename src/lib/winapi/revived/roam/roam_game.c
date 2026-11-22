@@ -2032,20 +2032,38 @@ static int part_packs(CPU *c){
     g_packs_ok = 1;
     return 1;
 }
+/* A car load's steps on the game thread, timed: any one over SLOW_STEP_US is
+ * logged, so a frame that stalls says which step it was (the Vita, 2026-11-22:
+ * frames of 0.1 to 1.25 s while friends' cars came in) */
+#ifndef SLOW_STEP_US
+#define SLOW_STEP_US    20000
+#endif
+static uint64_t g_step_t;
+static void step_begin(void){ g_step_t = rh_ns(); }
+static void step_end(int k, const char *what){
+    uint64_t us = (rh_ns() - g_step_t) / 1000u;
+    if (us >= SLOW_STEP_US) rlog("[roam] f=%ld slot %d: slow step %s: %.1f ms\n", rh_frame(), k, what, us / 1000.0);
+    g_step_t = rh_ns();
+}
 /* start loading peer's ride for slot k */
 static int begin_load(CPU *c, int k, const uint8_t *cfg, int len, uint32_t gen){
     Slot *s = &g_sl[k];
     rc_carcfg cc;
     if (rc_carcfg_decode(cfg, len, &cc) != RC_OK) return 0;
+    step_begin();
     int in = part_packs(c), shop = 0;                            /* (the packs start loading with the first friend) */
     for (int i = 0; i < cc.n_parts; i++) shop |= shared_owner(cc.part[i].owner);
     if (!in && (shop || g_wake_until)) return 0;                /* (NFSU2_ROAM_TEST_WAKE_LATE: every car waits) */
     uint32_t skin = slot_skin(k);
+    step_end(k, "part packs");
     if (!skin_textures(c, skin)) return 0;
+    step_end(k, "skin textures");
     if (!pool_room(c, s, cc.type_name)) return 0;
+    step_end(k, "pool room");
     uint32_t ride = s->ride_new;
     char why[96] = {0};
     int miss = build_ride(c, &cc, ride, skin, why, sizeof why, 1);
+    step_end(k, "build ride");
     if (miss < 0) return 0;
     if (rh_opt("NFSU2_ROAM_TEST_COPYRIDE")){
         /* test control: the player's own RideInfo byte for byte (same car
@@ -2062,9 +2080,12 @@ static int begin_load(CPU *c, int k, const uint8_t *cfg, int len, uint32_t gen){
         const char *sc = rh_opt("NFSU2_INPUT_SCRIPT"), *gw = rh_opt("NFSU2_TEST_ENGINE_GAMEWAY");
         roam_texlist_engine = !(sc && *sc && gw && *gw == '1');
     }
+    step_begin();
     s->h_new = rh_call(c, FN_LOADER_LOAD, G_CARLOADER, 0, 3, a3);
     roam_texlist_engine = 0;
+    step_end(k, "loader load");
     uint32_t a2[2] = { 0, 0 }; rh_call(c, FN_LOADER_SERVICE, G_CARLOADER, 0, 2, a2);
+    step_end(k, "loader service");
     s->load_t0 = roam_plat_now_us(); s->load_f0 = rh_frame(); s->pending_cfg = 1; s->cfg_gen = gen;
     s->stance_new = cc.has_stance;
     s->stance_vnew[0] = cc.stance_fc; s->stance_vnew[1] = cc.stance_rc; s->stance_vnew[2] = cc.stance_fo; s->stance_vnew[3] = cc.stance_ro;
@@ -2092,20 +2113,26 @@ static int finish_load(CPU *c, int k){
         return 0;
     }
     if (!heavy_take()) return 0;                    /* in: put on its car the next frame */
+    step_begin();
     gcall1(c, FN_LOADER_WAIT, G_CARLOADER, s->h_new);
+    step_end(k, "loader wait");
     uint32_t car = s->car;
     if (!s->have_orig){                             /* an opponent car, first time: keep its own ride */
         memcpy(GPTR(s->ride_orig), GPTR(rd32(car + 0x14u) + 0x10u), 0x8f0);
         s->have_orig = 1;
     }
     if (!s->activated){ gcall0(c, FN_CAR_ACTIVATE, car); s->activated = 1; }
+    step_end(k, "car activate");
     gcall1(c, FN_CAR_SETRIDE, car, s->ride_new);
+    step_end(k, "set ride");
     if (traffic_car(car, 0, 0)) rlog("[roam] f=%ld slot %d: %s's car is a traffic car (%s): it drives through every car\n", rh_frame(), k, s->name, s->carname);
     eng_files(c, s);
     make_inert(c, car);
     body_set(c, car, 0); s->ghost = 1;
     soft_park(c, car);
+    step_end(k, "engine, park");
     if (s->h_cur) gcall1(c, FN_LOADER_UNLOAD, G_CARLOADER, s->h_cur);
+    step_end(k, "unload old ride");
     s->h_cur = s->h_new; s->h_new = 0;
     s->pending_cfg = 0; s->hidden = 1;
     s->stance = s->stance_new; memcpy(s->stance_v, s->stance_vnew, sizeof s->stance_v);
@@ -8841,7 +8868,9 @@ static int loads_waiting(void){
  * frame: 32 friends arriving at once made 29 cars in one frame (112 ms), and
  * in a crowd coming and going (roam_crowd_busy.txt) 116 frames of 3,600
  * took 3 to 6 of them */
+#ifndef HEAVY_PER_FRAME
 #define HEAVY_PER_FRAME 2
+#endif
 /* (g_heavy: with Players' cars shown, Auto: its frames are not judged) */
 static int heavy_take(void){
     if (g_heavy >= HEAVY_PER_FRAME) return 0;
