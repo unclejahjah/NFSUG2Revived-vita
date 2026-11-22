@@ -128,6 +128,7 @@ const Setting s_table[] =
     INT("promote_hi", Developer, -1, -1, 0x7fffffff, 1, "Last function whose slots stay in locals; -1 is no limit.", 0),
 
     // ---- Developer: logs, timing, stalls ----
+    BOOL("crash_report", Developer, 1, "Write a crash report to the crashes folder when the game crashes (needs kubridge.skprx for registers).", 0),
     BOOL("console_log", Developer, 0, "Also print the log to the console.", 0),
     BOOL("log_async", Developer, 1, "Write the log on another thread.", 0),
     BOOL("memory_log", Developer, 0, "Log memory use.", 0),

@@ -119,6 +119,12 @@ if(DEV_TOOLS)
   list(APPEND NFSU_DEFINES DEV_TOOLS)
 endif()
 set(NFSU_RUNTIME_DEFINES ${NFSU_DEFINES} NFSU_VERSION="${NFSU_VERSION}")
+# The commit in crash reports (crashlog.cpp), so a report can be matched to its build.
+execute_process(COMMAND git rev-parse --short=10 HEAD WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                OUTPUT_VARIABLE NFSU_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+if(NFSU_COMMIT)
+  list(APPEND NFSU_RUNTIME_DEFINES NFSU_COMMIT="${NFSU_COMMIT}")
+endif()
 # Offload renderer: where the draw flushes are recorded. 0: inline on the game thread, 1: inside the render thread
 # at the splice, 2: a worker on core 2. Empty: off.
 # A compile-time choice; no settings key selects the core.
@@ -185,6 +191,8 @@ target_compile_definitions(nfsu_runtime PRIVATE ${NFSU_RUNTIME_DEFINES})
 target_include_directories(nfsu_runtime PRIVATE ${NFSU_INCLUDES})
 # The run-time helpers the code generator calls stay out of link-time optimisation, which would drop them.
 set_source_files_properties(src/platform/memfuncs.cpp PROPERTIES COMPILE_OPTIONS -fno-lto)
+# The kubridge import stubs are top-level assembly: keep them out of link-time optimisation too.
+set_source_files_properties(src/platform/kubridge_stub.cpp PROPERTIES COMPILE_OPTIONS -fno-lto)
 
 # LAN play and Online through the NFSU2 Revived server (include/winapi/revived.h).
 include(cmake/revived.cmake)
