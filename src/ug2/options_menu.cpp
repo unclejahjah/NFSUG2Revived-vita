@@ -72,6 +72,10 @@ const Option Delay[] = { { "", "Default (100 ms)" }, { "0", "0 ms" }, { "50", "5
                          { "150", "150 ms" }, { "200", "200 ms" }, { "300", "300 ms" } };
 const Option Extrap[] = { { "", "Default (250 ms)" }, { "0", "0 ms" }, { "100", "100 ms" }, { "250", "250 ms" },
                           { "500", "500 ms" }, { "1000", "1000 ms" } };
+const Option StickDeadZone[] = { { "0", "0%" }, { "5", "5%" }, { "10", "10%" }, { "15", "15%" }, { "20", "20%" },
+                                 { "25", "25%" }, { "30", "30%" } };
+const Option StickResponse[] = { { "standard", "Standard" }, { "linear", "Linear" }, { "precise", "Precise" } };
+const Option SkipIntro[] = { { "off", "Off" }, { "logos", "Logos" }, { "opening", "Logos and opening" } };
 const Option FrameRate[] = { { "30", "30 fps" }, { "0", "Unlocked" } };
 const Option Preset[] = { { "vita", "Vita" }, { "max", "Max" } };
 const Option LodPixels[] = { { "0", "Off" }, { "64", "64 px" }, { "128", "128 px" }, { "192", "192 px" },
@@ -188,6 +192,11 @@ const Item Controller[] = {
       "The right stick turns the car in the garage and the customisation menus." },
     { "Camera stick dead zone", Cfg, "garage_stick_deadzone", Choice, OPTIONS(DeadZone), "30", 0, nullptr,
       "How far the right stick moves before the garage camera turns." },
+    { "Stick dead zone", Cfg, "stick_deadzone", Choice, OPTIONS(StickDeadZone), "15", 0, nullptr,
+      "How far either stick moves before it counts, steering included. Less reacts sooner; more ignores a worn stick." },
+    { "Stick response", Cfg, "stick_response", Choice, OPTIONS(StickResponse), "standard", 0, nullptr,
+      "Standard is finer near the centre for small steering corrections; linear follows the stick exactly; "
+      "precise is finer near the centre still." },
 };
 
 const Item Performance[] = {
@@ -204,6 +213,8 @@ const Item Performance[] = {
 const Item Game[] = {
     { "Frame rate", Cfg, "frame_rate", Choice, OPTIONS(FrameRate), "30", 0, nullptr,
       "30 locks the game to 30 frames a second for steady pacing; unlocked runs as fast as it can." },
+    { "Skip intro movies", Cfg, "skip_intro_movies", Choice, OPTIONS(SkipIntro), "off", 0, nullptr,
+      "Logos skips the EA and THX logos and the notice at start-up; logos and opening skips the opening movie too." },
     { "Free-roam log", Ini, "Log", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "Write scripts/NFSU2FreeRoam.log." },
     { "Start-up screen", Cfg, "show_configurator_on_boot", Choice, OPTIONS(OnOff), "on", 0, nullptr,
@@ -780,7 +791,8 @@ void setText(int g, int i, const std::string& text)
 bool applyLive(int g, int i)
 {
     // The settings read where they are used, rather than once at the start.
-    static const char* const Live[] = { "log_info", "garage_stick", "garage_stick_deadzone" };
+    static const char* const Live[] = { "log_info", "garage_stick", "garage_stick_deadzone", "stick_deadzone",
+                                        "stick_response" };
     const Item& it = item(g, i);
     if (it.store != Cfg)
         return false;
