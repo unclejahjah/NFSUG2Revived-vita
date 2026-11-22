@@ -148,6 +148,8 @@ private:
     uint32_t    m_chorded;          // inputs pressed while Select was held, mapped by the chord table until released
     bool        m_selectUsed;       // a chord was used during this Select press
     uint64_t    m_selectPulseEndUs; // the Select tap's button is reported until then
+    float       m_steer;            // steering=digital: the left stick's ramped X position
+    uint64_t    m_steerUs;          // time of the last ramp step
 };
 
 // Radial dead zone and response curve of one stick (x, y in -1..1). deadZone and saturation are DirectInput

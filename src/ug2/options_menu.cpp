@@ -196,8 +196,8 @@ const Item Controller[] = {
     { "Stick dead zone", Cfg, "stick_deadzone", Choice, OPTIONS(StickDeadZone), "15", 0, nullptr,
       "How far either stick moves before it counts, steering included. Less reacts sooner; more ignores a worn stick." },
     { "Steering", Cfg, "steering", Choice, OPTIONS(Steering), "analog", 0, nullptr,
-      "Analog steers as far as the left stick is pushed. Digital turns the stick into the D-pad's left and right, "
-      "with the game's own gradual steering, as on a keyboard." },
+      "Analog steers as far as the left stick is pushed. Digital: pushed past halfway, the stick turns smoothly to "
+      "full lock and back when released, as on a keyboard." },
     { "Stick response", Cfg, "stick_response", Choice, OPTIONS(StickResponse), "standard", 0, nullptr,
       "Standard is finer near the centre for small steering corrections; linear follows the stick exactly; "
       "precise is finer near the centre still." },
