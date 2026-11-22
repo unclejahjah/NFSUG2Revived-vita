@@ -47,6 +47,8 @@ const char DefaultSettingsFile[] =
     "# Right stick camera while driving: the chase camera turns round the car with the stick (back when released),\n"
     "# in the hood and bumper views down looks back; untouched, the game's camera is unchanged: on or off.\n"
     "#camera_stick=on\n"
+    "# How fast that camera turns to the stick and back: 1 (slowest) to 10 (fastest).\n"
+    "#camera_stick_speed=4\n"
     "\n"
     "# Fast travel: on the World Map, pick a place and answer No to the GPS question to be put there: on or off.\n"
     "#fast_travel=on"

@@ -74,6 +74,8 @@ const Option Extrap[] = { { "", "Default (250 ms)" }, { "0", "0 ms" }, { "100", 
                           { "500", "500 ms" }, { "1000", "1000 ms" } };
 const Option StickDeadZone[] = { { "0", "0%" }, { "5", "5%" }, { "10", "10%" }, { "15", "15%" }, { "20", "20%" },
                                  { "25", "25%" }, { "30", "30%" } };
+const Option CameraSpeed[] = { { "1", "1" }, { "2", "2" }, { "3", "3" }, { "4", "4" }, { "5", "5" },
+                               { "6", "6" }, { "7", "7" }, { "8", "8" }, { "9", "9" }, { "10", "10" } };
 const Option StickResponse[] = { { "standard", "Standard" }, { "linear", "Linear" }, { "precise", "Precise" } };
 const Option Steering[] = { { "analog", "Analog" }, { "digital", "Digital" } };
 const Option SkipIntro[] = { { "off", "Off" }, { "logos", "Logos" }, { "opening", "Logos and opening" } };
@@ -198,6 +200,9 @@ const Item Controller[] = {
     { "Right stick camera", Cfg, "camera_stick", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "While driving, the right stick turns the chase camera round the car and it comes back when released. In the "
       "hood and bumper views pushing it down looks back. Untouched, the camera is the game's own." },
+    { "Camera stick speed", Cfg, "camera_stick_speed", Choice, OPTIONS(CameraSpeed), "4", 0, nullptr,
+      "How fast the right stick camera swings round to where the stick points, and back when released. "
+      "1 is the slowest, 10 the fastest." },
     { "Steering", Cfg, "steering", Choice, OPTIONS(Steering), "analog", 0, nullptr,
       "Analog steers as far as the left stick is pushed. Digital: pushed past halfway, the stick turns smoothly to "
       "full lock and back when released, as on a keyboard." },
@@ -802,7 +807,7 @@ bool applyLive(int g, int i)
     // The settings read where they are used, rather than once at the start.
     static const char* const Live[] = { "log_info", "garage_stick", "garage_stick_deadzone", "stick_deadzone",
                                         "stick_response", "steering", "fast_travel",
-                                        "camera_stick" };
+                                        "camera_stick", "camera_stick_speed" };
     const Item& it = item(g, i);
     if (it.store != Cfg)
         return false;

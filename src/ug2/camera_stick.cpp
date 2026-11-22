@@ -34,8 +34,12 @@ using x86::reg32;
 const float Pi = 3.14159265f;
 const float DeadZone = 0.3f;                    // stick length below which it is released
 const float CutBackAngle = 120.0f * Pi / 180.0f;
-const float FollowRate = 14.0f;                 // 1/s: how fast the camera follows the stick's angle
-const float ReturnRate = 6.0f;                  // 1/s: the eased way back
+// 1/s at camera_stick_speed 10 (the first version's, too fast to Jah): how fast the camera follows the stick's angle,
+// and the eased way back; speed n of 10 scales both by n / 10
+const float FollowRateMax = 14.0f;
+const float ReturnRateMax = 6.0f;
+float s_followRate = FollowRateMax * 0.4f;
+float s_returnRate = ReturnRateMax * 0.4f;
 const reg32 PovOffset = 0x4C, LookBackOffset = 0x51;
 
 struct Orbit
@@ -58,6 +62,10 @@ bool enabled()
     {
         s_generation = pf::Config::generation();
         s_on = pf::Config::getBool("camera_stick", true);
+        int speed = pf::Config::getInt("camera_stick_speed", 4);
+        speed = speed < 1 ? 1 : speed > 10 ? 10 : speed;
+        s_followRate = FollowRateMax * float(speed) / 10.0f;
+        s_returnRate = ReturnRateMax * float(speed) / 10.0f;
     }
     return s_on;
 }
@@ -111,14 +119,14 @@ void step(reg32 mover)
     {
         // Up 0, right -90 degrees (the eye moves to the car's left and looks right), down 180.
         s_orbit.target = std::atan2(-x, -y);
-        s_orbit.yaw = wrap(s_orbit.yaw + wrap(s_orbit.target - s_orbit.yaw) * (1.0f - std::exp(-FollowRate * dt)));
+        s_orbit.yaw = wrap(s_orbit.yaw + wrap(s_orbit.target - s_orbit.yaw) * (1.0f - std::exp(-s_followRate * dt)));
         s_orbit.held = true;
         return;
     }
     if (s_orbit.held && std::fabs(s_orbit.target) >= CutBackAngle)
         s_orbit.yaw = 0.0f;                     // released behind the car: cut back to the normal view
     s_orbit.held = false;
-    s_orbit.yaw -= s_orbit.yaw * (1.0f - std::exp(-ReturnRate * dt));
+    s_orbit.yaw -= s_orbit.yaw * (1.0f - std::exp(-s_returnRate * dt));
     if (std::fabs(s_orbit.yaw) < 1e-3f)
         s_orbit.yaw = 0.0f;
 }
