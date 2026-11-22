@@ -74,6 +74,7 @@ bool                    s_typedDown[256];   // typed keys down, by DirectInput c
 bool                    s_appendOnly;       // the game's editor has no cursor: no End before clearing
 Gamepad::PollHook       s_pollHook;         // not guarded: set before the game starts
 std::atomic<bool>       s_settingsWanted(false);
+std::atomic<int>        s_sayWanted(-1);
 std::atomic<float>      s_rightStick[2];    // the last pump's right stick
 controls::PadSample     s_injected;         // setInjectedPad
 Gamepad::Touch          s_touch;            // getTouch
@@ -305,6 +306,8 @@ void pump()
     trackTouch(pad, busy);
     if (!busy && state.openSettings)
         s_settingsWanted = true;
+    if (!busy && state.sayChord >= 0)
+        s_sayWanted = state.sayChord;
     if (!busy && s_hostPending)
     {
         s_hostPending = false;
@@ -571,6 +574,11 @@ bool Gamepad::requestText(const char* title, const char* text, uint32_t maxLengt
 bool Gamepad::takeSettingsRequest()
 {
     return s_settingsWanted.exchange(false);
+}
+
+int Gamepad::takeSayChord()
+{
+    return s_sayWanted.exchange(-1);
 }
 
 Gamepad::TextResult Gamepad::takeText(char* text, size_t size)

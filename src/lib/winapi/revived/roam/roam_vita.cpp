@@ -10,6 +10,7 @@
 #include <freeroam.h>
 #include <winapi/revived.h>
 #include <lib/memmap.h>
+#include <lib/gamepad.h>
 #include <lib/winapp.h>
 #include <platform/log.h>
 #include <recomp.h>
@@ -64,6 +65,15 @@ const struct { const char *name, *key, *def; } Opts[] = {
     // players' cars, and our flag before our name (a code of flags.dat: gb, us, gb-eng)
     { "NFSU2_ROAM_LABELS",      "Names",       "1" },
     { "NFSU2_ROAM_FLAG",        "Flag",        ""  },
+    // quick chat (settings.ini quick_chat): on or off, and the phrases of the six chords, Select + Down, Left, Right,
+    // Cross, Circle, Square, by their numbers (phrases.h)
+    { "NFSU2_ROAM_SAY",         "QuickChat",   "1" },
+    { "NFSU2_ROAM_SAY1",        "Say1",        "0"  },   // Hey!
+    { "NFSU2_ROAM_SAY2",        "Say2",        "2"  },   // Thanks!
+    { "NFSU2_ROAM_SAY3",        "Say3",        "12" },   // Race?
+    { "NFSU2_ROAM_SAY4",        "Say4",        "8"  },   // Follow me!
+    { "NFSU2_ROAM_SAY5",        "Say5",        "14" },   // gg
+    { "NFSU2_ROAM_SAY6",        "Say6",        "1"  },   // Nice car!
 };
 const int OptCount = int(sizeof(Opts) / sizeof(Opts[0]));
 std::string s_values[OptCount];
@@ -170,6 +180,19 @@ void roam_log(const char* fmt, ...)
         fflush(s_log);
     }
     pthread_mutex_unlock(&s_lock);
+}
+
+// Quick chat on the Vita: a chord (Gamepad::takeSayChord) says its slot's phrase.
+int roam_host_say_pick(void)
+{
+    const int slot = win32::Gamepad::takeSayChord();
+    if (slot < 0 || slot > 5)
+        return -1;
+    static const char* const Keys[6] = { "NFSU2_ROAM_SAY1", "NFSU2_ROAM_SAY2", "NFSU2_ROAM_SAY3",
+                                         "NFSU2_ROAM_SAY4", "NFSU2_ROAM_SAY5", "NFSU2_ROAM_SAY6" };
+    const char* v = roam_opt(Keys[slot]);
+    const int phrase = v ? atoi(v) : -1;
+    return phrase >= 0 && phrase < 255 ? phrase : -1;
 }
 
 int roam_win_committed(uint32_t a)

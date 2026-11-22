@@ -121,6 +121,8 @@ public:
     static TextResult takeText(char* text, size_t size);
     // True once after the Vita Settings chord, Select + Up, was pressed. Any thread.
     static bool takeSettingsRequest();
+    // Once after a quick chat chord (Select + Down, Left, Right, Cross, Circle, Square): its slot 0-5, else -1.
+    static int takeSayChord();
     // For an editor that only appends and deletes at its end: clearing a field skips the End key.
     static void setTextAppendOnly(bool appendOnly);
     // Ends the edit of the field: a keyboard still open for it closes without typing.

@@ -82,12 +82,20 @@ struct Chord
     int      button;    // -1 for none
     bool     ime;       // opens the on-screen keyboard
     bool     settings;  // opens Vita Settings (src/ug2/menu_entry.cpp)
+    int      say;       // free roam's quick chat slot (Gamepad::takeSayChord), -1 for none
 };
 
 static const Chord s_chords[] =
 {
-    { Triangle,  0, -1, true,  false },     // text entry
-    { DpadUp,    0, -1, false, true  },     // Vita Settings
+    { Triangle,  0, -1, true,  false, -1 }, // text entry
+    { DpadUp,    0, -1, false, true,  -1 }, // Vita Settings
+    // free roam's quick chat (scripts/NFSU2FreeRoam.ini Say1 to Say6)
+    { DpadDown,  0, -1, false, false, 0 },
+    { DpadLeft,  0, -1, false, false, 1 },
+    { DpadRight, 0, -1, false, false, 2 },
+    { Cross,     0, -1, false, false, 3 },
+    { Circle,    0, -1, false, false, 4 },
+    { Square,    0, -1, false, false, 5 },
 };
 
 // How long a Select tap holds its button, enough for one game frame at 10 fps.
@@ -506,6 +514,7 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
 {
     State state;
     memset(&state, 0, sizeof(state));
+    state.sayChord = -1;
     const uint32_t inputs = pad.inputs;
     const uint32_t pressed = inputs & ~m_previous;
     const uint32_t released = m_previous & ~inputs;
@@ -527,6 +536,8 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
             state.openIme = true;
         if (chord->settings)
             state.openSettings = true;
+        if (chord->say >= 0)
+            state.sayChord = chord->say;
     }
     if ((released & bit(Select)) && !m_selectUsed)
         m_selectPulseEndUs = nowUs + s_tapUs;

@@ -343,7 +343,10 @@ typedef struct { uint32_t id; float x, y, s; } GwMark;
 static void gw_marks(const GwMark *m, int n){ (void)m; (void)n; }
 static uint32_t g_say_seen;
 int roam_plat_quickchat(void){ return 1; }
+/* the Vita's quick chat chords (roam_vita.cpp): a phrase picked, or -1; weak, so other hosts have none */
+extern int roam_host_say_pick(void) __attribute__((weak));
 int roam_plat_say_pick(void){
+    if (roam_host_say_pick){ int h = roam_host_say_pick(); if (h >= 0) return h; }
     uint32_t v = MB ? ld(&MB->say) : 0;
     if (v == g_say_seen) return -1;
     g_say_seen = v;

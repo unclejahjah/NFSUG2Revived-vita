@@ -133,6 +133,7 @@ struct State
     int         pov;                // hat 0 in hundredths of a degree, -1 centred
     bool        openIme;            // the on-screen keyboard chord was pressed
     bool        openSettings;       // the Vita Settings chord (Select + Up) was pressed
+    int         sayChord;           // quick chat: 0-5 for Select + Down, Left, Right, Cross, Circle, Square; -1 none
 };
 
 // Turns pad samples into joystick and key state: chords with Select, the Select tap (respot) and buttons held

@@ -144,7 +144,25 @@ const Option Flags[] = { { "", "None" }, { "gb", "United Kingdom" }, { "gb-eng",
                          { "jp", "Japan" }, { "kr", "South Korea" }, { "cn", "China" }, { "in", "India" },
                          { "ph", "Philippines" }, { "id", "Indonesia" }, { "za", "South Africa" } };
 
+// Quick chat's phrases (nfsu2.xyz's, src/lib/winapi/revived/roam/phrases.h) by their numbers: the common ones.
+const Option Phrases[] = { { "0", "Hey!" }, { "1", "Nice car!" }, { "2", "Thanks!" }, { "3", "Bye!" }, { "4", "Yes" }, { "5", "No" }, { "6", "Sorry!" }, { "7", "lol" }, { "8", "Follow me!" }, { "9", "Wait up!" }, { "10", "Let's go!" }, { "11", "Nice!" }, { "12", "Race?" }, { "13", "Join my race!" }, { "14", "gg" }, { "15", "One more?" }, { "16", "Yo!" }, { "17", "Hi all!" }, { "18", "Welcome!" }, { "19", "Welcome back!" }, { "20", "Long time no see!" }, { "21", "Good luck!" }, { "22", "Have fun!" }, { "23", "Gotta go!" }, { "24", "See you around!" }, { "25", "Good night!" }, { "26", "brb" }, { "27", "Back!" }, { "28", "Sure!" }, { "29", "Maybe" }, { "30", "Okay" }, { "31", "Nope" }, { "33", "On my way!" }, { "41", "ty" }, { "42", "np" }, { "44", "My bad!" } };
+
 const Item FriendsPage[] = {
+    { "Quick chat", Ini, "QuickChat", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "Say a set phrase to the players near you with Select + Down, Left, Right, Cross, Circle or Square. Theirs "
+      "show after their names, in every player's own language on nfsu2.xyz." },
+    { "Select + Down", Ini, "Say1", Choice, OPTIONS(Phrases), "0", 0, nullptr,
+      "The quick chat phrase Select + Down says." },
+    { "Select + Left", Ini, "Say2", Choice, OPTIONS(Phrases), "2", 0, nullptr,
+      "The quick chat phrase Select + Left says." },
+    { "Select + Right", Ini, "Say3", Choice, OPTIONS(Phrases), "12", 0, nullptr,
+      "The quick chat phrase Select + Right says." },
+    { "Select + Cross", Ini, "Say4", Choice, OPTIONS(Phrases), "8", 0, nullptr,
+      "The quick chat phrase Select + Cross says." },
+    { "Select + Circle", Ini, "Say5", Choice, OPTIONS(Phrases), "14", 0, nullptr,
+      "The quick chat phrase Select + Circle says." },
+    { "Select + Square", Ini, "Say6", Choice, OPTIONS(Phrases), "1", 0, nullptr,
+      "The quick chat phrase Select + Square says." },
     { "Crews", Ini, "Crew", Text, nullptr, 0, "", 120, "None",
       "Up to 4 crews, joined by commas. Players who share one see each other's names and map arrows in its colour." },
     { "Crew colours", Ini, "CrewColours", Text, nullptr, 0, "", 40, "Cyan, magenta, violet, red",
@@ -308,6 +326,15 @@ const char IniTemplate[] =
     "; (gb, us, de, gb-eng; empty = none)\n"
     "Names = 1\n"
     "Flag =\n"
+    "\n"
+    "; quick chat (1 on, 0 off) and the phrase numbers of Select + Down, Left, Right, Cross, Circle, Square\n"
+    "QuickChat = 1\n"
+    "Say1 = 0\n"
+    "Say2 = 2\n"
+    "Say3 = 12\n"
+    "Say4 = 8\n"
+    "Say5 = 14\n"
+    "Say6 = 1\n"
     "\n"
     "; 1 = friends' cars are solid; 0 = ghost cars you drive through; none = traffic is a ghost too\n"
     "Collide = 0\n"

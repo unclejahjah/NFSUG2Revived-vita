@@ -2428,7 +2428,11 @@ static void push_pose(Slot *s, rc_pose *P, int64_t newest, int64_t rt, float dt)
 #define FN_FE_HIDE      0x0050ca00u   /* cdecl (object) */
 #define FN_VIEW_SCREEN  0x005bc4a0u   /* thiscall view (out*, in*): world -> view pixels, z > 0 in front */
 #define TAG_SCR         0x100u        /* g_gmem scratch: +0 in, +0x10 out, +0x20 vectors, +0x40 "%s", +0x48 text */
+#ifdef ROAM_SAY_TAGS
+#define TAG_TEXT_MAX    (RC_NAME_MAX + 64)  /* and ": <phrase>" after it */
+#else
 #define TAG_TEXT_MAX    (RC_NAME_MAX + 24)  /* "<name> (paused)", "<name> (paused, 12.3 km)" */
+#endif
 #define TAG_NEAR_M      100.f         /* names from this far only for the crews, with the distance (photo mode: no others) */
 #define TAG_FULL_M      25.f          /* a name at full strength (and size: 25 m / distance past it, down to half) to here */
 #define TAG_FADE_M      60.f          /* ...and faded out by here, a crew's or friend's excepted (photo mode: TAG_NEAR_M) */
@@ -2842,10 +2846,14 @@ static int flag_find(const char *code){ (void)code; return -1; }
  * anything.  Any number goes through: the page knows which it has (a newer page's it does not show).  The page
  * shows a line over the car of each player who said something lately, where the name over it is: tags_update tells
  * it where, with every frame (roam_plat_say_marks).  Not in the Windows plugin (no page). */
-#ifdef ROAM_HOST_WIN
+#if defined(ROAM_HOST_WIN) && !defined(ROAM_SAYS)
 #define SAYS            0
 #else
 #define SAYS            1
+#endif
+#ifdef ROAM_SAY_TAGS
+/* no page to draw the lines over the cars (the Vita): the phrase goes after the name, "Bravo: Race?" */
+#include "phrases.h"
 #endif
 #define SAY_NEAR_M      250.f         /* heard from as far as a horn is (horn.c FAR_M), and from anyone in our race lobby */
 #define SAY_SHOW_US     5000000       /* the line over the car: as long as the page shows it */
@@ -3052,6 +3060,12 @@ static void tags_update_seat(CPU *c){
         char tx[TAG_TEXT_MAX];
         if (s->crew && d >= TAG_NEAR_M) tag_far(tx, sizeof tx, s->name, s->paused, d);
         else snprintf(tx, sizeof tx, s->paused ? "%s (paused)" : "%s", s->name);
+#if SAYS && defined(ROAM_SAY_TAGS)
+        if (t[q].k < NSLOT && say_live(s->peer, s->peer_id, now) && g_say.who[s->peer].phrase < ROAM_PHRASE_N){
+            char nm[TAG_TEXT_MAX]; snprintf(nm, sizeof nm, "%s", tx);
+            snprintf(tx, sizeof tx, "%s: %s", nm, ROAM_PHRASES[g_say.who[s->peer].phrase]);
+        }
+#endif
         rh_hud_marker(&hx, &hy);
         /* the flag (its texture there: else none, not a gap) and its gap left of the name, the two centred on hx */
         float fw = 0.f;
@@ -8160,6 +8174,23 @@ static void room_alone(int64_t host, uint8_t st){
     roam_plat_notice(0, t);
     rlog("[roam] f=%ld alone in room \"%s\" for %.0f s: told\n", rh_frame(), O.room, (double)(host - g_alone_since) / 1e6);
 }
+#endif
+#if SAYS && !MPRACES
+/* the lobby's JSON helpers (mprace's, not built without MPRACES), for quick chat's and the bumpers' lines to the page */
+typedef struct { char *b; int n, cap; } MpJs;
+static void js_raw(MpJs *j, const char *s){ while (*s && j->n + 1 < j->cap) j->b[j->n++] = *s++; j->b[j->n] = 0; }
+static void js_key(MpJs *j, const char *k){ if (j->n > 1) js_raw(j, ","); js_raw(j, "\""); js_raw(j, k); js_raw(j, "\":"); }
+static void js_val(MpJs *j, const char *v){
+    js_raw(j, "\"");
+    for (; *v && j->n + 3 < j->cap; v++){
+        char ch = (uint8_t)*v < 0x20 ? ' ' : *v;
+        if (ch == '"' || ch == '\\') j->b[j->n++] = '\\';
+        j->b[j->n++] = ch;
+    }
+    j->b[j->n] = 0; js_raw(j, "\"");
+}
+static void js_str(MpJs *j, const char *k, const char *v){ js_key(j, k); js_val(j, v); }
+static void js_int(MpJs *j, const char *k, int v){ char t[16]; snprintf(t, sizeof t, "%d", v); js_key(j, k); js_raw(j, t); }
 #endif
 #if SAYS
 /* ---- quick chat: what the player says, what friends say (the state: before tags_update) -------------------------
