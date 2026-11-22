@@ -142,6 +142,13 @@ void setQuickChatLive(uint64_t nowUs)
     s_chatLiveUs.store(nowUs, std::memory_order_relaxed);
 }
 
+static std::atomic<uint64_t> s_cameraLiveUs{0};
+
+void setCameraStickLive(uint64_t nowUs)
+{
+    s_cameraLiveUs.store(nowUs, std::memory_order_relaxed);
+}
+
 static bool quickChatLive(uint64_t nowUs)
 {
     const uint64_t at = s_chatLiveUs.load(std::memory_order_relaxed);
@@ -671,8 +678,10 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
 
     state.axes[AxisX] = steerX;
     state.axes[AxisY] = pad.sticks[1];
-    state.axes[AxisZ] = pad.sticks[3];
-    state.axes[AxisRz] = pad.sticks[2];
+    const uint64_t cameraAt = s_cameraLiveUs.load(std::memory_order_relaxed);
+    const bool camera = cameraAt && nowUs - cameraAt < 250000;    // the stick camera has the right stick
+    state.axes[AxisZ] = camera ? 0.0f : pad.sticks[3];
+    state.axes[AxisRz] = camera ? 0.0f : pad.sticks[2];
     state.pov = -1;
     return state;
 }

@@ -163,6 +163,9 @@ private:
 int quickChatButton();
 // Free roam proper (driving, quick chat on) says so each frame, with pf::ticksUs(): only then is the button taken.
 void setQuickChatLive(uint64_t nowUs);
+// The right stick camera (src/ug2/camera_stick.cpp) says so each frame it runs: the right stick then turns the
+// camera only, and its axes (Z, Rz: the game's gas and brake when bound to it) read as centred.
+void setCameraStickLive(uint64_t nowUs);
 void quickChatSlots(Input slots[7]);
 
 // Radial dead zone and response curve of one stick (x, y in -1..1). deadZone and saturation are DirectInput

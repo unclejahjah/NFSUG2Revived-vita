@@ -12,6 +12,7 @@
 // orbit and its two ways back follow a request by Jah (the same design as elmnt22's vita-nfsu2 port, none of its
 // code).
 
+#include <lib/controls.h>
 #include <lib/gamepad.h>
 #include <lib/winapp.h>
 #include <platform/config.h>
@@ -148,6 +149,7 @@ void sub_453570(win32::WinApplication* app, x86::CPU& cpu)
         sub_453570_guest(app, cpu);
         return;
     }
+    win32::controls::setCameraStickLive(pf::ticksUs());   // the right stick is the camera's, not gas and brake
     step(mover);
     s_inUpdate = s_orbit.yaw != 0.0f && chaseView(mover) && !rc::ld8(mover + LookBackOffset);
     sub_453570_guest(app, cpu);
