@@ -167,6 +167,8 @@ void setQuickChatLive(uint64_t nowUs);
 // camera only, and its axes (Z, Rz: the game's gas and brake when bound to it) read as centred.
 void setCameraStickLive(uint64_t nowUs);
 void quickChatSlots(Input slots[7]);
+// Since when the quick chat button has been held in free roam (pf::ticksUs), 0 when it is not held now.
+uint64_t quickChatHeldSince();
 
 // Radial dead zone and response curve of one stick (x, y in -1..1). deadZone and saturation are DirectInput
 // property values (0..10000 of full deflection); the larger dead zone and the smaller saturation of these and the

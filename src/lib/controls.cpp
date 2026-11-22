@@ -149,6 +149,13 @@ void setCameraStickLive(uint64_t nowUs)
     s_cameraLiveUs.store(nowUs, std::memory_order_relaxed);
 }
 
+static std::atomic<uint64_t> s_chatHeldSince{0};
+
+uint64_t quickChatHeldSince()
+{
+    return s_chatHeldSince.load(std::memory_order_relaxed);
+}
+
 static bool quickChatLive(uint64_t nowUs)
 {
     const uint64_t at = s_chatLiveUs.load(std::memory_order_relaxed);
@@ -636,6 +643,12 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
         if (nowUs < m_chatPulseEndUs && !(inputs & key))
             chatPulse = key;
     }
+    // (what the HUD shows: the choices while the button is held; Select's chords alike)
+    const bool chatHeld = (chatButton >= 0 && (inputs & bit(Input(chatButton)))) || (chatButton == -1 && select);
+    if (!chatHeld)
+        s_chatHeldSince.store(0, std::memory_order_relaxed);
+    else if (!s_chatHeldSince.load(std::memory_order_relaxed))
+        s_chatHeldSince.store(nowUs ? nowUs : 1, std::memory_order_relaxed);
     const uint32_t normal = (inputs & ~m_chorded & ~chatHidden & ~m_chatSwallow) | chatPulse;
     // steering=digital: the left stick is left, centre or right, and its X axis ramps to full lock and back as a
     // keyboard's steering does (the D-pad is not involved).

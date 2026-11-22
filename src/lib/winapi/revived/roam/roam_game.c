@@ -463,6 +463,8 @@ typedef struct {
     int      unindexed;                       /* ...past World::IndexCars' 22: record kind KIND_OUT */
     uint32_t ride_new, ride_orig, rec;        /* guest buffers */
     uint32_t h_cur, h_new;                    /* CarLoader handles (on the car / loading) */
+    int      want_load;                       /* its ride built, the loader asked the next frame (load_ask) */
+    uint16_t want_parts, want_skin;           /* ...for its log line */
     uint32_t h_orig;                          /* a car of our own: its first ride (an opponent's copy) */
     int      have_orig, activated;
     uint32_t cfg_gen;  int pending_cfg;       /* the record the car shows / one waiting */
@@ -807,7 +809,34 @@ static int local_cfg(uint8_t *out, int cap, char *tname){ return car_cfg(player_
 /* the part of car type `type` in ride slot sl with this key and owner, as
  * the CarPartDB has it (NewGetCarPart; parts of other owners may share the
  * key), or 0 */
+/* the parts found (type, slot, key, owner): NewGetCarPart walks the CarPartDB, some 0.3 ms a part on the Vita, 25 ms
+ * a friend's car of 90 parts; the DB is the game's, loaded at its start, so a part found stays where it is (forgotten
+ * with the world all the same) */
+#define PC_N 2048
+static struct { uint32_t type, sl, key, owner, p; } g_pc[PC_N];
+static void part_cache_forget(void){ memset(g_pc, 0, sizeof g_pc); }
+static uint32_t find_part_db(CPU *c, uint32_t type, uint32_t sl, uint32_t key, uint32_t owner);
 static uint32_t find_part(CPU *c, uint32_t type, uint32_t sl, uint32_t key, uint32_t owner){
+    uint32_t h = (type * 0x9e3779b1u ^ sl * 0x85ebca6bu ^ key ^ owner * 0xc2b2ae35u);
+    h = (h ^ (h >> 15)) & (PC_N - 1u);
+    for (uint32_t i = 0; i < 4; i++){
+        uint32_t j = (h + i) & (PC_N - 1u);
+        if (!g_pc[j].p) break;
+        if (g_pc[j].type == type && g_pc[j].sl == sl && g_pc[j].key == key && g_pc[j].owner == owner && ok(g_pc[j].p, 0xe))
+            return g_pc[j].p;
+    }
+    uint32_t p = find_part_db(c, type, sl, key, owner);
+    if (p){
+        for (uint32_t i = 0; i < 4; i++){
+            uint32_t j = (h + i) & (PC_N - 1u);
+            if (g_pc[j].p && i < 3) continue;
+            g_pc[j].type = type; g_pc[j].sl = sl; g_pc[j].key = key; g_pc[j].owner = owner; g_pc[j].p = p;
+            break;
+        }
+    }
+    return p;
+}
+static uint32_t find_part_db(CPU *c, uint32_t type, uint32_t sl, uint32_t key, uint32_t owner){
     uint32_t owners = rd32(G_PARTOWNERS), prev = 0;
     for (int tries = 0; tries < 6; tries++){
         uint32_t a[5] = { type, sl, key, prev, 0xffffffffu };
@@ -1521,6 +1550,7 @@ static void world_gone(void){
         s->ride_new = rn; s->ride_orig = ro; s->rec = rec;
     }
     g_created_n = 0; g_em = EM_GAME; g_em_pin = 0; g_em_racing_noted = 0; g_em_release_at = 0;
+    part_cache_forget();
     rh_plates_forget();
     rh_stance_forget();
 }
@@ -1576,6 +1606,7 @@ static void release(CPU *c, int k, const char *why){
     else rlog("[roam] f=%ld slot %d: %s's car removed (%s)\n", rh_frame(), k, s->name, why);
     g_releases++;
     if (s->h_new){ unload_later(s->h_new); s->h_new = 0; s->pending_cfg = 0; }
+    s->want_load = 0;
     /* not made yet: forget it.  A car made whose first look cannot load now
      * (begin_load right after finish_create: a friend's shop parts waiting
      * for part_packs) goes on below: it stays ours, parked on its first ride
@@ -2074,6 +2105,25 @@ static int begin_load(CPU *c, int k, const uint8_t *cfg, int len, uint32_t gen){
             rlog("[roam] f=%ld slot %d: TEST: the player's own ride copied instead of the rebuilt one\n", rh_frame(), k); }
     }
     if (why[0]) rlog("[roam] f=%ld slot %d: %s's car: %s\n", rh_frame(), k, s->name, why);
+    /* the loader is asked the next frame (load_ask): building the ride and the loader's first steps, some 25 and 20 to
+     * 95 ms each on the Vita, in one frame were one long stall a car (the Vita, 2026-11-22: frames of 0.1 to 0.7 s) */
+    s->load_t0 = roam_plat_now_us(); s->load_f0 = rh_frame(); s->pending_cfg = 1; s->cfg_gen = gen;
+    s->stance_new = cc.has_stance;
+    s->stance_vnew[0] = cc.stance_fc; s->stance_vnew[1] = cc.stance_rc; s->stance_vnew[2] = cc.stance_fo; s->stance_vnew[3] = cc.stance_ro;
+    s->stance_vnew[4] = cc.stance_tw;
+    s->look = rc_fnv1a_bytes(cfg, (uint32_t)len);
+    snprintf(s->carname, sizeof s->carname, "%s", cc.type_name);
+    s->want_load = 1; s->want_parts = (uint16_t)cc.n_parts; s->want_skin = (uint16_t)skin;
+    return 1;
+}
+static int heavy_take(void);
+static int load_may_start(CPU *c);
+/* a built ride's load asked of the car loader (begin_load's second half): 0 not this frame */
+static int load_ask(CPU *c, int k){
+    Slot *s = &g_sl[k];
+    if (!s->want_load) return 1;
+    if (!load_may_start(c) || !heavy_take()) return 0;
+    uint32_t ride = s->ride_new;
     uint32_t a3[3] = { ride, 0, 0 };
     s->load_wait = load_wait_us();
     {   /* its engine's texture loads too (overrides.c sub_00631e20); NFSU2_TEST_ENGINE_GAMEWAY=1 (script runs only): the game's way */
@@ -2086,15 +2136,11 @@ static int begin_load(CPU *c, int k, const uint8_t *cfg, int len, uint32_t gen){
     step_end(k, "loader load");
     uint32_t a2[2] = { 0, 0 }; rh_call(c, FN_LOADER_SERVICE, G_CARLOADER, 0, 2, a2);
     step_end(k, "loader service");
-    s->load_t0 = roam_plat_now_us(); s->load_f0 = rh_frame(); s->pending_cfg = 1; s->cfg_gen = gen;
-    s->stance_new = cc.has_stance;
-    s->stance_vnew[0] = cc.stance_fc; s->stance_vnew[1] = cc.stance_rc; s->stance_vnew[2] = cc.stance_fo; s->stance_vnew[3] = cc.stance_ro;
-    s->stance_vnew[4] = cc.stance_tw;
-    s->look = rc_fnv1a_bytes(cfg, (uint32_t)len);
-    snprintf(s->carname, sizeof s->carname, "%s", cc.type_name);
+    s->want_load = 0;
+    s->load_t0 = roam_plat_now_us(); s->load_f0 = rh_frame();
     s->loads++;
     rlog("[roam] f=%ld slot %d: loading %s's %s (%u parts, skin %u, handle 0x%x)\n", rh_frame(), k, s->name,
-            cc.type_name, cc.n_parts, skin, s->h_new);
+            s->carname, s->want_parts, s->want_skin, s->h_new);
     return 1;
 }
 static void eng_files(CPU *c, Slot *s);
@@ -2102,6 +2148,7 @@ static int heavy_take(void);
 /* the loading ride is in: put it on the slot's car */
 static int finish_load(CPU *c, int k){
     Slot *s = &g_sl[k];
+    if (s->want_load){ load_ask(c, k); return 0; }  /* (its ride built: the loader asked now, in by a later frame) */
     uint32_t e = loader_entry(s->h_new);
     uint32_t done = e ? gcall1(c, FN_LOADER_LOADED, G_CARLOADER, e) : 0;
     if (!done){
@@ -2854,6 +2901,7 @@ static int flag_find(const char *code){ (void)code; return -1; }
 #ifdef ROAM_SAY_TAGS
 /* no page to draw the lines over the cars (the Vita): the phrase goes after the name, "Bravo: Race?" */
 #include "phrases.h"
+const char *roam_game_phrase(int i){ return i >= 0 && i < ROAM_PHRASE_N ? ROAM_PHRASES[i] : 0; }
 #endif
 #define SAY_NEAR_M      250.f         /* heard from as far as a horn is (horn.c FAR_M), and from anyone in our race lobby */
 #define SAY_SHOW_US     5000000       /* the line over the car: as long as the page shows it */
@@ -5614,6 +5662,10 @@ static void du_hud(CPU *c, int64_t host){
         else if (g_du.drift && (g_du.st == DU_RACE || g_du.st == DU_OVER)) db_line(host, tx, sizeof tx);
         if (!tx[0] && g_du.note[0] && host < g_du.note_until && g_du.st != DU_RACE && g_du.st != DU_OVER) snprintf(tx, sizeof tx, "%s", g_du.note);
     }
+#ifdef ROAM_SAY_TAGS
+    /* the host's line when there is none of ours: quick chat's choices while its button is held (roam_vita.cpp) */
+    if (!tx[0] && g_in_roam && hud_on_top(pkg)){ extern int roam_host_hud_line(char *tx, int n); roam_host_hud_line(tx, (int)sizeof tx); }
+#endif
     if (!tx[0]){ tag_hide(c, TAG_DUEL); return; }
     uint32_t obj = tag_obj(c, TAG_DUEL, pkg);
     if (!obj) return;
@@ -8813,8 +8865,28 @@ static void loader_watch(CPU *c, int64_t host){
              gcall1(c, FN_LOADER_LOADED, G_CARLOADER, e) & 0xffu ? "in" : "not in", (host - s->load_t0) / 1e6);
     }
 }
+/* a frame of free roam's that takes over PH_SLOW_US: where its time went, by part (the Vita, 2026-11-22: frames of
+ * 0.1 to 0.7 s, more than its car loads' slow steps said) */
+#define PH_SLOW_US 50000
+static struct { const char *what; uint64_t ns; } g_ph[16]; static int g_phn; static uint64_t g_ph_t;
+static void ph_mark(const char *what){
+    uint64_t t = rh_ns();
+    if (g_phn < 16){ g_ph[g_phn].what = what; g_ph[g_phn].ns = t - g_ph_t; g_phn++; }
+    g_ph_t = t;
+}
+static void ph_report(uint64_t ns){
+    if (ns >= PH_SLOW_US * 1000ull){
+        char b[384]; int at = 0;
+        for (int i = 0; i < g_phn && at < (int)sizeof b - 48; i++)
+            if (g_ph[i].ns >= 2000000ull) at += snprintf(b + at, sizeof b - (size_t)at, " %s %.1f,", g_ph[i].what, g_ph[i].ns / 1e6);
+        if (at) b[at - 1] = 0; else b[0] = 0;
+        rlog("[roam] f=%ld slow frame: %.1f ms (ms by part:%s)\n", rh_frame(), ns / 1e6, at ? b : " none over 2");
+    }
+    g_phn = 0;
+}
 static void cost_add(uint64_t t0){
     uint64_t ns = rh_ns() - t0 + g_cost_hud;
+    ph_report(ns);
     g_cost_hud = 0;
     g_cost_sum += ns; g_cost_n++; if (ns > g_cost_max) g_cost_max = ns;
     g_cost_win_sum += ns; g_cost_win_n++; if (ns > g_cost_win_max) g_cost_win_max = ns;
@@ -8902,7 +8974,7 @@ static void load_service(CPU *c){
 
 static int loads_waiting(void){
     int n = 0;
-    for (int k = 0; k < NSLOT; k++) n += (g_sl[k].st == SL_CREATING) + (g_sl[k].h_new != 0);
+    for (int k = 0; k < NSLOT; k++) n += (g_sl[k].st == SL_CREATING) + (g_sl[k].h_new != 0 || g_sl[k].want_load);
     return n;
 }
 /* What costs a frame time: a car of our own made (its paint textures, its
@@ -9086,7 +9158,7 @@ static void counts_log(int64_t host){
     for (int k = 0; k < NSLOT; k++){
         const Slot *s = &g_sl[k];
         shown += s->st == SL_ACTIVE && !s->hidden;
-        loading += s->st == SL_LOADING || s->st == SL_CREATING || (s->st == SL_ACTIVE && s->h_new);
+        loading += s->st == SL_LOADING || s->st == SL_CREATING || (s->st == SL_ACTIVE && (s->h_new || s->want_load));
         parked += s->st == SL_PARKED;
     }
     for (int i = 0; i < g_npv; i++){
@@ -9614,6 +9686,7 @@ void roam_game_frame(CPU *c){
 #endif
     g_step++;
     uint64_t t0 = rh_ns();
+    g_phn = 0; g_ph_t = t0;
     int64_t host = roam_plat_now_us();
     int in_roam = roaming();
     uint32_t w = world();
@@ -9622,6 +9695,7 @@ void roam_game_frame(CPU *c){
     if (g_pw.on) partswatch("pre");
     if (g_packs_ok) packs_wake(c);                  /* after the game's hibernation (into the world) */
     if (g_pw.on) partswatch("post");
+    ph_mark("world, packs");
     /* sync clock */
     float wdt = rd32(G_FLOW) == 6u ? MRF32(G_WORLDDT) : 0.f;
     if (!__builtin_isfinite(wdt) || wdt < 0 || wdt > 1.f) wdt = 0;
@@ -9719,7 +9793,9 @@ void roam_game_frame(CPU *c){
     /* co-op: player 2's endpoint (its car's state, look and planes' count) */
     c2_follow(host, in_roam, wdt, in_roam && world_runs && local_status(in_roam) == RC_ST_ROAM);
 #endif
+    ph_mark("my car");
     roam_plat_lock();
+    ph_mark("lock");
     uint8_t st = local_status(in_roam);
     rc_set_status(&g_s, st);
     g_racing = st == RC_ST_EVENT || (in_roam && (du_racing(rd32(G_RACE)) || em_racing(rd32(G_RACE))));
@@ -9842,6 +9918,7 @@ void roam_game_frame(CPU *c){
         }
     }
     roam_plat_unlock();
+    ph_mark("peers");
     /* slots (guest calls, outside the lock) */
     if (!in_roam){
         if (w) park_all(c);
@@ -9868,7 +9945,9 @@ void roam_game_frame(CPU *c){
         rides_tidy(c);
         loader_watch(c, host);
         if (!rd32(G_TRACKSTREAMER + 0x168u)) stream_hold_end(host);
+        ph_mark("tidy");
         if (!g_photo_hold) assign(c, host);
+        ph_mark("assign");
         for (int k = 0; k < NSLOT && !g_photo_hold; k++){
             Slot *s = &g_sl[k];
             if (s->st == SL_FREE || s->st == SL_PARKED) continue;
@@ -9908,10 +9987,10 @@ void roam_game_frame(CPU *c){
             }
             if (!ok(s->car, 0x9e0)) continue;
             /* a new look: load it while the old one stays on */
-            if (!s->h_new && v->cfg_len > 0 && v->cfg_gen != s->cfg_gen && g_heavy < HEAVY_PER_FRAME && load_may_start(c)
+            if (!s->h_new && !s->want_load && v->cfg_len > 0 && v->cfg_gen != s->cfg_gen && g_heavy < HEAVY_PER_FRAME && load_may_start(c)
                 && begin_load(c, k, v->cfg, v->cfg_len, v->cfg_gen))
                 g_heavy++;
-            if (s->h_new){
+            if (s->h_new || s->want_load){
                 int r = finish_load(c, k);
                 if (r < 0) s->cfg_gen = v->cfg_gen;                 /* do not retry this one */
             }
@@ -9949,14 +10028,18 @@ void roam_game_frame(CPU *c){
             } else if (!s->hidden && !(g_du.st == DU_RACE && s->car == g_du.car)){ hide_log(k, s->peer, host); soft_park(c, s->car); s->hidden = 1; }
             /* (an outrun's opponent stays where it was: parked, the game would count it 120 km behind) */
         }
+        ph_mark("slots");
         load_service(c);
         if (!g_photo_hold) cars_auto(c, w, host);
         counts_log(host);
         arrows_update(c, w);
         arrows_filter(w);
         arrow_colours(c, w);
+        ph_mark("auto, arrows");
         near_update(c, w, host, 1);
+        ph_mark("minimap");
         map_update(c, w, host);
+        ph_mark("world map");
 #if MPRACES
         meet_stay(w, host);
         meet_gps(c);
@@ -9988,18 +10071,23 @@ void roam_game_frame(CPU *c){
     bump_frame(host, in_roam && world_runs && st == RC_ST_ROAM && !g_racing && g_du.st == DU_IDLE && !mp_busy());
     fly_frame(in_roam && world_runs && st == RC_ST_ROAM, wdt);
 #endif
+    ph_mark("chat");
     du_frame(c, host, in_roam, world_runs, duin, nduin);
+    ph_mark("outruns");
 #if MPRACES
     mp_frame(c, host, in_roam, world_runs, mpfrom, mpin, nmpin);
     mp_panel(host, in_roam);
 #endif
     g_engage = in_roam && world_runs && engage_ours();
     sounds_update(have_ls ? &ls : 0, world_runs);
+    ph_mark("sounds");
     showoff_peers(c);
+    ph_mark("showoff");
     lights_peers();
     damage_peers(c);
     plates_peers();
     stance_peers();
+    ph_mark("lights, damage, plates, stance");
     if (g_poselog && have_ls){
         uint32_t me = player_car();
         rh_fprintf(g_poselog, "L,%lld,%.0f,%08x,%.4f,%.4f,%.4f,%.3f,0,0,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n", (long long)host, g_sync, g_s.conf.self_id,
@@ -10027,7 +10115,11 @@ void roam_game_hud(CPU *c){
     if (c->esi && c->esi == coop_player()){ tags_update_for(c, 1); g_cost_hud += rh_ns() - t0; return; }
 #endif
     tags_update(c);
+#ifdef ROAM_SAY_TAGS
+    du_hud(c, roam_plat_now_us());               /* (the line at the top: quick chat's choices, on the Vita) */
+#else
     if (DUELS) du_hud(c, roam_plat_now_us());
+#endif
 #if MPRACES
     mp_labels(c);
 #endif

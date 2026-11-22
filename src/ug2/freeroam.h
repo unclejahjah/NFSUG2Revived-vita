@@ -11,6 +11,9 @@ namespace ug2 { namespace freeroam
 
 void frame(win32::WinApplication* app, x86::CPU& cpu);
 
+// After the HUD's update (src/ug2/freeroam.cpp): the names over friends' cars.
+void hud(win32::WinApplication* app, x86::CPU& cpu);
+
 }}
 
 #endif

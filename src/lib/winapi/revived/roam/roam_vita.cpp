@@ -32,6 +32,9 @@ extern "C"
 {
 extern uint8_t* nfsu2_guest_base;
 void roam_game_frame(struct CPU* c);
+void roam_game_hud(struct CPU* c);
+const char* roam_game_phrase(int i);
+int roam_host_hud_line(char* tx, int n);
 void revived_link_control_send(const char* json);   // revived_link.cpp
 }
 bool revived_link_ensure();
@@ -286,6 +289,72 @@ void roam_host_say_live(int live)
         win32::controls::setQuickChatLive(pf::ticksUs());
 }
 
+// The phrase picked last and when (the HUD's line says it for a moment: roam_host_hud_line)
+static int s_saidPhrase = -1;
+static uint64_t s_saidUs = 0;
+
+static const char* inputName(win32::controls::Input input)
+{
+    using namespace win32::controls;
+    switch (input)
+    {
+    case Cross: return "X";
+    case Circle: return "O";
+    case Square: return "Square";
+    case Triangle: return "Triangle";
+    case R: return "R";
+    case DpadUp: return "Up";
+    case DpadDown: return "Down";
+    case DpadLeft: return "Left";
+    case DpadRight: return "Right";
+    default: return "?";
+    }
+}
+
+static const char* const SayKeys[6] = { "NFSU2_ROAM_SAY1", "NFSU2_ROAM_SAY2", "NFSU2_ROAM_SAY3",
+                                        "NFSU2_ROAM_SAY4", "NFSU2_ROAM_SAY5", "NFSU2_ROAM_SAY6" };
+
+static int slotPhrase(int slot)
+{
+    const char* v = roam_opt(SayKeys[slot]);
+    const int phrase = v && *v ? atoi(v) : -1;
+    return phrase >= 0 && phrase < 255 ? phrase : -1;
+}
+
+// The line at the top of free roam's HUD (roam_game.c du_hud): quick chat's choices while its button is held (after
+// 0.2 s, so that a tap passed on to the game shows nothing), then the phrase said for 2 s; 1 when there is one.
+int roam_host_hud_line(char* tx, int n)
+{
+    if (!optOn(roam_opt("NFSU2_ROAM_SAY")))
+        return 0;
+    const uint64_t now = pf::ticksUs(), held = win32::controls::quickChatHeldSince();
+    if (held && now - held >= 200000)
+    {
+        win32::controls::Input slots[7];
+        win32::controls::quickChatSlots(slots);
+        int at = snprintf(tx, size_t(n), "Quick chat:");
+        for (int i = 0; i < 7 && at < n - 1; ++i)
+        {
+            const int phrase = i < 6 ? slotPhrase(i) : -1;
+            const char* text = i == 6 ? "Add friend" : roam_game_phrase(phrase);
+            if (!text)
+                continue;
+            at += snprintf(tx + at, size_t(n - at), "%s %s %s", i ? " /" : "", inputName(slots[i]), text);
+        }
+        return 1;
+    }
+    if (s_saidPhrase >= 0 && now - s_saidUs < 2000000)
+    {
+        const char* text = roam_game_phrase(s_saidPhrase);
+        if (text)
+        {
+            snprintf(tx, size_t(n), "You: %s", text);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int roam_host_say_pick(void)
 {
     const int slot = win32::Gamepad::takeSayChord();
@@ -296,11 +365,13 @@ int roam_host_say_pick(void)
     }
     if (slot < 0 || slot > 5)
         return -1;
-    static const char* const Keys[6] = { "NFSU2_ROAM_SAY1", "NFSU2_ROAM_SAY2", "NFSU2_ROAM_SAY3",
-                                         "NFSU2_ROAM_SAY4", "NFSU2_ROAM_SAY5", "NFSU2_ROAM_SAY6" };
-    const char* v = roam_opt(Keys[slot]);
-    const int phrase = v ? atoi(v) : -1;
-    return phrase >= 0 && phrase < 255 ? phrase : -1;
+    const int phrase = slotPhrase(slot);
+    if (phrase >= 0)
+    {
+        s_saidPhrase = phrase;
+        s_saidUs = pf::ticksUs();
+    }
+    return phrase;
 }
 
 // roam_game.c bump_page through roam_web.c roam_plat_friend: the noses touch ("on":1) or parted ("on":0)
@@ -480,6 +551,22 @@ void frame(win32::WinApplication* app, x86::CPU& cpu)
     s_cpu = &cpu;
     ++s_frame;
     roam_game_frame(nullptr);
+    s_app = nullptr;
+    s_cpu = nullptr;
+}
+
+void hud(win32::WinApplication* app, x86::CPU& cpu)
+{
+    if (!nfsu2_guest_base || s_cpu)   // (free roam not started, or inside its own frame)
+        return;
+    static int s_labels = -1;
+    if (s_labels < 0)
+        s_labels = optOn(roam_opt("NFSU2_ROAM_LABELS")) ? 1 : 0;
+    if (s_labels)
+        rc::st8(0x008500C9, 1);   // the game's player-names option, which the names follow (G_SHOW_NAMES)
+    s_app = app;
+    s_cpu = &cpu;
+    roam_game_hud(nullptr);
     s_app = nullptr;
     s_cpu = nullptr;
 }

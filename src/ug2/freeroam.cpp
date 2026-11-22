@@ -10,6 +10,7 @@ namespace ug2
 {
 
 void sub_4022c0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_4ec5a0_guest(win32::WinApplication* app, x86::CPU& cpu);
 
 namespace native
 {
@@ -25,6 +26,20 @@ void sub_4022c0(win32::WinApplication* app, x86::CPU& cpu)
         freeroam::frame(app, cpu);   // src/lib/winapi/revived/roam/roam_vita.cpp
     }
     sub_4022c0_guest(app, cpu);
+}
+
+// The HUD update, called from each Player's HUD step (0x600590) at 0x6005DB and from elsewhere: after the HUD step's
+// call, the names, flags and quick chat phrases over friends' cars, placed with this frame's camera (nfsu2-web's
+// roam.c hooks 0x6005E0, right behind that call).
+void sub_4ec5a0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    const x86::reg32 HookReturn = 0x006005E0;   // after the call at 0x6005DB
+    const bool hud = rc::ld32(cpu.esp) == HookReturn;
+    if (hud)
+        rc::st32(cpu.esp, 0);
+    sub_4ec5a0_guest(app, cpu);
+    if (hud)
+        freeroam::hud(app, cpu);
 }
 
 }

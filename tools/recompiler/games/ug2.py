@@ -26,6 +26,7 @@ NO_RETURN = [
 # callee runs only for that caller.
 RETURN_ADDRESS_SITES = [
     0x581475,   # GameLoop's second debug hook call (0x4022C0): free roam (src/ug2/freeroam.cpp), as NFSU2FreeRoam.asi
+    0x6005db,   # Player::Update's HUD step (0x600590) calling the HUD update 0x4EC5A0: free roam's names over the cars
 ]
 
 # Guest functions replaced by hand-written native code (native::sub_<address>, src/ug2/native.cpp).
@@ -64,6 +65,8 @@ NATIVE_OVERRIDES = [
     # GameLoop's debug hook (empty, ret), called at 0x581470 and 0x581475 between World::DoTimestep and the camera,
     # audio and render: the call at 0x581475 is where the PC's NFSU2FreeRoam.asi runs free roam (src/ug2/freeroam.cpp)
     0x4022c0,
+    # ... and the HUD update (0x4EC5A0), whose call at 0x6005DB is where the names over friends' cars are placed
+    0x4ec5a0,
     # Vita Settings in the game's own screens (src/ug2/menu_entry.cpp): the setups of UI_Main, UI_OptionsMain and
     # UI_Options (thiscall; their constructors call them directly) and the game's text of a label hash (edx)
     0x4aee30, 0x4b6230, 0x4b8470, 0x4ff9d0,

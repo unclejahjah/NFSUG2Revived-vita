@@ -7,6 +7,9 @@
 
 #include <atomic>
 
+// Free roam's own textures (the flags before friends' names: src/lib/winapi/revived/roam/roam_game.c), 0 for others.
+extern "C" uint32_t roam_game_texture(uint32_t hash) __attribute__((weak));
+
 namespace ug2 { namespace native { namespace texture {
 
 const x86::reg32 ListHead = 0x830af0;       // doubly linked list of texture sets, the head slot is the sentinel
@@ -106,6 +109,9 @@ inline x86::reg32 find(x86::reg32 hash, x86::reg32 orDefault, x86::reg32 byTable
                 return found;
             }
         }
+        if (roam_game_texture)
+            if (const reg32 own = roam_game_texture(hash))
+                return own;
         const reg32 count = rc::ld32(DefaultCount);
         for (reg32 i = 0; i < count; ++i)
             if (rc::ld32(DefaultKeys + 4 * i) == hash)
