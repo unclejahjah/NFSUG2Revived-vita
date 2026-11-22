@@ -10,7 +10,9 @@
 #include <freeroam.h>
 #include <winapi/revived.h>
 #include <lib/memmap.h>
+#include <lib/controls.h>
 #include <lib/gamepad.h>
+#include <platform/time.h>
 #include <lib/winapp.h>
 #include <platform/log.h>
 #include <recomp.h>
@@ -65,8 +67,8 @@ const struct { const char *name, *key, *def; } Opts[] = {
     // players' cars, and our flag before our name (a code of flags.dat: gb, us, gb-eng)
     { "NFSU2_ROAM_LABELS",      "Names",       "1" },
     { "NFSU2_ROAM_FLAG",        "Flag",        ""  },
-    // quick chat (settings.ini quick_chat): on or off, and the phrases of the six chords, Select + Down, Left, Right,
-    // Cross, Circle, Square, by their numbers (phrases.h)
+    // quick chat (settings.ini quick_chat): on or off, and the phrases of its six slots by their numbers (phrases.h);
+    // the cfg's quick_chat_button says which buttons they are (controls::quickChatSlots)
     { "NFSU2_ROAM_SAY",         "QuickChat",   "1" },
     { "NFSU2_ROAM_SAY1",        "Say1",        "0"  },   // Hey!
     { "NFSU2_ROAM_SAY2",        "Say2",        "2"  },   // Thanks!
@@ -182,7 +184,14 @@ void roam_log(const char* fmt, ...)
     pthread_mutex_unlock(&s_lock);
 }
 
-// Quick chat on the Vita: a chord (Gamepad::takeSayChord) says its slot's phrase.
+// Quick chat on the Vita: while driving in free roam the chat button is taken (controls::setQuickChatLive), and a
+// phrase button pressed with it (Gamepad::takeSayChord) says its slot's phrase.
+void roam_host_say_live(int live)
+{
+    if (live)
+        win32::controls::setQuickChatLive(pf::ticksUs());
+}
+
 int roam_host_say_pick(void)
 {
     const int slot = win32::Gamepad::takeSayChord();

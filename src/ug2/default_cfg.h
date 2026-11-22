@@ -47,6 +47,8 @@ const char DefaultSettingsFile[] =
     "# Right stick camera while driving: the chase camera turns round the car with the stick (back when released),\n"
     "# in the hood and bumper views down looks back; untouched, the game's camera is unchanged: on or off.\n"
     "#camera_stick=on\n"
+    "# Free roam's quick chat: the button held to pick a phrase: dpad_down, dpad_up, triangle or select.\n"
+    "#quick_chat_button=dpad_down\n"
     "# How fast that camera turns to the stick and back: 1 (slowest) to 10 (fastest).\n"
     "#camera_stick_speed=4\n"
     "\n"

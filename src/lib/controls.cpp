@@ -7,6 +7,7 @@
 #include <psp2/touch.h>
 #else
 #include <mutex>
+#include <cstring>
 #endif
 #include <algorithm>
 #include <atomic>
@@ -130,6 +131,53 @@ static bool digitalSteering()
         s_generation.store(generation, std::memory_order_release);
     }
     return s_digital.load(std::memory_order_relaxed);
+}
+
+// Free roam proper says so every frame (setQuickChatLive); the button is the game's again 0.25 s after the last.
+static std::atomic<uint64_t> s_chatLiveUs{0};
+
+void setQuickChatLive(uint64_t nowUs)
+{
+    s_chatLiveUs.store(nowUs, std::memory_order_relaxed);
+}
+
+static bool quickChatLive(uint64_t nowUs)
+{
+    const uint64_t at = s_chatLiveUs.load(std::memory_order_relaxed);
+    return at && nowUs - at < 250000;
+}
+
+// quick_chat_button: dpad_down (the default), dpad_up, triangle or select
+int quickChatButton()
+{
+    static std::atomic<unsigned> s_generation{~0u};
+    static std::atomic<int> s_button{DpadDown};
+    const unsigned generation = pf::Config::generation();
+    if (s_generation.load(std::memory_order_acquire) != generation)
+    {
+        static const char* const Names[] = { "dpad_down", "dpad_up", "triangle", "select" };
+        static const int Buttons[] = { DpadDown, DpadUp, Triangle, -1 };
+        s_button.store(Buttons[pf::Config::getChoice("quick_chat_button", Names, 4, 0)], std::memory_order_relaxed);
+        s_generation.store(generation, std::memory_order_release);
+    }
+    return s_button.load(std::memory_order_relaxed);
+}
+
+void quickChatSlots(Input slots[6])
+{
+    const int button = quickChatButton();
+    if (button < 0)
+    {
+        // Select's chords: Up is Vita Settings, Triangle the keyboard
+        static const Input Chords[6] = { DpadDown, DpadLeft, DpadRight, Cross, Circle, Square };
+        memcpy(slots, Chords, sizeof(Chords));
+        return;
+    }
+    static const Input Order[] = { DpadUp, DpadLeft, DpadRight, Cross, Circle, Square, DpadDown, Triangle };
+    int n = 0;
+    for (Input input : Order)
+        if (int(input) != button && n < 6)
+            slots[n++] = input;
 }
 
 static StickShape stickShape()
@@ -505,6 +553,10 @@ Mapper::Mapper()
     ,   m_chorded(0)
     ,   m_selectUsed(false)
     ,   m_selectPulseEndUs(0)
+    ,   m_chatSinceUs(0)
+    ,   m_chatUsed(false)
+    ,   m_chatSwallow(0)
+    ,   m_chatPulseEndUs(0)
     ,   m_steer(0.0f)
     ,   m_steerUs(0)
 {
@@ -523,12 +575,13 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
     if (pressed & bit(Select))
         m_selectUsed = false;
     m_chorded &= inputs;
+    const int chatButton = quickChatLive(nowUs) ? quickChatButton() : -2;   // -2: not in free roam now
     for (int input = 0; input < InputCount; ++input)
     {
         if (!(pressed & bit(Input(input))) || input == Select || !select)
             continue;
         const Chord* chord = findChord(Input(input));
-        if (!chord)
+        if (!chord || (chord->say >= 0 && chatButton != -1))  // (quick chat on another button, or not now: no chord)
             continue;
         m_chorded |= bit(Input(input));
         m_selectUsed = true;
@@ -543,7 +596,37 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
         m_selectPulseEndUs = nowUs + s_tapUs;
     m_previous = inputs;
 
-    const uint32_t normal = inputs & ~m_chorded;
+    // Quick chat on a button of its own: held, it and the phrase buttons pressed with it stay from the game (a phrase
+    // button until released); a short tap that picked nothing reaches the game afterwards, as a Select tap does.
+    uint32_t chatHidden = 0, chatPulse = 0;
+    m_chatSwallow &= inputs;
+    if (chatButton >= 0)
+    {
+        const uint32_t key = bit(Input(chatButton));
+        if (pressed & key)
+        {
+            m_chatSinceUs = nowUs;
+            m_chatUsed = false;
+        }
+        if (inputs & key)
+        {
+            chatHidden = key;
+            Input slots[6];
+            quickChatSlots(slots);
+            for (int i = 0; i < 6; ++i)
+                if (pressed & bit(slots[i]))
+                {
+                    state.sayChord = i;
+                    m_chatUsed = true;
+                    m_chatSwallow |= bit(slots[i]);
+                }
+        }
+        if ((released & key) && !m_chatUsed && nowUs - m_chatSinceUs < 400000)
+            m_chatPulseEndUs = nowUs + s_tapUs;
+        if (nowUs < m_chatPulseEndUs && !(inputs & key))
+            chatPulse = key;
+    }
+    const uint32_t normal = (inputs & ~m_chorded & ~chatHidden & ~m_chatSwallow) | chatPulse;
     // steering=digital: the left stick is left, centre or right, and its X axis ramps to full lock and back as a
     // keyboard's steering does (the D-pad is not involved).
     const bool digital = digitalSteering();

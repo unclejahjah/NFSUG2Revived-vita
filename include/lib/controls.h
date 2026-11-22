@@ -133,7 +133,7 @@ struct State
     int         pov;                // hat 0 in hundredths of a degree, -1 centred
     bool        openIme;            // the on-screen keyboard chord was pressed
     bool        openSettings;       // the Vita Settings chord (Select + Up) was pressed
-    int         sayChord;           // quick chat: 0-5 for Select + Down, Left, Right, Cross, Circle, Square; -1 none
+    int         sayChord;           // quick chat: the phrase slot 0-5 picked (quickChatSlots), -1 none
 };
 
 // Turns pad samples into joystick and key state: chords with Select, the Select tap (respot) and buttons held
@@ -149,9 +149,20 @@ private:
     uint32_t    m_chorded;          // inputs pressed while Select was held, mapped by the chord table until released
     bool        m_selectUsed;       // a chord was used during this Select press
     uint64_t    m_selectPulseEndUs; // the Select tap's button is reported until then
+    uint64_t    m_chatSinceUs;      // quick chat: when its button (quick_chat_button) went down
+    bool        m_chatUsed;         // a phrase was picked during this press
+    uint32_t    m_chatSwallow;      // phrase buttons pressed with it, kept from the game until released
+    uint64_t    m_chatPulseEndUs;   // a short tap of the chat button reaches the game until then
     float       m_steer;            // steering=digital: the left stick's ramped X position
     uint64_t    m_steerUs;          // time of the last ramp step
 };
+
+// Free roam's quick chat (quick_chat_button): the button held to pick a phrase (an Input, or -1 for Select, whose
+// chords pick then), and the six buttons that pick phrase slots 1-6 while it is held.
+int quickChatButton();
+// Free roam proper (driving, quick chat on) says so each frame, with pf::ticksUs(): only then is the button taken.
+void setQuickChatLive(uint64_t nowUs);
+void quickChatSlots(Input slots[6]);
 
 // Radial dead zone and response curve of one stick (x, y in -1..1). deadZone and saturation are DirectInput
 // property values (0..10000 of full deflection); the larger dead zone and the smaller saturation of these and the

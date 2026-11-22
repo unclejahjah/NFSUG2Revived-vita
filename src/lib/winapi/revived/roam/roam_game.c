@@ -8317,6 +8317,10 @@ static void say_frame(int64_t host, int in_roam, uint8_t st){
         rlog("[roam] f=%ld quick chat: the countdown %s (%d players within %.0f m, stayed %d s)\n", rh_frame(),
              no ? "not the player's to start here" : "the player's again", n, (double)SAY_MEET_M, say_stayed(host) * (int)(SAY_STAY_STEP / 1000000));
     g_say.nocount = no;
+#ifdef ROAM_SAY_TAGS
+    extern void roam_host_say_live(int live);
+    roam_host_say_live(in_roam && st == RC_ST_ROAM && !g_racing);
+#endif
     int pick = roam_plat_say_pick();
     if (g_say.test_pick >= 0){ pick = g_say.test_pick; g_say.test_pick = -1; }
 #if MPRACES

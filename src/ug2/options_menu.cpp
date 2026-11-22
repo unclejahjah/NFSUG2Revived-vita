@@ -144,25 +144,31 @@ const Option Flags[] = { { "", "None" }, { "gb", "United Kingdom" }, { "gb-eng",
                          { "jp", "Japan" }, { "kr", "South Korea" }, { "cn", "China" }, { "in", "India" },
                          { "ph", "Philippines" }, { "id", "Indonesia" }, { "za", "South Africa" } };
 
+const Option ChatButtons[] = { { "dpad_down", "Hold D-pad Down" }, { "dpad_up", "Hold D-pad Up" },
+                               { "triangle", "Hold Triangle" }, { "select", "Select chords" } };
+
 // Quick chat's phrases (nfsu2.xyz's, src/lib/winapi/revived/roam/phrases.h) by their numbers: the common ones.
 const Option Phrases[] = { { "0", "Hey!" }, { "1", "Nice car!" }, { "2", "Thanks!" }, { "3", "Bye!" }, { "4", "Yes" }, { "5", "No" }, { "6", "Sorry!" }, { "7", "lol" }, { "8", "Follow me!" }, { "9", "Wait up!" }, { "10", "Let's go!" }, { "11", "Nice!" }, { "12", "Race?" }, { "13", "Join my race!" }, { "14", "gg" }, { "15", "One more?" }, { "16", "Yo!" }, { "17", "Hi all!" }, { "18", "Welcome!" }, { "19", "Welcome back!" }, { "20", "Long time no see!" }, { "21", "Good luck!" }, { "22", "Have fun!" }, { "23", "Gotta go!" }, { "24", "See you around!" }, { "25", "Good night!" }, { "26", "brb" }, { "27", "Back!" }, { "28", "Sure!" }, { "29", "Maybe" }, { "30", "Okay" }, { "31", "Nope" }, { "33", "On my way!" }, { "41", "ty" }, { "42", "np" }, { "44", "My bad!" } };
 
 const Item FriendsPage[] = {
     { "Quick chat", Ini, "QuickChat", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
-      "Say a set phrase to the players near you with Select + Down, Left, Right, Cross, Circle or Square. Theirs "
-      "show after their names, in every player's own language on nfsu2.xyz." },
-    { "Select + Down", Ini, "Say1", Choice, OPTIONS(Phrases), "0", 0, nullptr,
-      "The quick chat phrase Select + Down says." },
-    { "Select + Left", Ini, "Say2", Choice, OPTIONS(Phrases), "2", 0, nullptr,
-      "The quick chat phrase Select + Left says." },
-    { "Select + Right", Ini, "Say3", Choice, OPTIONS(Phrases), "12", 0, nullptr,
-      "The quick chat phrase Select + Right says." },
-    { "Select + Cross", Ini, "Say4", Choice, OPTIONS(Phrases), "8", 0, nullptr,
-      "The quick chat phrase Select + Cross says." },
-    { "Select + Circle", Ini, "Say5", Choice, OPTIONS(Phrases), "14", 0, nullptr,
-      "The quick chat phrase Select + Circle says." },
-    { "Select + Square", Ini, "Say6", Choice, OPTIONS(Phrases), "1", 0, nullptr,
-      "The quick chat phrase Select + Square says." },
+      "Say a set phrase to the players near you: hold the quick chat button and press a phrase button. Theirs show "
+      "after their names, in every player's own language on nfsu2.xyz." },
+    { "Quick chat button", Cfg, "quick_chat_button", Choice, OPTIONS(ChatButtons), "dpad_down", 0, nullptr,
+      "Hold it, then: Up phrase 1, Left 2, Right 3, Cross 4, Circle 5, Square 6 (Down takes Up's place when Up is "
+      "the button). Select: Select + Down, Left, Right, Cross, Circle, Square. A short tap still does its usual job." },
+    { "Phrase 1", Ini, "Say1", Choice, OPTIONS(Phrases), "0", 0, nullptr,
+      "The quick chat phrase in slot 1 (see Quick chat button for its button)." },
+    { "Phrase 2", Ini, "Say2", Choice, OPTIONS(Phrases), "2", 0, nullptr,
+      "The quick chat phrase in slot 2 (see Quick chat button for its button)." },
+    { "Phrase 3", Ini, "Say3", Choice, OPTIONS(Phrases), "12", 0, nullptr,
+      "The quick chat phrase in slot 3 (see Quick chat button for its button)." },
+    { "Phrase 4", Ini, "Say4", Choice, OPTIONS(Phrases), "8", 0, nullptr,
+      "The quick chat phrase in slot 4 (see Quick chat button for its button)." },
+    { "Phrase 5", Ini, "Say5", Choice, OPTIONS(Phrases), "14", 0, nullptr,
+      "The quick chat phrase in slot 5 (see Quick chat button for its button)." },
+    { "Phrase 6", Ini, "Say6", Choice, OPTIONS(Phrases), "1", 0, nullptr,
+      "The quick chat phrase in slot 6 (see Quick chat button for its button)." },
     { "Crews", Ini, "Crew", Text, nullptr, 0, "", 120, "None",
       "Up to 4 crews, joined by commas. Players who share one see each other's names and map arrows in its colour." },
     { "Crew colours", Ini, "CrewColours", Text, nullptr, 0, "", 40, "Cyan, magenta, violet, red",
@@ -327,7 +333,7 @@ const char IniTemplate[] =
     "Names = 1\n"
     "Flag =\n"
     "\n"
-    "; quick chat (1 on, 0 off) and the phrase numbers of Select + Down, Left, Right, Cross, Circle, Square\n"
+    "; quick chat (1 on, 0 off) and the phrase numbers of slots 1-6 (the cfg's quick_chat_button picks them)\n"
     "QuickChat = 1\n"
     "Say1 = 0\n"
     "Say2 = 2\n"
@@ -858,7 +864,7 @@ bool applyLive(int g, int i)
     // The settings read where they are used, rather than once at the start.
     static const char* const Live[] = { "log_info", "garage_stick", "garage_stick_deadzone", "stick_deadzone",
                                         "stick_response", "steering", "fast_travel",
-                                        "camera_stick", "camera_stick_speed" };
+                                        "camera_stick", "camera_stick_speed", "quick_chat_button" };
     const Item& it = item(g, i);
     if (it.store != Cfg)
         return false;
