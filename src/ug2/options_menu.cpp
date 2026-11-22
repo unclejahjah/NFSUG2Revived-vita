@@ -223,7 +223,7 @@ const Item Game[] = {
     { "Fast travel", Cfg, "fast_travel", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "On the World Map, pick a place and answer No to the GPS question to be put there. Yes still sets the route." },
     { "Skip intro movies", Cfg, "skip_intro_movies", Choice, OPTIONS(SkipIntro), "off", 0, nullptr,
-      "Logos skips the EA and THX logos and the notice at start-up; logos and opening skips the opening movie too." },
+      "Logos removes the EA and THX logos and the notice at start-up; logos and opening removes the opening movie too." },
     { "Free-roam log", Ini, "Log", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "Write scripts/NFSU2FreeRoam.log." },
     { "Start-up screen", Cfg, "show_configurator_on_boot", Choice, OPTIONS(OnOff), "on", 0, nullptr,
