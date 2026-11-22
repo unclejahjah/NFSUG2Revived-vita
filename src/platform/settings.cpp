@@ -29,6 +29,7 @@ const Setting s_table[] =
     // ---- General ----
     BOOL("show_configurator_on_boot", General, 1, "Show the start-up screen (press START to configure) before the game boots.", 0),
     BOOL("log_info", General, 0, "Write a detailed log to NeedForSpeedUnderground2.log. Errors are logged either way.", 0),
+    BOOL("fast_travel", General, 1, "On the World Map, No on the GPS question puts the car at the chosen place (NFSU2FastTravel).", 0),
     BOOL("options_menu", General, 1, "The Vita Settings icon in the game's menus (main menu and Options), and Select + Up opens it.", 0),
 
     // ---- General: network play (src/lib/winapi/ws2_32.cpp, src/lib/winapi/revived) ----
@@ -51,6 +52,7 @@ const Setting s_table[] =
     BOOL("garage_stick", Controls, 1, "The right stick turns the car in the garage and the customisation menus.", 0),
     INT("garage_stick_deadzone", Controls, 30, 0, 99, 1, "Dead zone of the garage stick, in percent of its range.", 0),
     INT("stick_deadzone", Controls, 15, 0, 40, 1, "Dead zone of both sticks (steering too), in percent of their range; the game's own dead zone still applies.", 0),
+    ENUM("steering", Controls, 0, "analog|digital", "analog: the left stick steers as far as it is pushed; digital: it steers like the D-pad, with the game's own ramp.", 0),
     ENUM("stick_response", Controls, 0, "standard|linear|precise", "Stick response: standard is finer near the centre, linear follows the stick, precise is finer still.", 0),
 
     // ---- Audio ----

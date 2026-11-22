@@ -105,6 +105,23 @@ struct StickShape
     float linear = 0.6f;
 };
 
+// steering=digital: how far the left stick goes before it counts as the D-pad.
+static const float s_digitalThreshold = 0.5f;
+
+static bool digitalSteering()
+{
+    static std::atomic<unsigned> s_generation{~0u};
+    static std::atomic<bool> s_digital{false};
+    const unsigned generation = pf::Config::generation();
+    if (s_generation.load(std::memory_order_acquire) != generation)
+    {
+        static const char* const Modes[] = { "analog", "digital" };
+        s_digital.store(pf::Config::getChoice("steering", Modes, 2, 0) == 1, std::memory_order_relaxed);
+        s_generation.store(generation, std::memory_order_release);
+    }
+    return s_digital.load(std::memory_order_relaxed);
+}
+
 static StickShape stickShape()
 {
     static std::atomic<unsigned> s_generation{~0u};
@@ -511,7 +528,13 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
         m_selectPulseEndUs = nowUs + s_tapUs;
     m_previous = inputs;
 
-    const uint32_t normal = inputs & ~m_chorded;
+    uint32_t normal = inputs & ~m_chorded;
+    // steering=digital: the left stick's left and right are the D-pad's, and its X axis stays centred.
+    const bool digital = digitalSteering();
+    if (digital && pad.sticks[0] <= -s_digitalThreshold)
+        normal |= bit(DpadLeft);
+    else if (digital && pad.sticks[0] >= s_digitalThreshold)
+        normal |= bit(DpadRight);
     for (const ButtonMapping& mapping : s_buttons)
     {
         if (normal & bit(mapping.input))
@@ -533,7 +556,7 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
     if (nowUs < m_selectPulseEndUs)
         state.buttons |= uint32_t(1) << s_selectTapButton;
 
-    state.axes[AxisX] = pad.sticks[0];
+    state.axes[AxisX] = digital ? 0.0f : pad.sticks[0];
     state.axes[AxisY] = pad.sticks[1];
     state.axes[AxisZ] = pad.sticks[3];
     state.axes[AxisRz] = pad.sticks[2];

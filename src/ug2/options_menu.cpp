@@ -75,6 +75,7 @@ const Option Extrap[] = { { "", "Default (250 ms)" }, { "0", "0 ms" }, { "100", 
 const Option StickDeadZone[] = { { "0", "0%" }, { "5", "5%" }, { "10", "10%" }, { "15", "15%" }, { "20", "20%" },
                                  { "25", "25%" }, { "30", "30%" } };
 const Option StickResponse[] = { { "standard", "Standard" }, { "linear", "Linear" }, { "precise", "Precise" } };
+const Option Steering[] = { { "analog", "Analog" }, { "digital", "Digital" } };
 const Option SkipIntro[] = { { "off", "Off" }, { "logos", "Logos" }, { "opening", "Logos and opening" } };
 const Option FrameRate[] = { { "30", "30 fps" }, { "0", "Unlocked" } };
 const Option Preset[] = { { "vita", "Vita" }, { "max", "Max" } };
@@ -194,6 +195,9 @@ const Item Controller[] = {
       "How far the right stick moves before the garage camera turns." },
     { "Stick dead zone", Cfg, "stick_deadzone", Choice, OPTIONS(StickDeadZone), "15", 0, nullptr,
       "How far either stick moves before it counts, steering included. Less reacts sooner; more ignores a worn stick." },
+    { "Steering", Cfg, "steering", Choice, OPTIONS(Steering), "analog", 0, nullptr,
+      "Analog steers as far as the left stick is pushed. Digital turns the stick into the D-pad's left and right, "
+      "with the game's own gradual steering, as on a keyboard." },
     { "Stick response", Cfg, "stick_response", Choice, OPTIONS(StickResponse), "standard", 0, nullptr,
       "Standard is finer near the centre for small steering corrections; linear follows the stick exactly; "
       "precise is finer near the centre still." },
@@ -213,6 +217,8 @@ const Item Performance[] = {
 const Item Game[] = {
     { "Frame rate", Cfg, "frame_rate", Choice, OPTIONS(FrameRate), "30", 0, nullptr,
       "30 locks the game to 30 frames a second for steady pacing; unlocked runs as fast as it can." },
+    { "Fast travel", Cfg, "fast_travel", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "On the World Map, pick a place and answer No to the GPS question to be put there. Yes still sets the route." },
     { "Skip intro movies", Cfg, "skip_intro_movies", Choice, OPTIONS(SkipIntro), "off", 0, nullptr,
       "Logos skips the EA and THX logos and the notice at start-up; logos and opening skips the opening movie too." },
     { "Free-roam log", Ini, "Log", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
@@ -792,7 +798,7 @@ bool applyLive(int g, int i)
 {
     // The settings read where they are used, rather than once at the start.
     static const char* const Live[] = { "log_info", "garage_stick", "garage_stick_deadzone", "stick_deadzone",
-                                        "stick_response" };
+                                        "stick_response", "steering", "fast_travel" };
     const Item& it = item(g, i);
     if (it.store != Cfg)
         return false;
