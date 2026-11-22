@@ -180,6 +180,7 @@ namespace
 const uint32_t RingSize = 64;
 const int WorkerPriority = pf::Thread::PriorityHigh + 8;    // below the audio and render threads (64)
 const uint32_t WorkerStack = 256 * 1024;
+const uint32_t StuckMs = 2000;
 
 Context* s_ring[RingSize];
 std::atomic<uint32_t> s_first{0}, s_last{0};
@@ -272,6 +273,32 @@ void start()
         pf::logInfo("offload: flushes run by the render thread at the splice");
 }
 
+// A wait for a job that is not done after StuckMs (the render thread froze on one, 2026-11-21): logs the job, the ring
+// and the worker; a job still queued that no ring slot ahead of the worker holds is run here, as the render thread
+// does in Mode::RenderThread, so a lost wake-up costs a hitch instead of the game.
+void stuck(Context& job, uint32_t timeouts)
+{
+    const uint32_t first = s_first.load(std::memory_order_acquire), last = s_last.load(std::memory_order_acquire);
+    bool ahead = false;
+    for (uint32_t k = first; k != last && k - first < RingSize; ++k)
+        ahead = ahead || s_ring[k % RingSize] == &job;
+    const uint32_t state = job.state.load(std::memory_order_seq_cst);
+    if (timeouts <= 3 || timeouts % 30 == 0)
+        pf::logError("offload: thread 0x%08x waits %u ms for job %p (state %u, frame %u, pending %d, run %p); ring "
+                     "first %u last %u, the job %s; worker %s; runs %llu", unsigned(pf::Thread::currentId()),
+                     unsigned(timeouts * StuckMs), static_cast<void*>(&job), unsigned(state), unsigned(job.frame),
+                     int(job.pending), reinterpret_cast<void*>(job.run), unsigned(first), unsigned(last),
+                     ahead ? "is ahead in the ring" : "is in no slot ahead of the worker",
+                     s_thread ? "started" : "none",
+                     (unsigned long long)s_runs.load());
+    if (state == JobQueued && !ahead && claim(job))
+    {
+        pf::logError("offload: job %p was queued but no slot ahead of the worker held it: run on thread 0x%08x",
+                     static_cast<void*>(&job), unsigned(pf::Thread::currentId()));
+        runClaimed(job);
+    }
+}
+
 }
 
 void submit(Context& job)
@@ -302,10 +329,19 @@ void await(void* pointer)
     }
     const uint32_t start = pf::perf::now();
     s_waiters.fetch_add(1, std::memory_order_seq_cst);
+    uint32_t timeouts = 0;
+    for (;;)
     {
-        pf::LockGuard guard(*s_doneLock);
-        while (job.state.load(std::memory_order_seq_cst) != JobDone)
-            s_doneCond->wait();
+        {
+            pf::LockGuard guard(*s_doneLock);
+            while (job.state.load(std::memory_order_seq_cst) != JobDone)
+                if (!s_doneCond->waitFor(StuckMs))
+                    break;
+        }
+        if (job.state.load(std::memory_order_seq_cst) == JobDone)
+            break;
+        // Not done after StuckMs: say what the queue holds, and run a queued job the worker never took.
+        stuck(job, ++timeouts);
     }
     s_waiters.fetch_sub(1, std::memory_order_seq_cst);
     const int game = pf::Thread::currentId() == s_gameThread.load(std::memory_order_relaxed);
