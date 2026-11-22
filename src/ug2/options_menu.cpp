@@ -195,6 +195,9 @@ const Item Controller[] = {
       "How far the right stick moves before the garage camera turns." },
     { "Stick dead zone", Cfg, "stick_deadzone", Choice, OPTIONS(StickDeadZone), "15", 0, nullptr,
       "How far either stick moves before it counts, steering included. Less reacts sooner; more ignores a worn stick." },
+    { "Right stick camera", Cfg, "camera_stick", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "While driving, the right stick turns the chase camera round the car and it comes back when released. In the "
+      "hood and bumper views pushing it down looks back. Untouched, the camera is the game's own." },
     { "Steering", Cfg, "steering", Choice, OPTIONS(Steering), "analog", 0, nullptr,
       "Analog steers as far as the left stick is pushed. Digital: pushed past halfway, the stick turns smoothly to "
       "full lock and back when released, as on a keyboard." },
@@ -798,7 +801,8 @@ bool applyLive(int g, int i)
 {
     // The settings read where they are used, rather than once at the start.
     static const char* const Live[] = { "log_info", "garage_stick", "garage_stick_deadzone", "stick_deadzone",
-                                        "stick_response", "steering", "fast_travel" };
+                                        "stick_response", "steering", "fast_travel",
+                                        "camera_stick" };
     const Item& it = item(g, i);
     if (it.store != Cfg)
         return false;

@@ -44,6 +44,9 @@ NATIVE_OVERRIDES = [
     # Fast travel (src/ug2/fasttravel.cpp), as NFSU2FastTravel on PC
     0x558790,   # dialog (cdecl; ..., yes, no, back, buttons, text): the World Map's GPS question gets the fast-travel No
     0x4e08e0,   # GameWorldMapScreen::NotificationMessage (thiscall; hash, object, p3, p4): No moves the car
+    # Right stick camera (src/ug2/camera_stick.cpp)
+    0x453570,   # CubicCameraMover::Update (thiscall): the stick's orbit or Look Back first
+    0x5ba9a0,   # look-at (cdecl; matrix, eye, target, up): the orbited eye inside that update
     # Front touch (src/ug2/padbind.cpp)
     0x50b460,   # FE mouse cursor draw (cdecl; x, y): skipped with front_touch=on
     # Forwarding placeholders for the hot-function conversions (src/ug2/native/stubs.cpp, tools/native/placeholders.txt)
