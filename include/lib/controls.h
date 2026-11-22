@@ -133,7 +133,7 @@ struct State
     int         pov;                // hat 0 in hundredths of a degree, -1 centred
     bool        openIme;            // the on-screen keyboard chord was pressed
     bool        openSettings;       // the Vita Settings chord (Select + Up) was pressed
-    int         sayChord;           // quick chat: the phrase slot 0-5 picked (quickChatSlots), -1 none
+    int         sayChord;           // quick chat: the slot 0-6 picked (quickChatSlots: 6 is add friend), -1 none
 };
 
 // Turns pad samples into joystick and key state: chords with Select, the Select tap (respot) and buttons held
@@ -158,11 +158,12 @@ private:
 };
 
 // Free roam's quick chat (quick_chat_button): the button held to pick a phrase (an Input, or -1 for Select, whose
-// chords pick then), and the six buttons that pick phrase slots 1-6 while it is held.
+// chords pick then), and the buttons that pick phrase slots 1-6 while it is held; slots[6], the seventh, adds the
+// player whose nose touches ours as a friend.
 int quickChatButton();
 // Free roam proper (driving, quick chat on) says so each frame, with pf::ticksUs(): only then is the button taken.
 void setQuickChatLive(uint64_t nowUs);
-void quickChatSlots(Input slots[6]);
+void quickChatSlots(Input slots[7]);
 
 // Radial dead zone and response curve of one stick (x, y in -1..1). deadZone and saturation are DirectInput
 // property values (0..10000 of full deflection); the larger dead zone and the smaller saturation of these and the

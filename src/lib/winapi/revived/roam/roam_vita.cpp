@@ -32,6 +32,7 @@ extern "C"
 {
 extern uint8_t* nfsu2_guest_base;
 void roam_game_frame(struct CPU* c);
+void revived_link_control_send(const char* json);   // revived_link.cpp
 }
 bool revived_link_ensure();
 
@@ -184,6 +185,99 @@ void roam_log(const char* fmt, ...)
     pthread_mutex_unlock(&s_lock);
 }
 
+// Free roam's friends, as nfsu2.xyz's page does them (web/src/app/friends.ts FriendPrompt): two cars nose to nose for
+// 3 s (roam_game.c bump_*) ask the server what that player is to us ("can"), the answer shows after its name over its
+// car, and the friend button (the quick chat button + Triangle) sends the request ("add"), or accepts one. The server
+// keeps the lists, for claimed names only (revived_passphrase).
+struct FriendPrompt
+{
+    uint32_t id = 0;            // the player's session id (its name tag)
+    std::string name;           // the name over its car
+    std::string claimed;        // the server's name for it (its "can" answer)
+    std::string st;             // "wait", or the server's word: new, asked, asks, friends, claim, theirs, far, full
+    uint64_t until = 0;         // shown until (us); 0 while the noses touch
+};
+pthread_mutex_t s_friendLock = PTHREAD_MUTEX_INITIALIZER;
+FriendPrompt s_friend;
+const uint64_t FriendStayUs = 4000000;   // after the cars part, or after an answer
+
+uint64_t nowUs()
+{
+    return sceKernelGetProcessTimeWide();
+}
+
+// a string or number field of the game's small JSON line ({"id":12,"name":"Bravo","on":1})
+std::string jsonField(const char* json, const char* key)
+{
+    const std::string k = std::string("\"") + key + "\":";
+    const char* p = strstr(json, k.c_str());
+    if (!p)
+        return "";
+    p += k.size();
+    std::string v;
+    if (*p == '"')
+    {
+        for (++p; *p && *p != '"'; ++p)
+        {
+            if (*p == '\\' && p[1])
+                ++p;
+            v += *p;
+        }
+        return v;
+    }
+    while (*p && *p != ',' && *p != '}')
+        v += *p++;
+    return v;
+}
+
+std::string jsonText(const std::string& s)
+{
+    std::string o = "\"";
+    for (char ch : s)
+    {
+        if (ch == '"' || ch == '\\')
+            o += '\\';
+        o += uint8_t(ch) < 0x20 ? ' ' : ch;
+    }
+    return o + "\"";
+}
+
+const char* friendKeys()
+{
+    switch (win32::controls::quickChatButton())
+    {
+    case win32::controls::DpadUp:   return "hold Up + Triangle";
+    case win32::controls::Triangle: return "hold Triangle + Down";
+    case -1:                        return "Select + R";
+    default:                        return "hold Down + Triangle";
+    }
+}
+
+void friendAdd()
+{
+    std::string msg;
+    pthread_mutex_lock(&s_friendLock);
+    const bool can = s_friend.id && (s_friend.st == "new" || s_friend.st == "asks")
+                     && (!s_friend.until || nowUs() < s_friend.until);
+    if (can)
+    {
+        msg = "{\"t\":\"friend\",\"op\":\"add\",\"name\":"
+              + jsonText(s_friend.claimed.empty() ? s_friend.name : s_friend.claimed) + "}";
+        s_friend.st = "wait";
+    }
+    pthread_mutex_unlock(&s_friendLock);
+    if (can)
+    {
+        revived_link_control_send(msg.c_str());
+        roam_log("[roam] friends: asked to add %s", jsonField(msg.c_str(), "name").c_str());
+    }
+}
+
+bool sameName(const std::string& a, const std::string& b)
+{
+    return !a.empty() && !strcasecmp(a.c_str(), b.c_str());
+}
+
 // Quick chat on the Vita: while driving in free roam the chat button is taken (controls::setQuickChatLive), and a
 // phrase button pressed with it (Gamepad::takeSayChord) says its slot's phrase.
 void roam_host_say_live(int live)
@@ -195,6 +289,11 @@ void roam_host_say_live(int live)
 int roam_host_say_pick(void)
 {
     const int slot = win32::Gamepad::takeSayChord();
+    if (slot == 6)
+    {
+        friendAdd();
+        return -1;
+    }
     if (slot < 0 || slot > 5)
         return -1;
     static const char* const Keys[6] = { "NFSU2_ROAM_SAY1", "NFSU2_ROAM_SAY2", "NFSU2_ROAM_SAY3",
@@ -202,6 +301,90 @@ int roam_host_say_pick(void)
     const char* v = roam_opt(Keys[slot]);
     const int phrase = v ? atoi(v) : -1;
     return phrase >= 0 && phrase < 255 ? phrase : -1;
+}
+
+// roam_game.c bump_page through roam_web.c roam_plat_friend: the noses touch ("on":1) or parted ("on":0)
+int roam_host_friend_bump(const char* json)
+{
+    const uint32_t id = uint32_t(strtoul(jsonField(json, "id").c_str(), nullptr, 10));
+    const std::string name = jsonField(json, "name");
+    const bool on = jsonField(json, "on") == "1";
+    std::string ask;
+    pthread_mutex_lock(&s_friendLock);
+    if (on)
+    {
+        if (s_friend.id != id || (s_friend.until && nowUs() >= s_friend.until))
+        {
+            s_friend = FriendPrompt();
+            s_friend.id = id;
+            s_friend.name = name;
+            s_friend.st = "wait";
+            ask = "{\"t\":\"friend\",\"op\":\"can\",\"name\":" + jsonText(name) + "}";
+        }
+        s_friend.until = 0;
+    }
+    else if (s_friend.id == id)
+        s_friend.until = nowUs() + FriendStayUs;
+    pthread_mutex_unlock(&s_friendLock);
+    if (!ask.empty())
+        revived_link_control_send(ask.c_str());
+    return 1;
+}
+
+// revived_link.cpp: the server's {"t":"friend",...}
+void roam_host_friend(const char* op, const char* name, const char* st, const char* done)
+{
+    pthread_mutex_lock(&s_friendLock);
+    const bool ours = s_friend.id && (sameName(name, s_friend.name) || sameName(name, s_friend.claimed)
+                                      || s_friend.st == "wait");
+    if (!strcmp(op, "can") && ours && *st)
+    {
+        s_friend.claimed = name;
+        s_friend.st = st;
+    }
+    else if (!strcmp(op, "add") && ours && *done)
+    {
+        s_friend.st = !strcmp(done, "asked") ? "asked" : done;
+        if (s_friend.until)
+            s_friend.until = nowUs() + FriendStayUs;
+    }
+    else if ((!strcmp(op, "asks") || !strcmp(op, "friends")) && s_friend.id
+             && (sameName(name, s_friend.name) || sameName(name, s_friend.claimed)))
+        s_friend.st = op;
+    pthread_mutex_unlock(&s_friendLock);
+    if (!strcmp(op, "asks"))
+        roam_log("[roam] friends: %s wants to be friends (nose to nose, then %s)", name, friendKeys());
+    else if (!strcmp(op, "friends") || (!strcmp(op, "add") && !strcmp(done, "friends")))
+        roam_log("[roam] friends: you and %s are friends now", name);
+}
+
+// roam_game.c's name tags: the note after the name of the player nose to nose with us
+int roam_host_tag_note(uint32_t id, char* out, int n)
+{
+    pthread_mutex_lock(&s_friendLock);
+    const bool live = s_friend.id == id && (!s_friend.until || nowUs() < s_friend.until);
+    const std::string st = live ? s_friend.st : "";
+    pthread_mutex_unlock(&s_friendLock);
+    if (st.empty())
+        return 0;
+    char keys[48];
+    snprintf(keys, sizeof keys, "%s", friendKeys());
+    const char* text = st == "wait"    ? "..."
+                     : st == "asked"   ? "friend request sent"
+                     : st == "friends" ? "friends"
+                     : st == "claim"   ? "friends need claimed names (passphrase)"
+                     : st == "full"    ? "friends list full"
+                     : st == "theirs" || st == "far" ? "can't add here"
+                     : nullptr;
+    if (st == "new")
+        snprintf(out, size_t(n), "add friend: %s", keys);
+    else if (st == "asks")
+        snprintf(out, size_t(n), "wants to be friends: %s", keys);
+    else if (text)
+        snprintf(out, size_t(n), "%s", text);
+    else
+        snprintf(out, size_t(n), "%s", st.c_str());
+    return 1;
 }
 
 int roam_win_committed(uint32_t a)

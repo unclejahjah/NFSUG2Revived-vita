@@ -97,6 +97,7 @@ static const Chord s_chords[] =
     { Cross,     0, -1, false, false, 3 },
     { Circle,    0, -1, false, false, 4 },
     { Square,    0, -1, false, false, 5 },
+    { R,         0, -1, false, false, 6 },  // add the player nose to nose as a friend
 };
 
 // How long a Select tap holds its button, enough for one game frame at 10 fps.
@@ -163,21 +164,23 @@ int quickChatButton()
     return s_button.load(std::memory_order_relaxed);
 }
 
-void quickChatSlots(Input slots[6])
+void quickChatSlots(Input slots[7])
 {
     const int button = quickChatButton();
     if (button < 0)
     {
         // Select's chords: Up is Vita Settings, Triangle the keyboard
-        static const Input Chords[6] = { DpadDown, DpadLeft, DpadRight, Cross, Circle, Square };
+        static const Input Chords[7] = { DpadDown, DpadLeft, DpadRight, Cross, Circle, Square, R };
         memcpy(slots, Chords, sizeof(Chords));
         return;
     }
     static const Input Order[] = { DpadUp, DpadLeft, DpadRight, Cross, Circle, Square, DpadDown, Triangle };
+    static const Input Friend[] = { Triangle, DpadDown };   // the seventh: Triangle, or Down where Triangle is the button
     int n = 0;
     for (Input input : Order)
         if (int(input) != button && n < 6)
             slots[n++] = input;
+    slots[6] = button == Triangle ? Friend[1] : Friend[0];
 }
 
 static StickShape stickShape()
@@ -611,9 +614,9 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
         if (inputs & key)
         {
             chatHidden = key;
-            Input slots[6];
+            Input slots[7];
             quickChatSlots(slots);
-            for (int i = 0; i < 6; ++i)
+            for (int i = 0; i < 7; ++i)
                 if (pressed & bit(slots[i]))
                 {
                     state.sayChord = i;

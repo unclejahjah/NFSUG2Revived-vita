@@ -359,7 +359,10 @@ int roam_plat_said(const char *json){
     return tx_push(NET_KIND_SAY, 0, 0, (const uint8_t *)json, n) ? 1 : -1;
 }
 /* front bumpers: the page's "Add friend" (NET_KIND_FRIEND) */
+/* the Vita's friends (roam_vita.cpp) take the bumpers' lines themselves: no page */
+extern int roam_host_friend_bump(const char *json) __attribute__((weak));
 int roam_plat_friend(const char *json){
+    if (roam_host_friend_bump) return roam_host_friend_bump(json);
     int n = (int)strlen(json);
     if (!MB) return -1;
     if (n <= 0 || n > (int)NET_MAX_PAYLOAD) return 1;

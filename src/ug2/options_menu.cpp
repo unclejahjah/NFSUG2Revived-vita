@@ -19,6 +19,10 @@
 #include <strings.h>
 #include <vector>
 
+// src/lib/winapi/revived/revived_link.cpp: Friends and crews' "Add friend by name"
+void revived_friend_ask(const std::string& name);
+std::string revived_friend_status(unsigned* version);
+
 namespace ug2 { namespace options {
 
 namespace
@@ -151,6 +155,9 @@ const Option ChatButtons[] = { { "dpad_down", "Hold D-pad Down" }, { "dpad_up", 
 const Option Phrases[] = { { "0", "Hey!" }, { "1", "Nice car!" }, { "2", "Thanks!" }, { "3", "Bye!" }, { "4", "Yes" }, { "5", "No" }, { "6", "Sorry!" }, { "7", "lol" }, { "8", "Follow me!" }, { "9", "Wait up!" }, { "10", "Let's go!" }, { "11", "Nice!" }, { "12", "Race?" }, { "13", "Join my race!" }, { "14", "gg" }, { "15", "One more?" }, { "16", "Yo!" }, { "17", "Hi all!" }, { "18", "Welcome!" }, { "19", "Welcome back!" }, { "20", "Long time no see!" }, { "21", "Good luck!" }, { "22", "Have fun!" }, { "23", "Gotta go!" }, { "24", "See you around!" }, { "25", "Good night!" }, { "26", "brb" }, { "27", "Back!" }, { "28", "Sure!" }, { "29", "Maybe" }, { "30", "Okay" }, { "31", "Nope" }, { "33", "On my way!" }, { "41", "ty" }, { "42", "np" }, { "44", "My bad!" } };
 
 const Item FriendsPage[] = {
+    { "Add friend by name", Ini, "AddFriend", Text, nullptr, 0, "", 24, "Type a name",
+      "Send a friend request to a player by their claimed nfsu2.xyz name. Or meet them in free roam: touch front "
+      "bumpers for 3 seconds. Needs your passphrase (Multiplayer)." },
     { "Quick chat", Ini, "QuickChat", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "Say a set phrase to the players near you: hold the quick chat button and press a phrase button. Theirs show "
       "after their names, in every player's own language on nfsu2.xyz." },
@@ -782,7 +789,9 @@ void runAction(int g, int i)
 
 unsigned actionVersion()
 {
-    return pf::cloud::version();
+    unsigned friends = 0;
+    revived_friend_status(&friends);
+    return pf::cloud::version() + friends;
 }
 
 bool itemIsSecret(int g, int i)
@@ -805,6 +814,11 @@ std::string itemValue(int g, int i)
         return s_lastAction == &it ? pf::cloud::status() : std::string("Press Cross");
     if (it.kind == Secret)
         return v.empty() ? "Not set" : "Set";
+    if (it.kind == Text && it.store == Ini && !strcmp(it.key, "AddFriend"))
+    {
+        const std::string status = revived_friend_status(nullptr);
+        return status.empty() ? std::string(it.empty) : status;
+    }
     if (it.kind == Text)
         return v.empty() ? std::string(it.empty) : v;
     const int o = optionIndex(it, v);
@@ -855,6 +869,12 @@ void setText(int g, int i, const std::string& text)
     std::string v = trimmed(text);
     if (int(v.size()) > it.maxLength)
         v.resize(size_t(it.maxLength));
+    if (it.store == Ini && !strcmp(it.key, "AddFriend"))
+    {
+        // not a setting: the request goes at once, and the row shows its answer (itemValue)
+        revived_friend_ask(v);
+        return;
+    }
     s_values[g][i] = v;
     shareValue(g, i);
 }

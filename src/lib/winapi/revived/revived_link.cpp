@@ -50,6 +50,16 @@
 #include <vector>
 
 extern "C" uint64_t ws_now_us(void);
+// free roam's friends on the Vita (roam_vita.cpp): what the server said ({"t":"friend",...}); weak, for builds without
+extern "C" void roam_host_friend(const char* op, const char* name, const char* st, const char* done)
+    __attribute__((weak));
+
+namespace
+{
+// control messages from other threads (revived_link_control_send), sent by the link thread
+pthread_mutex_t s_controlLock = PTHREAD_MUTEX_INITIALIZER;
+std::vector<std::string> s_controlOut;
+}
 
 namespace
 {
@@ -385,6 +395,9 @@ struct Endpoint
 class Link
 {
 public:
+    // the claimed name's token, from revived_passphrase (as the switch's hello and /vault take it); "" without one
+    static std::string token() { return claimToken(); }
+
     void registerMailbox(int kind, void* ptr, uint32_t bytes)
     {
         net_mailbox* mb = static_cast<net_mailbox*>(ptr);
@@ -443,6 +456,15 @@ public:
             drainTx(m_lan);
             drainTx(m_roam);
             flushWaiting();
+            if (m_opened)
+            {
+                std::vector<std::string> out;
+                pthread_mutex_lock(&s_controlLock);
+                out.swap(s_controlOut);
+                pthread_mutex_unlock(&s_controlLock);
+                for (const std::string& m : out)
+                    sendFrame(0x1, m.data(), m.size());
+            }
             if (m_publishAt && nowMs() >= m_publishAt)
                 publish();
             if (m_opened && nowMs() >= m_nextPing)
@@ -1081,6 +1103,15 @@ private:
                         ep->mb->switch_rtt_ms = rtt;
             }
         }
+        else if (t == "friend")
+        {
+            // free roam's friends (nfsu2-web server-rs src/app/friends.rs)
+            const std::string op = m.str("op"), name = m.str("name"), st = m.str("st"), done = m.str("done");
+            pf::logInfo("revived: friends: %s %s%s%s%s%s", op.c_str(), name.c_str(), st.empty() ? "" : ", ", st.c_str(),
+                        done.empty() ? "" : ", ", done.c_str());
+            if (roam_host_friend)
+                roam_host_friend(op.c_str(), name.c_str(), st.c_str(), done.c_str());
+        }
         else if (t == "kick" || t == "ban" || t == "rename")
         {
             m_removal = m.str("msg");   // its close follows
@@ -1265,6 +1296,161 @@ void nfsu2_register(int kind, void* ptr, uint32_t bytes)
     link().registerMailbox(kind, ptr, bytes);
 }
 
+}
+
+// A control message ({"t":...}) to the server, from any thread: the link sends it while on the switch (else it waits).
+extern "C" void revived_link_control_send(const char* json)
+{
+    pthread_mutex_lock(&s_controlLock);
+    if (s_controlOut.size() < 64)
+        s_controlOut.push_back(json);
+    pthread_mutex_unlock(&s_controlLock);
+}
+
+// Vita Settings' "Add friend by name": nfsu2-web's POST /friends {"op":"ask","name":...} with the claimed name's token
+// (server-rs src/app/friends.rs), on a thread of its own; its answer as a line for the settings row.
+namespace
+{
+pthread_mutex_t s_askLock = PTHREAD_MUTEX_INITIALIZER;
+std::string s_askStatus;
+unsigned s_askVersion = 0;
+bool s_asking = false;
+
+void askStatus(const std::string& text)
+{
+    pthread_mutex_lock(&s_askLock);
+    s_askStatus = text;
+    ++s_askVersion;
+    pthread_mutex_unlock(&s_askLock);
+    pf::logInfo("revived: friends: %s", text.c_str());
+}
+
+void* askMain(void* arg)
+{
+    std::string* name = static_cast<std::string*>(arg);
+    const std::string who = *name;
+    delete name;
+    const std::string token = Link::token();
+    std::string result;
+    if (token.empty())
+        result = "Needs your passphrase (Multiplayer)";
+    else if (!win32::ws2_32::netStart())
+        result = "No network";
+    else
+    {
+        const std::string host = pf::Config::getString("revived_server", "nfsu2.xyz");
+        tls::Stream stream;
+        std::string why;
+        if (!stream.open(host.c_str(), 443, 15000, why))
+            result = "No connection";
+        else
+        {
+            std::string body = "{\"op\":\"ask\",\"name\":\"";
+            for (char ch : who)
+                if (ch != '"' && ch != '\\' && uint8_t(ch) >= 0x20)
+                    body += ch;
+            body += "\"}";
+            const std::string head = "POST /friends HTTP/1.1\r\nHost: " + host + "\r\nAuthorization: Bearer " + token
+                                   + "\r\nUser-Agent: NFSU2VITA\r\nContent-Type: application/json\r\nContent-Length: "
+                                   + std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n";
+            std::string raw;
+            if (stream.write(head.data(), head.size()) && stream.write(body.data(), body.size()))
+            {
+                const uint64_t start = nowMs();
+                char buffer[2048];
+                while (nowMs() - start < 15000)
+                {
+                    if (!stream.waitReadable(500))
+                        continue;
+                    const int n = stream.read(buffer, sizeof(buffer));
+                    if (n < 0)
+                        break;
+                    raw.append(buffer, size_t(n));
+                    if (raw.size() > 65536)
+                        break;
+                }
+            }
+            stream.close();
+            const size_t at = raw.find("\r\n\r\n");
+            std::string done, error;
+            if (at != std::string::npos)
+            {
+                // the body: chunked or not, the JSON object from its first '{'
+                const size_t open = raw.find('{', at), close = raw.rfind('}');
+                if (open != std::string::npos && close != std::string::npos && close > open)
+                {
+                    Json m;
+                    JsonParser parser(raw.data() + open, raw.data() + close + 1);
+                    if (parser.parse(m) && m.type == Json::Object)
+                    {
+                        done = m.str("done");
+                        error = m.str("error");
+                    }
+                }
+            }
+            if (raw.empty())
+                result = "No answer";
+            else if (error == "keyphrase")
+                result = "The server doesn't know your passphrase";
+            else if (done == "asked" || done == "sent")
+                result = "Request sent to " + who;
+            else if (done == "friends")
+                result = "You and " + who + " are friends";
+            else if (done == "claim" || done == "none")
+                result = who + " has no claimed name";
+            else if (done == "rate")
+                result = "Too many requests, try later";
+            else if (done == "full")
+                result = "Friends list full";
+            else
+                result = done.empty() ? "No answer" : who + ": " + done;
+        }
+    }
+    askStatus(result);
+    pthread_mutex_lock(&s_askLock);
+    s_asking = false;
+    pthread_mutex_unlock(&s_askLock);
+    return nullptr;
+}
+}
+
+void revived_friend_ask(const std::string& name)
+{
+    if (name.empty())
+        return;
+    pthread_mutex_lock(&s_askLock);
+    const bool busy = s_asking;
+    s_asking = true;
+    pthread_mutex_unlock(&s_askLock);
+    if (busy)
+        return;
+    askStatus("Asking " + name + "...");
+    pthread_t thread;
+    pthread_attr_t attributes;
+    pthread_attr_init(&attributes);
+    pthread_attr_setstacksize(&attributes, 256 * 1024);   // the TLS handshake's stack
+    std::string* arg = new std::string(name);
+    if (pthread_create(&thread, &attributes, askMain, arg) == 0)
+        pthread_detach(thread);
+    else
+    {
+        delete arg;
+        pthread_mutex_lock(&s_askLock);
+        s_asking = false;
+        pthread_mutex_unlock(&s_askLock);
+        askStatus("Could not ask");
+    }
+    pthread_attr_destroy(&attributes);
+}
+
+std::string revived_friend_status(unsigned* version)
+{
+    pthread_mutex_lock(&s_askLock);
+    const std::string s = s_askStatus;
+    if (version)
+        *version = s_askVersion;
+    pthread_mutex_unlock(&s_askLock);
+    return s;
 }
 
 // revived_bridge.cpp: SceNet up and the link thread started, once.

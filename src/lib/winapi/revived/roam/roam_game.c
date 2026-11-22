@@ -2429,7 +2429,7 @@ static void push_pose(Slot *s, rc_pose *P, int64_t newest, int64_t rt, float dt)
 #define FN_VIEW_SCREEN  0x005bc4a0u   /* thiscall view (out*, in*): world -> view pixels, z > 0 in front */
 #define TAG_SCR         0x100u        /* g_gmem scratch: +0 in, +0x10 out, +0x20 vectors, +0x40 "%s", +0x48 text */
 #ifdef ROAM_SAY_TAGS
-#define TAG_TEXT_MAX    (RC_NAME_MAX + 64)  /* and ": <phrase>" after it */
+#define TAG_TEXT_MAX    (RC_NAME_MAX + 128) /* and ": <phrase>", " - <friends' note>" after it */
 #else
 #define TAG_TEXT_MAX    (RC_NAME_MAX + 24)  /* "<name> (paused)", "<name> (paused, 12.3 km)" */
 #endif
@@ -3064,6 +3064,14 @@ static void tags_update_seat(CPU *c){
         if (t[q].k < NSLOT && say_live(s->peer, s->peer_id, now) && g_say.who[s->peer].phrase < ROAM_PHRASE_N){
             char nm[TAG_TEXT_MAX]; snprintf(nm, sizeof nm, "%s", tx);
             snprintf(tx, sizeof tx, "%s: %s", nm, ROAM_PHRASES[g_say.who[s->peer].phrase]);
+        }
+        {   /* the Vita's friends: "Bravo - add friend: Down+Triangle" while the noses touch (roam_vita.cpp) */
+            extern int roam_host_tag_note(uint32_t id, char *out, int n);
+            char note[64];
+            if (t[q].k < NSLOT && roam_host_tag_note(s->peer_id, note, sizeof note)){
+                char nm[TAG_TEXT_MAX]; snprintf(nm, sizeof nm, "%s", tx);
+                snprintf(tx, sizeof tx, "%s - %s", nm, note);
+            }
         }
 #endif
         rh_hud_marker(&hx, &hy);
