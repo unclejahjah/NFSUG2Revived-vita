@@ -131,6 +131,19 @@ const Option Worlds[] = { { "", "Main world" }, { "World 1", "World 1" }, { "Wor
 // Free roam's worlds: a world is a room, and only the players in the same one see each other. World 1 to 4 are
 // rooms by a fixed name, so everyone who picks one meets there; the main world has no name. Both rows set Room.
 
+// The flag before your name over your car (nfsu2.xyz's list, src/lib/winapi/revived/roam/flags.dat): the common
+// ones here, any other by its code in the row under it.
+const Option Flags[] = { { "", "None" }, { "gb", "United Kingdom" }, { "gb-eng", "England" }, { "gb-sct", "Scotland" },
+                         { "gb-wls", "Wales" }, { "gb-nir", "Northern Ireland" }, { "ie", "Ireland" },
+                         { "us", "United States" }, { "ca", "Canada" }, { "au", "Australia" }, { "nz", "New Zealand" },
+                         { "de", "Germany" }, { "fr", "France" }, { "es", "Spain" }, { "it", "Italy" },
+                         { "nl", "Netherlands" }, { "be", "Belgium" }, { "pt", "Portugal" }, { "pl", "Poland" },
+                         { "cz", "Czechia" }, { "ro", "Romania" }, { "se", "Sweden" }, { "no", "Norway" },
+                         { "dk", "Denmark" }, { "fi", "Finland" }, { "ru", "Russia" }, { "ua", "Ukraine" },
+                         { "tr", "Turkey" }, { "br", "Brazil" }, { "mx", "Mexico" }, { "ar", "Argentina" },
+                         { "jp", "Japan" }, { "kr", "South Korea" }, { "cn", "China" }, { "in", "India" },
+                         { "ph", "Philippines" }, { "id", "Indonesia" }, { "za", "South Africa" } };
+
 const Item FriendsPage[] = {
     { "Crews", Ini, "Crew", Text, nullptr, 0, "", 120, "None",
       "Up to 4 crews, joined by commas. Players who share one see each other's names and map arrows in its colour." },
@@ -139,6 +152,12 @@ const Item FriendsPage[] = {
 };
 
 const Item FreeRoam[] = {
+    { "Player names", Ini, "Names", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "Show each player's name (and flag) over their car. Turns on the game's own player names too." },
+    { "Your flag", Ini, "Flag", Choice, OPTIONS(Flags), "", 0, nullptr,
+      "The flag the other players see before your name. Players on nfsu2.xyz pick from the same list." },
+    { "Other flag", Ini, "Flag", Text, nullptr, 0, "", 8, "None",
+      "Any other flag by its two-letter country code (de, jp, br), or gb-eng style for a nation." },
     { "World", Ini, "Room", Choice, OPTIONS(Worlds), "", 0, nullptr,
       "Free roam shows only the players in the same world. World 4 has ghost cars off for everyone in it." },
     { "Own world", Ini, "Room", Text, nullptr, 0, "", 32, "Main world",
@@ -284,6 +303,11 @@ const char IniTemplate[] =
     "\n"
     "; each crew's colour in the order of Crew, 6 hex digits without '#' (empty = cyan, magenta, violet, red)\n"
     "CrewColours =\n"
+    "\n"
+    "; names over the other players' cars (1) or not (0), and your flag before your name: a country code\n"
+    "; (gb, us, de, gb-eng; empty = none)\n"
+    "Names = 1\n"
+    "Flag =\n"
     "\n"
     "; 1 = friends' cars are solid; 0 = ghost cars you drive through; none = traffic is a ghost too\n"
     "Collide = 0\n"

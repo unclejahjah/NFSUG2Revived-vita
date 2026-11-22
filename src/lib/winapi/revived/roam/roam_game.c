@@ -120,8 +120,8 @@ static inline uint32_t coop_player(void){ return 0; }
 #else
 #define MPRACES         1
 #endif
-/* flags before the names over friends' cars (flag_*): not in the Windows plugin */
-#ifdef ROAM_HOST_WIN
+/* flags before the names over friends' cars (flag_*): not in the Windows plugin (the Vita build has them: ROAM_FLAGS) */
+#if defined(ROAM_HOST_WIN) && !defined(ROAM_FLAGS)
 #define FLAGS           0
 #else
 #define FLAGS           1

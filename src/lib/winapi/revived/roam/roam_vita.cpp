@@ -60,6 +60,10 @@ const struct { const char *name, *key, *def; } Opts[] = {
     { "NFSU2_ROAM_CARPOOL_KB",  "CarPoolKB",   ""  },
     { "NFSU2_ROAM_NETTHREAD",   "NetThread",   ""  },
     { "NFSU2_ROAM_LOG",         "Log",         "1" },
+    // the browser game's own (settings.ini roam_labels, roam_flag), which the PC plugin has not: names over the other
+    // players' cars, and our flag before our name (a code of flags.dat: gb, us, gb-eng)
+    { "NFSU2_ROAM_LABELS",      "Names",       "1" },
+    { "NFSU2_ROAM_FLAG",        "Flag",        ""  },
 };
 const int OptCount = int(sizeof(Opts) / sizeof(Opts[0]));
 std::string s_values[OptCount];
@@ -249,6 +253,9 @@ void frame(win32::WinApplication* app, x86::CPU& cpu)
         if (!nfsu2_guest_base)
             nfsu2_guest_base = win32::g_guestBase;
         revived_link_ensure();
+        // the names over the cars also need the game's own player-names option (0x8500C9, roam_game.c G_SHOW_NAMES)
+        if (optOn(roam_opt("NFSU2_ROAM_LABELS")))
+            rc::st8(0x008500C9, 1);
         s_state = 1;
         roam_log("[roam] free roam with others (NFSU2FreeRoam, as the PC plugin), settings %s, through the Revived "
                  "server", IniPath);
