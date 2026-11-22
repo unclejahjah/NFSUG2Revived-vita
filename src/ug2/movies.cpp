@@ -191,10 +191,11 @@ bool movieName(reg32 path, char* name, size_t size)
     return true;
 }
 
-// skip_intro_movies: 1 the logos and the notice, 2 the opening movie too. They open blank.vp6 (the game's own
-// empty movie) instead, so they never show.
+// skip_intro_movies: 1 the logos and the notice, 2 the opening movie too. Their open fails, as with the files
+// deleted on PC, so the game goes straight on without playing anything (blank.vp6 in their place showed a moment
+// of the movie screen each).
 int s_skipIntro = 0;
-const char* const BlankMovie = "blank";
+const char* const RemovedMovie = "skip_intro_movies_removed";   // no such file
 
 bool skippedIntro(const char* name)
 {
@@ -239,9 +240,9 @@ void createFileHook(win32::WinApplication* app, x86::CPU& cpu)
     {
         if (skippedIntro(name))
         {
-            pf::logInfo("movies: skip_intro_movies: %s.vp6 opens %s.vp6", name, BlankMovie);
-            rc::st32(cpu.esp + 4, replacedPath(path, name, BlankMovie));
-            strcpy(name, BlankMovie);
+            pf::logInfo("movies: skip_intro_movies: %s.vp6 is not opened", name);
+            rc::st32(cpu.esp + 4, replacedPath(path, name, RemovedMovie));
+            strcpy(name, RemovedMovie);
         }
         else if (const reg32 copy = redirectPath(path, name))
         {
