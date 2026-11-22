@@ -1339,7 +1339,7 @@ void* askMain(void* arg)
     else
     {
         const std::string host = pf::Config::getString("revived_server", "nfsu2.xyz");
-        tls::Stream stream;
+        pf::tls::Stream stream;
         std::string why;
         if (!stream.open(host.c_str(), 443, 15000, why))
             result = "No connection";
