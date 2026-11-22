@@ -285,17 +285,14 @@ void rowTexts(win32::WinApplication* app, x86::CPU& cpu)
     cpu.esp += 4;
 }
 
-// A menu's AddOption (thiscall (item), ret 4): in UI_Main's setup, the Online icon becomes ours (an Options icon
-// with our texture and label), so Online is not offered.
+// A menu's AddOption (thiscall (item), ret 4): in UI_Main's setup the Online icon is left out.
 void addOption(win32::WinApplication* app, x86::CPU& cpu)
 {
     const reg32 item = rc::ld32(cpu.esp + 4);
     if (s_inMainSetup && cpu.ecx == s_menu && item && rc::ld32(item) == OnlineItem)
     {
-        rc::st32(item, OptionsItem);
-        rc::st32(item + 0x0C, VitaIcon);
-        rc::st32(item + 0x2C, LabelHash);
-        s_item = item;
+        cpu.esp += 4 + 4;   // the main menu does not offer Online: the item is not added (ret 4)
+        return;
     }
     const reg32 menu = cpu.ecx;
     const bool pauseLast = item && rc::ld32(menu) == PauseMainClass && rc::ld32(item) == PlayerItem &&
@@ -571,27 +568,22 @@ void configure(win32::WinApplication& app)
 namespace native
 {
 
-// UI_Main's setup: the game's, with our icon where Online was (addOption below).
+// UI_Main's setup: the game's, without Online (addOption above).
 void sub_4aee30(win32::WinApplication* app, x86::CPU& cpu)
 {
     const reg32 menu = cpu.ecx;
     s_vita = false;
     s_item = 0;
-    if (!options::enabled())
-    {
-        sub_4aee30_guest(app, cpu);
-        return;
-    }
-    setText(app, cpu, LabelHash, "Vita Settings");
-    // The icon remembered from a build that had 8 (ours added first) may be past the 7 there are now.
-    const reg32 package = rc::ld32(menu + 4);
-    if (callGuest(app, cpu, PackageIconGet, 0, { package }) > 7)
-        callGuest(app, cpu, PackageIconSet, 0, { package, 1 });
+    // The main menu keeps its own icons (Online stays); Vita Settings opens from the options screens, the pause
+    // menu and Select + Up.
     s_menu = menu;
-    s_inMainSetup = s_texts[LabelHash] != 0;
+    // The icon remembered from a build with more icons may be past the 6 there are now.
+    const reg32 package = rc::ld32(menu + 4);
+    if (callGuest(app, cpu, PackageIconGet, 0, { package }) > 6)
+        callGuest(app, cpu, PackageIconSet, 0, { package, 1 });
+    s_inMainSetup = true;
     sub_4aee30_guest(app, cpu);
     s_inMainSetup = false;
-    pf::logInfo("menu entry: Vita Settings icon %s", s_item ? "in Online's place" : "not added");
 }
 
 // UI_OptionsMain's setup: our groups, then Save and Restart, as the game adds its categories.
