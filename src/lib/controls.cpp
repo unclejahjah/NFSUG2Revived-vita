@@ -9,6 +9,7 @@
 #include <mutex>
 #endif
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -93,10 +94,38 @@ static const Chord s_chords[] =
 static const uint64_t s_tapUs = 100000;
 
 // Left and right stick: dead zone and saturation as fractions of full deflection, and the response curve
-// y = linear * x + (1 - linear) * x^3 between them (finer aim near the centre).
-static const float s_stickDeadZone   = 0.15f;
+// y = linear * x + (1 - linear) * x^3 between them (finer aim near the centre). The dead zone (stick_deadzone,
+// percent) and the curve (stick_response) are read again when Vita Settings changes them.
 static const float s_stickSaturation = 0.94f;
-static const float s_stickLinear     = 0.6f;
+
+struct StickShape
+{
+    unsigned generation = ~0u;
+    float deadZone = 0.15f;
+    float linear = 0.6f;
+};
+
+static StickShape stickShape()
+{
+    static std::atomic<unsigned> s_generation{~0u};
+    static std::atomic<float> s_deadZone{0.15f}, s_linear{0.6f};
+    const unsigned generation = pf::Config::generation();
+    if (s_generation.load(std::memory_order_acquire) != generation)
+    {
+        static const char* const Responses[] = { "standard", "linear", "precise" };
+        static const float Linear[] = { 0.6f, 1.0f, 0.3f };
+        const int percent = std::clamp(pf::Config::getInt("stick_deadzone", 15), 0, 40);
+        const int response = pf::Config::getChoice("stick_response", Responses, 3, 0);
+        s_deadZone.store(float(percent) / 100.0f, std::memory_order_relaxed);
+        s_linear.store(Linear[response >= 0 && response < 3 ? response : 0], std::memory_order_relaxed);
+        s_generation.store(generation, std::memory_order_release);
+    }
+    StickShape shape;
+    shape.generation = generation;
+    shape.deadZone = s_deadZone.load(std::memory_order_relaxed);
+    shape.linear = s_linear.load(std::memory_order_relaxed);
+    return shape;
+}
 
 // ---- Keys ----
 
@@ -516,7 +545,8 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
 
 void shapeStick(float x, float y, uint32_t deadZone, uint32_t saturation, float* outX, float* outY)
 {
-    const float dead = std::fmax(s_stickDeadZone, float(deadZone) / 10000.0f);
+    const StickShape shape = stickShape();
+    const float dead = std::fmax(shape.deadZone, float(deadZone) / 10000.0f);
     const float full = std::fmin(s_stickSaturation, float(saturation) / 10000.0f);
     const float magnitude = std::sqrt(x * x + y * y);
     if (magnitude <= dead)
@@ -526,7 +556,7 @@ void shapeStick(float x, float y, uint32_t deadZone, uint32_t saturation, float*
         return;
     }
     const float t = full > dead ? std::fmin(1.0f, (magnitude - dead) / (full - dead)) : 1.0f;
-    const float scale = (s_stickLinear * t + (1.0f - s_stickLinear) * t * t * t) / magnitude;
+    const float scale = (shape.linear * t + (1.0f - shape.linear) * t * t * t) / magnitude;
     *outX = std::fmax(-1.0f, std::fmin(1.0f, x * scale));
     *outY = std::fmax(-1.0f, std::fmin(1.0f, y * scale));
 }

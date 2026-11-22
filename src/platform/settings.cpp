@@ -42,6 +42,7 @@ const Setting s_table[] =
     ENUM("frame_rate", Display, 0, "30|60|0", "30 locks to 30 fps for steady pacing; 60 shows each frame for one vblank; 0 unlocks.", 0),
     BOOL("widescreen", Display, 1, "On fills the 16:9 screen with the HUD at the edges; off is the original 4:3 with black bars.", 0),
     ENUM("gfx_preset", Display, 0, "vita|max", "Graphics the port is tuned for, or everything on (much slower). The Display menu changes them.", 0),
+    ENUM("skip_intro_movies", Display, 0, "off|logos|opening", "Skip the start-up movies: off plays them; logos skips EA, THX and the notice; opening skips the opening movie too.", 0),
     ENUM("movies", Display, 1, "game|native|vp6|vp6only", "native: the .mp4s, Vita decoder; vp6: else native VP6 (vp6only: VP6 always); game: the game's own decoder.", 0),
 
     // ---- Controls ----
@@ -49,6 +50,8 @@ const Setting s_table[] =
     BOOL("front_touch", Controls, 1, "Touching the screen clicks like a mouse in the menus; no cursor is drawn.", 0),
     BOOL("garage_stick", Controls, 1, "The right stick turns the car in the garage and the customisation menus.", 0),
     INT("garage_stick_deadzone", Controls, 30, 0, 99, 1, "Dead zone of the garage stick, in percent of its range.", 0),
+    INT("stick_deadzone", Controls, 15, 0, 40, 1, "Dead zone of both sticks (steering too), in percent of their range; the game's own dead zone still applies.", 0),
+    ENUM("stick_response", Controls, 0, "standard|linear|precise", "Stick response: standard is finer near the centre, linear follows the stick, precise is finer still.", 0),
 
     // ---- Audio ----
     BOOL("music_hw_decode", Audio, 1, "Decode music with the Vita's MP3 decoder, which frees the CPU; the game's decoder is the fallback.", 0),
