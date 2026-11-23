@@ -52,6 +52,7 @@ namespace ug2
 {
 
 void sub_61b980_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_61bcd0_guest(win32::WinApplication* app, x86::CPU& cpu);
 
 namespace native
 {
@@ -89,6 +90,25 @@ void sub_61b980(win32::WinApplication* app, x86::CPU& cpu)
         e = Entry{ a[0], a[1], a[2], a[3], a[4], a[5], cpu.eax, true };
         break;
     }
+}
+
+// RideInfo::UpdatePartsEnabled (0x61BCD0, thiscall, no arguments). The stock parts (0x637040) call it after each of
+// its 170 slots, about 0.15 ms each on the Vita: while free roam builds a friend's car it is skipped there, and
+// build_ride calls it once when the parts are on (the calls at 0x6370DE and 0x63716B write their return addresses:
+// RETURN_ADDRESS_SITES in tools/recompiler/games/ug2.py).
+void sub_61bcd0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    const uint32_t back = rc::ld32(cpu.esp);
+    if (back == 0x006370E3 || back == 0x00637170)
+    {
+        rc::st32(cpu.esp, 0);
+        if (s_on)
+        {
+            cpu.esp += 4;   // ret
+            return;
+        }
+    }
+    sub_61bcd0_guest(app, cpu);
 }
 
 }

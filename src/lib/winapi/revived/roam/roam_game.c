@@ -930,6 +930,7 @@ static int build_ride_in(CPU *c, const rc_carcfg *cc, uint32_t ride, uint32_t sk
     gcall1(c, FN_RIDE_STOCK, ride, 0);
     BR("stock");
     if (missing < 0 || cc->n_parts == 0){                /* stock car */
+        gcall0(c, FN_RIDE_PARTSON, ride);                /* (the stock parts' own calls of it are skipped: carpart_cache.cpp) */
         gcall1(c, FN_RIDE_SKINS, ride, skin);
         return missing < 0 ? 0 : 0;
     }
@@ -2059,27 +2060,37 @@ static void load_pack(CPU *c, uint32_t file, const char *path){
 static int part_packs(CPU *c){
     if (g_packs_ok) return 1;
     if (!g_gmem) return 0;
-    if (g_npack < 0){
-        g_npack = 0; g_packs_t0 = roam_plat_now_us();
+    /* the packs asked for a few a frame (PACKS_PER_FRAME): all of them at once, some 35 on the first friend's car,
+     * was one frame of 0.8 s on the Vita (2026-11-23) */
+#ifndef PACKS_PER_FRAME
+#define PACKS_PER_FRAME 3
+#endif
+    static int pk_stage = -1, pk_i, pk_shared; static uint32_t pk_part;
+    if (g_npack < 0){ g_npack = 0; g_packs_t0 = roam_plat_now_us(); pk_stage = 0; pk_i = 0; pk_part = 0; }
+    if (pk_stage >= 0){
         const int cap = (int)(sizeof g_pack / sizeof g_pack[0]);
         char path[96];
-        for (uint32_t i = 0; i < N_PARTPACKS; i++){
-            uint32_t file = rd32(G_PARTPACKS + 4u * i);
+        int asked = 0;
+        while (pk_stage == 0 && asked < PACKS_PER_FRAME){
+            if (pk_i >= (int)N_PARTPACKS){ pk_stage = 1; pk_shared = g_npack; pk_i = 0; break; }
+            uint32_t file = rd32(G_PARTPACKS + 4u * (uint32_t)pk_i++);
             cstr(file, path, sizeof path);
-            if (path[0]) load_pack(c, file, path);
+            if (path[0]){ load_pack(c, file, path); asked++; }
         }
-        int shared = g_npack;
-        uint32_t fn = g_gmem + 0xa0u, part = 0;
-        for (int i = 0; i < 64 && g_npack < cap; i++){
-            uint32_t a[5] = { RIM_BRANDS, 0x43u, 0, part, 0xffffffffu };
-            if (!(part = rh_call(c, FN_PART_NEXT, G_CARPARTDB, 0, 5, a))) break;
-            char nm[40]; cstr(gcall0(c, FN_PART_NAME, part), nm, sizeof nm);
+        uint32_t fn = g_gmem + 0xa0u;
+        while (pk_stage == 1 && asked < PACKS_PER_FRAME){
+            uint32_t a[5] = { RIM_BRANDS, 0x43u, 0, pk_part, 0xffffffffu };
+            if (pk_i++ >= 64 || g_npack >= cap || !(pk_part = rh_call(c, FN_PART_NEXT, G_CARPARTDB, 0, 5, a))){ pk_stage = 2; break; }
+            char nm[40]; cstr(gcall0(c, FN_PART_NAME, pk_part), nm, sizeof nm);
             if (!nm[0]) continue;
             snprintf(path, sizeof path, "CARS\\WHEELS\\GEOMETRY_%s.BIN", nm);
             gstr(fn, path, 0x60u);
             load_pack(c, fn, path);
+            asked++;
         }
-        rlog("[roam] f=%ld friends' shop parts: %d shared packs and %d rim brands' packs loaded\n", rh_frame(), shared, g_npack - shared);
+        if (pk_stage < 2) return 0;                 /* (the rest the next frame) */
+        pk_stage = -1;
+        rlog("[roam] f=%ld friends' shop parts: %d shared packs and %d rim brands' packs loaded\n", rh_frame(), pk_shared, g_npack - pk_shared);
         const char *scr = rh_opt("NFSU2_INPUT_SCRIPT"), *late = rh_opt("NFSU2_ROAM_TEST_WAKE_LATE");
         long n = late ? strtol(late, 0, 10) : 0;
         if (scr && *scr && n > 0){

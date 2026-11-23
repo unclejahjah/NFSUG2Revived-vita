@@ -26,6 +26,7 @@ NO_RETURN = [
 # callee runs only for that caller.
 RETURN_ADDRESS_SITES = [
     0x581475,   # GameLoop's second debug hook call (0x4022C0): free roam (src/ug2/freeroam.cpp), as NFSU2FreeRoam.asi
+    0x6370de, 0x63716b,   # the stock parts' (0x637040) calls of UpdatePartsEnabled: skipped while free roam builds a car
     0x6005db,   # Player::Update's HUD step (0x600590) calling the HUD update 0x4EC5A0: free roam's names over the cars
 ]
 
@@ -68,7 +69,7 @@ NATIVE_OVERRIDES = [
     # ... and the HUD update (0x4EC5A0), whose call at 0x6005DB is where the names over friends' cars are placed
     0x4ec5a0,
     # ... and CarPartDB::NewGetCarPart remembered while free roam builds a friend's car (src/ug2/carpart_cache.cpp)
-    0x61b980,
+    0x61b980, 0x61bcd0,
     # Free roam's car loads timed inside (src/ug2/roam_probe.cpp): SetRideInfo's and CarLoader::Load's callees
     0x413440, 0x5b5350, 0x639ce0, 0x5aec20, 0x63a440, 0x63a360, 0x63a610, 0x63a5a0, 0x5f5010, 0x5f46a0, 0x63ae70, 0x57ef60, 0x63a1b0, 0x637840, 0x633b00, 0x633c30, 0x633b90, 0x57cac0, 0x43cd10,
     # ... one level further in: SetRideInfo's 0x63A5A0 -> 0x638190, and CarLoader::Load's 0x633B90 and 0x57CAC0
