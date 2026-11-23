@@ -71,3 +71,8 @@ __pycache__/
 
 # Estimator test fixtures
 !/tools/estimator/tests/data/**/*.log
+
+# Port files that the patterns above would hide: free roam's flag pictures (from nfsu2-web, embedded by
+# roam_game.c) and the free roam settings file players copy to the game's scripts folder
+!/src/lib/winapi/revived/roam/flags.dat
+!/extras/scripts/NFSU2FreeRoam.ini
