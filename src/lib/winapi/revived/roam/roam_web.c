@@ -609,8 +609,12 @@ static void web_stats_log(const char *when){
             (unsigned long long)W.filtered, (unsigned long long)W.own, MB->switch_rtt_ms, ld(&MB->switch_peers), ld(&MB->rx_full_drop), ld(&MB->rx_oversize),
             twn ? tws / twn : 0.0, twm, W.rxw_n ? W.rxw_sum / (double)W.rxw_n : 0.0, W.rxw_max);
 }
+/* the host's say on this thread (the Vita: above the game's, so the game never waits on roam_plat_lock behind a
+ * thread that holds it and is not running) */
+__attribute__((weak)) void roam_host_net_thread(void){}
 static void *net_main(void *u){
     (void)u;
+    roam_host_net_thread();
     int64_t next_tick = 0, t_start = roam_plat_now_us(), next_stats = t_start + 30000000;
     link_seen ls = { 0, 0, 0, 0, t_start };
     while (!atomic_load(&g_stop)){

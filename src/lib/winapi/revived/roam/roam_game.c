@@ -859,7 +859,19 @@ uint32_t modpacks_for_others(uint32_t key);          /* modpacks.c: a mod part's
 /* set while a friend's look is loaded (begin_load): the car loader's texture list for it (overrides.c
  * sub_00631e20) names its engine's texture too, for an open hood (showoff.c) */
 int roam_texlist_engine;
+static char g_br[160];                        /* build_ride's parts that took 1 ms or more (ROAM_PROBE: step_end) */
+#ifdef ROAM_PROBE
+static uint64_t g_br_t;
+#define BR(name) do { uint64_t t_ = rh_ns(); size_t l_ = strlen(g_br); \
+    if ((t_ - g_br_t) >= 1000000ull && l_ < sizeof g_br - 24) snprintf(g_br + l_, sizeof g_br - l_, " %s %.1f", name, (t_ - g_br_t) / 1e6); \
+    g_br_t = t_; } while (0)
+#else
+#define BR(name) do {} while (0)
+#endif
 static int build_ride(CPU *c, const rc_carcfg *cc, uint32_t ride, uint32_t skin, char *why, int whylen, int others){
+#ifdef ROAM_PROBE
+    g_br[0] = 0; g_br_t = rh_ns();
+#endif
     uint32_t types = rd32(G_CARTYPES);
     uint32_t ti = gcall1(c, FN_TYPE_BY_HASH, 0, cc->type_hash);
     uint32_t type;
@@ -876,9 +888,11 @@ static int build_ride(CPU *c, const rc_carcfg *cc, uint32_t ride, uint32_t skin,
         snprintf(why, (size_t)whylen, "car type %s unknown here, shown as type %u", cc->type_name, type);
         missing = -1;
     }
+    BR("type");
     for (uint32_t i = 0; i < 0x8f0u; i += 4) MR32(ride + i) = 0;
     uint32_t ia[4] = { type, 0, cc->ride_b[1], cc->ride_b[2] };
     rh_call(c, FN_RIDE_INIT, ride, 0, 4, ia);
+    BR("init");
     /* performance and tuning first, the way the game's own LAN car
      * description decoder (0x5F04D0) builds a remote car: without them the
      * physics block is incomplete and CreateCar's physics pass faults */
@@ -896,7 +910,9 @@ static int build_ride(CPU *c, const rc_carcfg *cc, uint32_t ride, uint32_t skin,
          * faults (an empty engine table, 0x5764D0); remote cars need no
          * physics, and only SetRideInfo (which does not run it) sees them */
     }
+    BR("perf");
     gcall1(c, FN_RIDE_STOCK, ride, 0);
+    BR("stock");
     if (missing < 0 || cc->n_parts == 0){                /* stock car */
         gcall1(c, FN_RIDE_SKINS, ride, skin);
         return missing < 0 ? 0 : 0;
@@ -917,9 +933,12 @@ static int build_ride(CPU *c, const rc_carcfg *cc, uint32_t ride, uint32_t skin,
         else if (!named[sl]) MR32(ride + 0x590u + 4u * sl) = 0;
         /* named but not found here: the stock part stays */
     }
+    BR("parts");
     for (int i = 0; i < 4; i++) MR8(ride + 4u + (uint32_t)i) = cc->ride_b[i];
     gcall0(c, FN_RIDE_PARTSON, ride);
+    BR("parts on");
     gcall1(c, FN_RIDE_SKINS, ride, skin);
+    BR("skins");
     if (missing > 0) snprintf(why, (size_t)whylen, "%d part(s) not in this game (slot%s), stock parts instead", missing, miss);
     return missing;
 }
@@ -2070,11 +2089,26 @@ static int part_packs(CPU *c){
 #define SLOW_STEP_US    20000
 #endif
 static uint64_t g_step_t;
-static void step_begin(void){ g_step_t = rh_ns(); }
+#ifdef ROAM_PROBE
+/* (the game's callees inside a step, timed: src/ug2/roam_probe.cpp; build_ride's own parts: g_br) */
+void roam_probe_begin(void);
+void roam_probe_end(char *out, int n);
+#else
+static inline void roam_probe_begin(void){}
+static inline void roam_probe_end(char *out, int n){ (void)n; out[0] = 0; }
+#endif
+static void step_begin(void){ g_step_t = rh_ns(); roam_probe_begin(); }
 static void step_end(int k, const char *what){
     uint64_t us = (rh_ns() - g_step_t) / 1000u;
-    if (us >= SLOW_STEP_US) rlog("[roam] f=%ld slot %d: slow step %s: %.1f ms\n", rh_frame(), k, what, us / 1000.0);
+    char in[320]; roam_probe_end(in, (int)sizeof in);
+    if (us >= SLOW_STEP_US){
+        const char *br = !strcmp(what, "build ride") ? g_br : "";
+        rlog("[roam] f=%ld slot %d: slow step %s: %.1f ms%s%s%s%s%s%s\n", rh_frame(), k, what, us / 1000.0,
+             in[0] ? " (game:" : "", in, in[0] ? ")" : "", br[0] ? " (ride:" : "", br, br[0] ? ")" : "");
+    }
+    g_br[0] = 0;
     g_step_t = rh_ns();
+    roam_probe_begin();
 }
 /* start loading peer's ride for slot k */
 static int begin_load(CPU *c, int k, const uint8_t *cfg, int len, uint32_t gen){
@@ -8875,6 +8909,7 @@ static void ph_mark(const char *what){
     g_ph_t = t;
 }
 static void ph_report(uint64_t ns){
+    { char none[8]; roam_probe_end(none, (int)sizeof none); }   /* (probing ends with the frame) */
     if (ns >= PH_SLOW_US * 1000ull){
         char b[384]; int at = 0;
         for (int i = 0; i < g_phn && at < (int)sizeof b - 48; i++)

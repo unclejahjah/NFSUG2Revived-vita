@@ -22,6 +22,7 @@
 #include <pthread.h>
 
 #include <cstdarg>
+#include <platform/sync.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -35,6 +36,7 @@ void roam_game_frame(struct CPU* c);
 void roam_game_hud(struct CPU* c);
 const char* roam_game_phrase(int i);
 int roam_host_hud_line(char* tx, int n);
+void roam_host_net_thread(void);
 void revived_link_control_send(const char* json);   // revived_link.cpp
 }
 bool revived_link_ensure();
@@ -323,6 +325,15 @@ static int slotPhrase(int slot)
 
 // The line at the top of free roam's HUD (roam_game.c du_hud): quick chat's choices while its button is held (after
 // 0.2 s, so that a tap passed on to the game shows nothing), then the phrase said for 2 s; 1 when there is one.
+// roam_web.c's network thread, at its start: above the game's main thread (160), so that the game thread never waits
+// on roam_plat_lock while the thread holding it is kept off the core (the Vita, 2026-11-23: waits of 75 to 220 ms).
+// It sleeps between its 10 ms ticks and datagrams.
+void roam_host_net_thread(void)
+{
+    if (pf::Thread::setCurrentPriority(150))
+        pf::logInfo("roam: network thread priority 150");
+}
+
 int roam_host_hud_line(char* tx, int n)
 {
     if (!optOn(roam_opt("NFSU2_ROAM_SAY")))

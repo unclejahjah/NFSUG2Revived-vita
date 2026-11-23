@@ -67,6 +67,8 @@ NATIVE_OVERRIDES = [
     0x4022c0,
     # ... and the HUD update (0x4EC5A0), whose call at 0x6005DB is where the names over friends' cars are placed
     0x4ec5a0,
+    # Free roam's car loads timed inside (src/ug2/roam_probe.cpp): SetRideInfo's and CarLoader::Load's callees
+    0x413440, 0x5b5350, 0x639ce0, 0x5aec20, 0x63a440, 0x63a360, 0x63a610, 0x63a5a0, 0x5f5010, 0x5f46a0, 0x63ae70, 0x57ef60, 0x63a1b0, 0x637840, 0x633b00, 0x633c30, 0x633b90, 0x57cac0, 0x43cd10,
     # Vita Settings in the game's own screens (src/ug2/menu_entry.cpp): the setups of UI_Main, UI_OptionsMain and
     # UI_Options (thiscall; their constructors call them directly) and the game's text of a label hash (edx)
     0x4aee30, 0x4b6230, 0x4b8470, 0x4ff9d0,
