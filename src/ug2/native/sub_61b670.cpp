@@ -10,6 +10,7 @@ namespace ug2
 {
 
 void sub_61b670_guest(win32::WinApplication* app, x86::CPU& cpu);
+bool roamPartIndexFind(x86::CPU& cpu);   // free roam's index of the parts by car and slot (src/ug2/carpart_cache.cpp)
 
 namespace native
 {
@@ -225,6 +226,8 @@ const shadow::Spec spec = {"sub_61b670", shadow::Eax | shadow::Ecx | shadow::Edx
 
 void sub_61b670(win32::WinApplication* app, x86::CPU& cpu)
 {
+    if (roamPartIndexFind(cpu))
+        return;
     if (!NFSU_NATIVE("sub_61b670_native"))
     {
         sub_61b670_guest(app, cpu);

@@ -864,11 +864,13 @@ int roam_texlist_engine;
 void roam_partcache_on(int on);
 void roam_partcache_forget(void);
 void roam_partcache_counts(uint32_t *hits, uint32_t *misses);
+void roam_partcache_note(char *out, int n);
 #else
 static inline void roam_partcache_on(int on){ (void)on; }
 static inline void roam_partcache_forget(void){}
+static inline void roam_partcache_note(char *out, int n){ (void)n; out[0] = 0; }
 #endif
-static char g_br[160];                        /* build_ride's parts that took 1 ms or more (ROAM_PROBE: step_end) */
+static char g_br[224];                        /* build_ride's parts that took 1 ms or more (ROAM_PROBE: step_end) */
 #ifdef ROAM_PROBE
 static uint64_t g_br_t;
 #define BR(name) do { uint64_t t_ = rh_ns(); size_t l_ = strlen(g_br); \
@@ -882,6 +884,7 @@ static int build_ride(CPU *c, const rc_carcfg *cc, uint32_t ride, uint32_t skin,
     roam_partcache_on(1);
     int r = build_ride_in(c, cc, ride, skin, why, whylen, others);
     roam_partcache_on(0);
+    { size_t l = strlen(g_br); if (l < sizeof g_br - 48) roam_partcache_note(g_br + l, (int)(sizeof g_br - l)); }
     return r;
 }
 static int build_ride_in(CPU *c, const rc_carcfg *cc, uint32_t ride, uint32_t skin, char *why, int whylen, int others){
