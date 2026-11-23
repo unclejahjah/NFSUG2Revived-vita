@@ -22,6 +22,8 @@ set(NFSU_PLATFORM_SOURCES
   ${NFSU_RENDER_SOURCES}
   src/platform/cfgfile.cpp
   src/platform/config.cpp
+  src/platform/crashlog.cpp
+  src/platform/kubridge_stub.cpp
   src/platform/cores.cpp
   src/platform/filesystem.cpp
   src/platform/jobs.cpp

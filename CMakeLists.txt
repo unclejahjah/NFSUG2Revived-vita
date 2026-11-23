@@ -31,8 +31,8 @@ endif()
 
 set(VITA_APP_NAME "NFS Underground 2")
 set(VITA_TITLEID  "NFSU2VITA")
-set(NFSU_VERSION  "0.8.4")
-set(VITA_VERSION  "00.84")
+set(NFSU_VERSION  "0.8.5")
+set(VITA_VERSION  "00.85")
 
 option(NFSU_LOG_DEBUG        "Verbose runtime logging" OFF)
 option(NFSU_ASSERT_SOFT      "Log failed assertions instead of trapping" OFF)
@@ -119,6 +119,12 @@ if(DEV_TOOLS)
   list(APPEND NFSU_DEFINES DEV_TOOLS)
 endif()
 set(NFSU_RUNTIME_DEFINES ${NFSU_DEFINES} NFSU_VERSION="${NFSU_VERSION}")
+# The commit in crash reports (crashlog.cpp), so a report can be matched to its build.
+execute_process(COMMAND git rev-parse --short=10 HEAD WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                OUTPUT_VARIABLE NFSU_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+if(NFSU_COMMIT)
+  list(APPEND NFSU_RUNTIME_DEFINES NFSU_COMMIT="${NFSU_COMMIT}")
+endif()
 # Offload renderer: where the draw flushes are recorded. 0: inline on the game thread, 1: inside the render thread
 # at the splice, 2: a worker on core 2. Empty: off.
 # A compile-time choice; no settings key selects the core.
@@ -185,6 +191,12 @@ target_compile_definitions(nfsu_runtime PRIVATE ${NFSU_RUNTIME_DEFINES})
 target_include_directories(nfsu_runtime PRIVATE ${NFSU_INCLUDES})
 # The run-time helpers the code generator calls stay out of link-time optimisation, which would drop them.
 set_source_files_properties(src/platform/memfuncs.cpp PROPERTIES COMPILE_OPTIONS -fno-lto)
+# The kubridge import stubs are top-level assembly: keep them out of link-time optimisation too.
+set_source_files_properties(src/platform/kubridge_stub.cpp PROPERTIES COMPILE_OPTIONS -fno-lto)
+
+# LAN play and Online through the NFSU2 Revived server (include/winapi/revived.h).
+include(cmake/revived.cmake)
+nfsu_revived_libraries(NFSU_REVIVED_LIBRARIES)
 
 add_executable(NFSU2VITA.elf src/ug2/main.cpp tools/shadercomp/shadercomp.cpp ${NFSU_CLANG_SOURCES}
                $<TARGET_OBJECTS:nfsu_game> $<TARGET_OBJECTS:nfsu_runtime>)
@@ -203,6 +215,7 @@ target_link_options(NFSU2VITA.elf PRIVATE ${NFSU_CLANG_LINK_FLAGS})
 target_link_libraries(NFSU2VITA.elf ${NFSU_CLANG_LIBRARIES})
 set_target_properties(NFSU2VITA.elf PROPERTIES LINK_DEPENDS "${NFSU_LLD_SCRIPT}")
 target_link_libraries(NFSU2VITA.elf
+  ${NFSU_REVIVED_LIBRARIES}
   stdc++
   ${NFSU_FFMPEG_LIBS}
   SceShaccCg_stub_weak
@@ -214,16 +227,20 @@ target_link_libraries(NFSU2VITA.elf
   SceTouch_stub
   SceCommonDialog_stub
   SceAppUtil_stub
+  SceAppMgr_stub
   SceAudio_stub
   SceAudiodec_stub
   SceVideodec_stub
   SceSysmodule_stub
+  SceNet_stub
+  SceNetCtl_stub
   ScePower_stub
   SceRtc_stub
   SceLibKernel_stub
   SceKernelThreadMgr_stub
   SceSysmem_stub
   SceProcessmgr_stub
+  pthread
   c
   m
 )

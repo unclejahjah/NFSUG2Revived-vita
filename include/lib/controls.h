@@ -132,6 +132,8 @@ struct State
     uint32_t    keys;               // bit per Key held
     int         pov;                // hat 0 in hundredths of a degree, -1 centred
     bool        openIme;            // the on-screen keyboard chord was pressed
+    bool        openSettings;       // the Vita Settings chord (Select + Up) was pressed
+    int         sayChord;           // quick chat: the slot 0-6 picked (quickChatSlots: 6 is add friend), -1 none
 };
 
 // Turns pad samples into joystick and key state: chords with Select, the Select tap (respot) and buttons held
@@ -147,7 +149,26 @@ private:
     uint32_t    m_chorded;          // inputs pressed while Select was held, mapped by the chord table until released
     bool        m_selectUsed;       // a chord was used during this Select press
     uint64_t    m_selectPulseEndUs; // the Select tap's button is reported until then
+    uint64_t    m_chatSinceUs;      // quick chat: when its button (quick_chat_button) went down
+    bool        m_chatUsed;         // a phrase was picked during this press
+    uint32_t    m_chatSwallow;      // phrase buttons pressed with it, kept from the game until released
+    uint64_t    m_chatPulseEndUs;   // a short tap of the chat button reaches the game until then
+    float       m_steer;            // steering=digital: the left stick's ramped X position
+    uint64_t    m_steerUs;          // time of the last ramp step
 };
+
+// Free roam's quick chat (quick_chat_button): the button held to pick a phrase (an Input, or -1 for Select, whose
+// chords pick then), and the buttons that pick phrase slots 1-6 while it is held; slots[6], the seventh, adds the
+// player whose nose touches ours as a friend.
+int quickChatButton();
+// Free roam proper (driving, quick chat on) says so each frame, with pf::ticksUs(): only then is the button taken.
+void setQuickChatLive(uint64_t nowUs);
+// The right stick camera (src/ug2/camera_stick.cpp) says so each frame it runs: the right stick then turns the
+// camera only, and its axes (Z, Rz: the game's gas and brake when bound to it) read as centred.
+void setCameraStickLive(uint64_t nowUs);
+void quickChatSlots(Input slots[7]);
+// Since when the quick chat button has been held in free roam (pf::ticksUs), 0 when it is not held now.
+uint64_t quickChatHeldSince();
 
 // Radial dead zone and response curve of one stick (x, y in -1..1). deadZone and saturation are DirectInput
 // property values (0..10000 of full deflection); the larger dead zone and the smaller saturation of these and the

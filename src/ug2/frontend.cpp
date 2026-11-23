@@ -22,6 +22,7 @@
 #include <unordered_map>
 #include <utility>
 #include <cstring>
+#include <strings.h>
 #include <string>
 #include <vector>
 
@@ -111,6 +112,7 @@ win32::MethodPtr s_createFile = nullptr;
 int s_mainThread = 0;
 reg32 s_frame = ~0u;
 double s_moviesSkip = 0;                       // seconds, 0 for off
+int s_skipIntro = 0;                           // skip_intro_movies: 0 off, 1 logos, 2 logos and the opening movie
 reg32 s_moviePlayer = 0;
 std::string s_movieName;
 uint64_t s_movieStartUs = 0;
@@ -807,7 +809,25 @@ void checkQuit(uint64_t elapsedUs, reg32 frame, reg32 state)
     win32::Window::postMessage(0, WmQuit, 0, 0);
 }
 
-// Ends a movie after movies_skip seconds.
+// The start-up movie a name (a path or a bare name, any case) is: 1 a logo or the notice, 2 the opening, else 0.
+int introKind(const std::string& name)
+{
+    size_t start = name.find_last_of("/\\");
+    start = start == std::string::npos ? 0 : start + 1;
+    std::string base = name.substr(start);
+    const size_t dot = base.find('.');
+    if (dot != std::string::npos)
+        base.resize(dot);
+    static const char* const Logos[] = { "ealogo", "THX_logo", "PSA" };
+    for (const char* logo : Logos)
+    {
+        if (strcasecmp(base.c_str(), logo) == 0)
+            return 1;
+    }
+    return strcasecmp(base.c_str(), "FMVOpening") == 0 ? 2 : 0;
+}
+
+// Ends a movie after movies_skip seconds, and the start-up movies skip_intro_movies names once they have started.
 void checkMovies(win32::WinApplication* app, x86::CPU& cpu, uint64_t nowUs, reg32 frame)
 {
     const reg32 player = rc::ld32(MovieActive) ? rc::ld32(MoviePlayer) : 0;
@@ -821,7 +841,13 @@ void checkMovies(win32::WinApplication* app, x86::CPU& cpu, uint64_t nowUs, reg3
         if (player)
             pf::logInfo("fe: movie %s starts at frame %u", name.c_str(), unsigned(frame));
     }
-    if (!player || s_movieSkipped || double(nowUs - s_movieStartUs) / 1e6 < s_moviesSkip)
+    if (!player || s_movieSkipped)
+        return;
+    const double playedS = double(nowUs - s_movieStartUs) / 1e6;
+    const int intro = s_skipIntro ? introKind(name) : 0;
+    // An intro movie ends after a few frames, so that its player is running when the end message arrives.
+    const bool skipIntro = intro && intro <= s_skipIntro && playedS >= 0.2;
+    if (!skipIntro && (s_moviesSkip <= 0 || playedS < s_moviesSkip))
         return;
     s_movieSkipped = true;
     const reg32 args[2] = { MovieEndMessage, 0 };
@@ -881,7 +907,7 @@ void frameHook(win32::WinApplication* app, x86::CPU& cpu)
         grepMemory(s_frame);
     if (scanEvery && s_frame % scanEvery == 0)
         scanText(s_frame);
-    if (s_moviesSkip > 0)
+    if (s_moviesSkip > 0 || s_skipIntro)
         checkMovies(app, cpu, now, s_frame);
     checkQuit(elapsed, s_frame, gameState);
     static const bool orbit = pf::Config::getBool("fe_orbit", false);
@@ -972,6 +998,10 @@ void configure(win32::WinApplication& app)
         pf::logInfo("frontend: boot_script with %u entries, times in seconds from the first frame", unsigned(s_script.size()));
     }
     s_moviesSkip = atof(pf::Config::getString("movies_skip", "0"));
+    static const char* const IntroSkips[] = { "off", "logos", "opening" };
+    s_skipIntro = pf::Config::getChoice("skip_intro_movies", IntroSkips, 3, 0);
+    if (s_skipIntro)
+        pf::logInfo("frontend: skip_intro_movies=%s", IntroSkips[s_skipIntro]);
     parseQuit(pf::Config::getString("boot_quit_after", ""));
     if (pf::Config::getBool("fe_msg", false))
         s_msgApp = &app;

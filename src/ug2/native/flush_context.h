@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 namespace ug2 { namespace native { namespace flush {
 
@@ -168,11 +169,16 @@ struct Context : win32::d3d9::bridge::SegmentRef
     x86::CPU    cpu;
     win32::MemMap* block = nullptr;        // the detached heads in guest memory
     std::atomic<uint32_t> state{JobIdle};  // queued jobs: run by one thread, then done
+    std::atomic<uint32_t> submits{0}, finishes{0};  // runs queued and finished: await compares them, closing resets neither
     win32::WinApplication* app = nullptr;
     uint32_t    frame = 0;              // frame index at the marker
+    uint32_t    serial = 0;             // order queued; unload notices compare it
     bool        ok = true;              // the flush ran to its end
     uint32_t    fpscr = 0;              // the game thread's, set on the thread that runs the job
     void      (*run)(Context&) = nullptr;   // the flush on cpu, then the segment's publish
+#ifdef DEV_TOOLS
+    std::vector<reg32> solids;          // solids of the queued mesh draws, for the unload log
+#endif
 
     // Marker: clears the light copies.
     void beginSnapshot();
@@ -229,6 +235,8 @@ inline bool isDone(const Context& job) { return job.state.load(std::memory_order
 // Microseconds waiting in await, jobs run and microseconds spent running them; read by the counters.
 struct Totals { uint64_t waitedUs[2], waits[2], runs, busyUs; };
 Totals totals();
+// Id of the thread that submitted the last job, 0 before the first.
+int gameThread();
 }
 
 // Jobs pending now and the most since the last call, game thread; microseconds the game thread waited at joins and
@@ -239,6 +247,13 @@ Pending pendingStats();
 void closeDone();
 // Waits for every job and closes it, game thread; fence: waits are counted as fence waits.
 void fence();
+// Before guest memory a queued flush may read is unloaded (size 0: range unknown): cancels its draws or fences;
+// kind tags the notice for logs.
+void unloadNotice(const char* what, reg32 from = 0, reg32 size = 0, uint32_t kind = 0, bool settle = true);
+// After notices sent with settle off: waits out the worker's draw in progress.
+void unloadSettle();
+// Dev check: fills an unloaded range with a poison word (offload_unload_poison, bit by kind).
+void unloadPoison(uint32_t kind, reg32 from, reg32 size);
 
 inline Context* context(const x86::CPU& cpu)
 {

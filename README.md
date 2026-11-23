@@ -8,10 +8,28 @@ Changes fall into two groups. Compatibility changes replace what the Vita does n
 
 It is very possible that some of these changes have brought about unexpected bugs/crashes that do not exist in the PC version, and this is something that will constantly be addressed with updates.
 
-[Install](#install) · [Controls](#controls) · [Settings](#settings) · [Report Bug](../../issues)
+[Install](#install) · [Controls](#controls) · [Settings](#settings) · [Online](#online-and-lan-play) · [Report Bug](../../issues)
 
 > **Playtest.** The game is playable in all aspects. The entire career mode is working, and the framerate is good in most scenes.
 > Expect rough edges; [Known issues](#known-issues--caveats) lists the ones we know.
+
+## What this fork adds
+
+This fork builds on [danos-x5/NFSUG2_VITA](https://github.com/danos-x5/NFSUG2_VITA) (v0.8.5) and adds:
+
+- **Online play on the NFSU2 Revived server** ([nfsu2.xyz](https://nfsu2.xyz)): the game's Online and LAN menus
+  reach the players of the browser version, and `online_server=` in the settings file picks a community server for
+  the `direct` mode. See [Online and LAN play](#online-and-lan-play).
+- **Free roam with other players**, NFSU2 Revived's free-roam mod built in: names and flags over players' cars,
+  **quick chat** (hold D-pad Down, then a phrase button), crews, and adding friends nose to nose or by name. See
+  [Free roam with other players](#free-roam-with-other-players).
+- **Vita Settings**, an icon in the game's own menus with the browser version's settings, made of the game's own
+  option screens. See [Vita Settings](#vita-settings).
+- **Crash and freeze reports** in `crashes/`, and the last run's log kept. See [Crash reports](#crash-reports).
+- **Quality of life:** stick dead zone and response, digital steering, right stick chase camera, fast travel from
+  the World Map and skipping the intro movies. See [Quality of life options](#quality-of-life-options).
+- Faster loading of other players' cars in free roam (car builds spread over frames, the parts database indexed),
+  and timing lines in the free roam log for the frames that are still slow.
 
 ## Requirements
 
@@ -115,6 +133,7 @@ controller (Cross is shown as Button 3), and the tables below are the defaults.
 | Cross | Select |
 | Circle | Back |
 | Start | Start, skip movie |
+| Select + Up | Vita Settings |
 
 ### Driving
 
@@ -126,6 +145,7 @@ controller (Cross is shown as Button 3), and the tables below are the defaults.
 | Cross | Handbrake |
 | Circle | Nitrous |
 | Triangle / Square | Change camera / look back |
+| Right stick | Turn the chase camera round the car (`camera_stick`); with the hood and bumper cameras, down looks back |
 | Rear touch corners | Not bound; set them in Options > Controls |
 | Select | Reset car to the road |
 | Start | Pause |
@@ -137,11 +157,28 @@ controller (Cross is shown as Button 3), and the tables below are the defaults.
 | D-pad up | Enter a race or shop |
 | D-pad right | Read SMS |
 | D-pad down | Career statistics |
-| D-pad left | World map |
+| D-pad left | World map (with `fast_travel` on, answer No to the GPS question to go to the chosen place) |
+| Hold D-pad Down + Up, Left, Right, Cross, Circle or Square | Online free roam: quick chat (see [Quick chat](#quick-chat)) |
+| Hold D-pad Down + Triangle | Online free roam: ask the player nose to nose with you to be friends |
+
+A short press of D-pad Down still opens the career statistics; holding it for quick chat does not.
 
 Text fields, such as a profile name, open the Vita keyboard. To quit, use the PS button.
 
 ## Settings
+
+### Vita Settings
+
+**Vita Settings**, the main menu icon where Online was (Online is not offered), opens the game's own Options screens
+with the settings of the browser version's Settings page that the Vita has, in the same groups: Multiplayer, Free
+Roam, Display, Sound, Controller and Game, with the start-up screen's player settings (Performance), Worlds,
+Friends and crews, and Mods (NFSU2 Revived, free roam and EU Car Content, each switched on or off). It is also the last icon in the game's Options, and Select + Up opens it
+from any front-end menu (not in a race). Pick a group, then change a setting with left and right as in the game's options; Cross on a text
+setting, such as a name or the passphrase, opens the Vita keyboard. Each change is saved at once to the same files as
+a hand edit and as the start-up screen's: `NeedForSpeedUnderground2.cfg` and free roam's `scripts/NFSU2FreeRoam.ini`.
+`log_info` and the garage stick settings apply at once; the others apply when the game starts again, and the game says
+so the first time one changes. The last icon, **Save and Restart**, restarts the game. The passphrase is never shown or
+logged once typed. `options_menu=off` leaves the icon out.
 
 ### Start-up screen
 
@@ -216,9 +253,25 @@ Delete the file to get a fresh copy on the next start.
 | `music_hw_decode` | `on` (default), `off` | Music decoded by the Vita's hardware MP3 decoder instead of the game's own decoder, which frees the CPU. If the hardware decoder cannot start, the game's decoder plays it |
 | `audio_mix_rate` | `0` (default: the game's choice, 44100 with the Vita preset), `32000`, `22050` | Rate the game mixes its sound at. `32000` matches most of the game's sounds and music and needs less CPU; `22050` is cheaper still but duller |
 | `audio_mixer_split` | `on` (default), `off` | The sound mixer holds the game's sound lock for a shorter time, so the game waits on it less. Worth about 1 fps in busy races |
+| `network` | `revived` (default), `direct`, `off` | The game's LAN and Online menus through the NFSU2 Revived server, over the Vita's own Wi-Fi network, or offline as before |
+| `revived_server` | `nfsu2.xyz` (default), a host name | The NFSU2 Revived server (`network=revived`) |
+| `revived_name` | empty (default: the Vita's user name), a name | The name other players see on the Revived server |
+| `online_server` | `eahub.eu` (default), a host name or address, `off` | `network=direct`: the community server the Online menu uses in place of EA's closed servers |
 | `show_configurator_on_boot` | `on` (default), `off` | The start-up screen before the game boots (see above) |
 | `boot_race` | `off` (default), `on` | Skip the menus and start a test race |
 | `log_info` | `off` (default), `on` | Write a detailed log to `NeedForSpeedUnderground2.log`, useful when reporting a problem. Errors are logged either way |
+| `revived_passphrase` | empty (default), your passphrase | Your nfsu2.xyz passphrase, to play under the name it claimed (see [Your name on nfsu2.xyz](#your-name-on-nfsu2xyz)). Never shown or logged |
+| `options_menu` | `on` (default), `off` | The Vita Settings icon in the game's menus |
+| `fast_travel` | `on` (default), `off` | Fast travel from the World Map (see [Quality of life options](#quality-of-life-options)) |
+| `skip_intro_movies` | `off` (default), `logos`, `opening` | Skip the EA, THX and notice movies at start-up, or those and the opening movie |
+| `stick_deadzone` | `15` (default), `0` to `40` | Dead zone of both sticks in percent |
+| `stick_response` | `standard` (default), `linear`, `precise` | How the sticks respond: finer near the centre, straight, or finer still |
+| `steering` | `analog` (default), `digital` | Steering as far as the left stick is pushed, or full lock (ramped) past half way, as a keyboard |
+| `camera_stick` | `on` (default), `off` | The right stick turns the chase camera while driving |
+| `camera_stick_speed` | `4` (default), `1` to `10` | How fast the right stick camera follows the stick and comes back |
+| `quick_chat_button` | `dpad_down` (default), `dpad_up`, `triangle`, `select` | The button held for free roam's quick chat |
+| `crash_report` | `on` (default), `off` | Write a crash report when the game crashes (see [Crash reports](#crash-reports)) |
+| `stall_seconds` | `8` (default), seconds | How long without a frame before a freeze report is written |
 
 Settings that start with `dev_` are experiments that may change or go away. Their tuning keys were renamed too
 (`dev_world_lod_min_tris`, `dev_world_lod_max_percent`, `dev_world_lod_min_width`, `dev_world_lod_signs`,
@@ -226,8 +279,92 @@ Settings that start with `dev_` are experiments that may change or go away. Thei
 `dev_smoke_fade`, `dev_smoke_near`, `dev_smoke_mip`); the names without `dev_` are still read and the log notes the
 new name.
 
+### Quality of life options
+
+All of these are in Vita Settings (Controller and Game) and in the settings file:
+
+- **Sticks:** `stick_deadzone` and `stick_response` apply to both sticks, steering included, and change at once.
+- **Digital steering:** `steering=digital` turns the left stick into a keyboard-style steer: pushed past half way it
+  ramps to full lock in a quarter of a second and back when let go. The D-pad is not used.
+- **Right stick camera:** while driving, the right stick turns the chase camera all the way round the car. Let go
+  near the back and it eases back; from further round it snaps back. With the hood and bumper cameras, down is the
+  game's Look Back. Nothing changes while the stick is left alone, and it no longer works the gas and brake.
+- **Fast travel:** on the World Map, pick a place, Accept, and answer **No** to "Are you sure you want to engage the
+  GPS system?": the car is put there. Yes sets the GPS route as before. As the PC mod NFSU2FastTravel does it.
+- **Skip intro movies:** `logos` skips the EA, THX and notice movies, `opening` the opening movie too.
+
 The graphics settings can be changed in the game's own Display menu, and they are kept between sessions. The
 resolution stays at 960x544. Above the Medium detail setting the Vita will definitely struggle with performance.
+
+## Online and LAN play
+
+The game's own network code runs as it does on a PC. Wi-Fi must be connected; without it the game says the network
+is not available, as before. Two ways to play, chosen with `network`:
+
+- **`revived` (default): the NFSU2 Revived server** ([nfsu2.xyz](https://nfsu2.xyz)), the server of NFSU2 in the
+  browser. The Vita joins its virtual LAN over a secure WebSocket (`wss://nfsu2.xyz/lan`), the same link the browser
+  game uses, with the same Winsock layer (nfsu2-web's `winsock.c` and `net_lan.c`, in `src/lib/winapi/revived`):
+  - **Online:** the game's Online menu reaches the server's own lobby (any name logs in), as in the browser.
+  - **LAN:** the LAN menu lists the races of everyone on the server who has it open, in the browser or on a Vita.
+  The server sees the player under `revived_name`, by default the Vita's user name. The link connects when the game
+  opens its LAN or Online screens and lets the server go 10 seconds after it leaves them.
+- **`direct`: the Vita's own network.** LAN races with PCs running NFSU2 v1.2 and other Vitas on the same Wi-Fi, found
+  by broadcast as on PC. Online: every `*.ea.com` name the game looks up goes to the community server in
+  `online_server` (default `eahub.eu`), the same redirect the PC `eanationhub` mod uses, and the lobby link is plain
+  TCP to port 20920 (the game's `*pcnfs05.ea.com` loses its `*`, which asked for SSL 2.0).
+
+### Your name on nfsu2.xyz
+
+The server sees you under `revived_name` (or the Vita's user name). A name someone has claimed on nfsu2.xyz with a
+passphrase only works with that passphrase: set `revived_passphrase` (in Vita Settings > Multiplayer, Cross opens the
+keyboard) to the one you use in the browser. Without it a claimed name gets an empty free roam.
+
+### Free roam with other players
+
+**Free roam with other players** (NFSU2 Revived's free-roam mod) installs the way the PC mod does. On PC it is
+`NFSU2FreeRoam.asi` and `NFSU2FreeRoam.ini` in the game's `scripts` folder; on the Vita the code is built in, so only
+the settings file goes there: copy [`extras/scripts/NFSU2FreeRoam.ini`](extras/scripts/NFSU2FreeRoam.ini) to
+`ux0:data/NeedForSpeedUnderground2/scripts/NFSU2FreeRoam.ini`. It has the PC plugin's settings (`Enable`, `Name`,
+`Room`, `Crew`, `CrewColours`, `Collide`, ...) and writes `scripts/NFSU2FreeRoam.log`. The game side is the PC
+plugin's (runtime/roam_game.c built as for Windows), run from the same place in the game's main loop; the cars of the
+players near you come from the Revived server's free-roam hub, so this needs `network=revived`. Without the file, or
+with `Enable = 0`, the game is as before.
+
+[`extras/scripts/NFSU2FreeRoam.ini`](extras/scripts/NFSU2FreeRoam.ini) has the Vita's defaults: `MaxPlayers = 8` and
+`MaxCars = 2` (the PC's 33 and 5 are too many for the Vita; every car shown is a car load) and `CarPoolKB = 24000`,
+the car memory the Vita has been tested with. A car that does not fit is left out, not a crash. Vita Settings' Free
+Roam and Friends and crews groups edit the same file.
+
+On top of the PC plugin, the Vita draws what the browser version's page does:
+
+- **Names** over the other players' cars (`Names = 1`), and the game's own player names.
+- **Flags:** your flag before your name (`Flag`, a code such as `gb`, `us` or `gb-eng`; Vita Settings > Free Roam
+  lists them), and the other players' flags before theirs.
+- **Friends:** drive nose to nose with a player and hold the quick chat button + Triangle to ask them to be friends;
+  their answer shows in their name tag. Vita Settings > Friends and crews > Add friend by name asks by name.
+- **Crews:** `Crew` and `CrewColours`, as on PC.
+
+#### Quick chat
+
+Hold D-pad Down (`quick_chat_button`) in free roam: the top line shows the six phrases. Press Up, Left, Right,
+Cross, Circle or Square to send one (by default Hey!, Thanks!, Race?, Follow me!, gg, Nice car!). It shows after
+your name on other players' screens, and as "You: ..." on yours. The phrases are nfsu2.xyz's list; pick them in Vita
+Settings > Friends and crews or as `Say1` to `Say6` in the ini. With `quick_chat_button=select` they are Select +
+Down, Left, Right, Cross, Circle, Square (Up stays Vita Settings).
+
+### Status and limits
+
+Free roam on nfsu2.xyz, names, flags and quick chat have been played on a real Vita. Other players' cars still cost
+a short dip when they load in. Not there yet:
+
+- **No hosting.** The Vita can join the races and lobbies of others but cannot host a LAN race: hosting needs the
+  game's `server.dll`, which the port does not load yet.
+- Races you drive up to and join from free roam, as in the browser version, are planned but not built.
+- LAN races joined from the Vita have not been tested on hardware yet.
+
+With `log_info=on` the link logs its steps with a `revived:` prefix (`ws2_32:` in `direct` mode), which helps when reporting
+a problem. In `direct` mode, the race link uses UDP port 3658, which the Vita also uses for ad hoc play; if binding it
+fails, the log says so.
 
 ## Mods
 
@@ -243,6 +380,13 @@ settings file at all (where the PC mod would be on), with the key at `0` or with
 off, and the log says what it needs. The game reads the file at start-up and never writes it. Based on Extra
 Options' option (see [THIRD_PARTY.md](THIRD_PARTY.md)); none of its code is used.
 
+### Installing mods
+
+Mods go in the same places as on the PC, so a PC mod's files and settings drop in the same way: settings files in
+the game folder's `scripts` folder with the PC mod's own file names and keys (`scripts/NFSU2FreeRoam.ini`,
+`scripts/NFSU2ExtraOptionsSettings.ini`), and asset files over the matching paths in the game folder. The Vita cannot
+run `.asi` plugins; the mods above are built into the port and only read their settings files.
+
 ### Other PC mods
 
 All mods are untested at this stage. The only kinds that could work are PC mods that change `SPEED2.EXE` and/or the
@@ -251,6 +395,27 @@ game's asset files. They may cause crashes or major performance problems.
 The port does not check `SPEED2.EXE` on the Vita. A VPK is built from one particular executable, so a different one
 beside it may crash or misbehave.
 
+### Crash reports
+
+Each start keeps the last run's log as `NeedForSpeedUnderground2.previous.log`, so closing the game no longer loses it.
+When the game crashes with `kubridge.skprx` loaded (it is under `*KERNEL` in `ur0:tai/config.txt` on most setups that
+run Vita ports), it writes `crashes/crash-<date>-<time>.txt` in the game folder: what failed, the registers, the code
+addresses on the stack and the last log lines, info lines included even with `log_info` off. Without kubridge a guest
+trap or a fatal error still writes one, without the registers. The next start shows a notice naming the report, and
+copies the crashed run's log beside it as `crash-<date>-<time>.log`. When the game stops drawing frames for 8 seconds
+(`stall_seconds`), the stall reports go to `crashes/freeze-<date>-<time>.txt` in the same way.
+
+The system's own crash dump (`ux0:data/psp2core-*-eboot.bin.psp2dmp`) holds the same last log lines. To read a report
+or a dump against the build that crashed:
+
+```sh
+python3 tools/vita/crashdump.py crash-20261121-233122.txt --elf build-vita/NFSU2VITA.elf
+python3 tools/vita/crashdump.py psp2core-1795202539-0x00002d2389-eboot.bin.psp2dmp --elf build-vita/NFSU2VITA.elf
+```
+
+`sub_XXXXXX` in its output is the translated `SPEED2.EXE` function at guest address `XXXXXX`. Keep the `.elf` of each
+build you hand out: the addresses only make sense with the matching one.
+
 ## Known issues / caveats
 
 - The game aims for 30 fps and drops below it in busy moments: race starts, heavy smoke and dense traffic. Graphics
@@ -258,7 +423,8 @@ beside it may crash or misbehave.
 - At lower settings the framerate is very stable and can even hit 60fps during gameplay if the framerate is set to unlocked mode.
 - On-screen button prompts show PC key names, such as "Enter", not Vita buttons.
 - World objects sometimes show the wrong texture for a while. A fix is in testing.
-- No online or LAN play.
+- Online play is new: the Vita cannot host a race yet (it needs `server.dll`), and other players' cars loading in
+  free roam still cause short dips; see [Status and limits](#status-and-limits).
 - Sound bug where sometimes the music continues playing after entering the pause menu or changing scenes.
 
 ## Build
@@ -348,6 +514,9 @@ With `DEV_TOOLS=OFF` the settings of those diagnostics (`hitch_log`, `dev_mixer_
   needs fixed; none of its code is used
 - [nfsu2-recompiled](https://github.com/codepdbh/nfsu2-recompiled): another recompilation of the same game, read as
   a reference for how the game works; none of its code is used
+- [nfsu2-web](https://github.com/th0mk/nfsu2-web) (NFSU2 Revived, MIT): its Winsock layer and virtual LAN
+  (`src/lib/winapi/revived`), and its server at nfsu2.xyz, which the Vita plays on;
+  [NFSU2-Revived-Android](https://github.com/mininxd/NFSU2-Revived-Android): its switch client, read as a reference
 
 ## License
 

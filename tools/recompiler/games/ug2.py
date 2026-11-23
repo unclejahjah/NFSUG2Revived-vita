@@ -22,6 +22,14 @@ NO_RETURN = [
     0x75bca3,   # _amsg_exit variant (__crtExitProcess)
 ]
 
+# Calls that write their return address into its stack slot (the translation leaves it unwritten): their native
+# callee runs only for that caller.
+RETURN_ADDRESS_SITES = [
+    0x581475,   # GameLoop's second debug hook call (0x4022C0): free roam (src/ug2/freeroam.cpp), as NFSU2FreeRoam.asi
+    0x6370de, 0x63716b,   # the stock parts' (0x637040) calls of UpdatePartsEnabled: skipped while free roam builds a car
+    0x6005db,   # Player::Update's HUD step (0x600590) calling the HUD update 0x4EC5A0: free roam's names over the cars
+]
+
 # Guest functions replaced by hand-written native code (native::sub_<address>, src/ug2/native.cpp).
 NATIVE_OVERRIDES = [
     0x75bed4,   # _ftol2: st0 to a 64-bit integer, truncating (fistp, corrected toward zero)
@@ -35,6 +43,12 @@ NATIVE_OVERRIDES = [
     0x51a5d0,   # FERenderObject draw (thiscall): canvas mapping of the object
     0x5c7ec0,   # projection (thiscall, view): hor+ factors of the player views
     0x5bd4a0,   # draw queue material setup (cdecl; material, packet flags): D3D material or effect vectors
+    # Fast travel (src/ug2/fasttravel.cpp), as NFSU2FastTravel on PC
+    0x558790,   # dialog (cdecl; ..., yes, no, back, buttons, text): the World Map's GPS question gets the fast-travel No
+    0x4e08e0,   # GameWorldMapScreen::NotificationMessage (thiscall; hash, object, p3, p4): No moves the car
+    # Right stick camera (src/ug2/camera_stick.cpp)
+    0x453570,   # CubicCameraMover::Update (thiscall): the stick's orbit or Look Back first
+    0x5ba9a0,   # look-at (cdecl; matrix, eye, target, up): the orbited eye inside that update
     # Front touch (src/ug2/padbind.cpp)
     0x50b460,   # FE mouse cursor draw (cdecl; x, y): skipped with front_touch=on
     # Forwarding placeholders for the hot-function conversions (src/ug2/native/stubs.cpp, tools/native/placeholders.txt)
@@ -49,6 +63,22 @@ NATIVE_OVERRIDES = [
     0x61d4b0, 0x6316d0, 0x631250,
     # Garage camera orbit with the right stick (src/ug2/native/sub_4a5d90.cpp)
     0x4a5d90,
+    # GameLoop's debug hook (empty, ret), called at 0x581470 and 0x581475 between World::DoTimestep and the camera,
+    # audio and render: the call at 0x581475 is where the PC's NFSU2FreeRoam.asi runs free roam (src/ug2/freeroam.cpp)
+    0x4022c0,
+    # ... and the HUD update (0x4EC5A0), whose call at 0x6005DB is where the names over friends' cars are placed
+    0x4ec5a0,
+    # ... and CarPartDB::NewGetCarPart remembered while free roam builds a friend's car (src/ug2/carpart_cache.cpp)
+    0x61b980, 0x61bcd0,
+    # Free roam's car loads timed inside (src/ug2/roam_probe.cpp): SetRideInfo's and CarLoader::Load's callees
+    0x413440, 0x5b5350, 0x639ce0, 0x5aec20, 0x63a440, 0x63a360, 0x63a610, 0x63a5a0, 0x5f5010, 0x5f46a0, 0x63ae70, 0x57ef60, 0x63a1b0, 0x637840, 0x633b00, 0x633c30, 0x633b90, 0x57cac0, 0x43cd10,
+    # ... one level further in: SetRideInfo's 0x63A5A0 -> 0x638190, and CarLoader::Load's 0x633B90 and 0x57CAC0
+    0x638190, 0x631e20, 0x634800, 0x61ff40, 0x615280, 0x636840, 0x6204d0, 0x61fe10, 0x60c280, 0x61f700, 0x48f6a0, 0x61c9d0, 0x61c570, 0x57ca10, 0x579b90, 0x610e00, 0x488f10, 0x48b8b0,
+    # Vita Settings in the game's own screens (src/ug2/menu_entry.cpp): the setups of UI_Main, UI_OptionsMain and
+    # UI_Options (thiscall; their constructors call them directly) and the game's text of a label hash (edx)
+    0x4aee30, 0x4b6230, 0x4b8470, 0x4ff9d0,
+    # ... and the race pause menu's options list, UI_PauseOptions (0x4d9418 calls it directly)
+    0x4c4bd0,
     # Menu up/down ignore the right stick (src/ug2/native/sub_571d50.cpp)
     0x571d50,
     # Medium graphics features: flares, shadow hull, headlight pass, particles
@@ -98,6 +128,9 @@ NATIVE_OVERRIDES = [
     0x5ce170,   # texture creation of a texture record (thiscall)
     # Draw flush helpers: group begin virtuals, skinning palette upload, texture lookup (src/ug2/native/sub_5bc6f0.cpp ...)
     0x5bc6f0, 0x5bc7b0, 0x5bc890, 0x5bcad0, 0x5bcb10, 0x5bdcd0, 0x4901d0,
+    # Unloads that wait for pending draw flushes (src/ug2/native/load_hooks.cpp): chunk unload, solid unload,
+    # texture pack unload, streamed texture unload
+    0x577b10, 0x493f20, 0x494dd0, 0x494b10,
 ]
 
 # Calls emitted inline with generate.py --inline-ftol2 (codegen/control.py INLINE): address -> helper.

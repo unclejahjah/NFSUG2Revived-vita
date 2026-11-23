@@ -13,7 +13,8 @@ namespace
 using T = SettingType;
 using G = SettingGroup;
 const unsigned DS = SettingNeedsDevSettings, DT = SettingNeedsDevTools, OFF = SettingOff, AUTO = SettingAuto,
-               HOST = SettingHostOnly, SHADOWBUILD = SettingNeedsShadowBuild;
+               HOST = SettingHostOnly, SHADOWBUILD = SettingNeedsShadowBuild,
+               SECRET = SettingSecret;
 
 #define BOOL(key, grp, def, desc, flags) { key, T::Bool, G::grp, def, 0, 1, 1, nullptr, desc, flags }
 #define INT(key, grp, def, lo, hi, step, desc, flags) { key, T::Int, G::grp, def, lo, hi, step, nullptr, desc, flags }
@@ -28,11 +29,21 @@ const Setting s_table[] =
     // ---- General ----
     BOOL("show_configurator_on_boot", General, 1, "Show the start-up screen (press START to configure) before the game boots.", 0),
     BOOL("log_info", General, 0, "Write a detailed log to NeedForSpeedUnderground2.log. Errors are logged either way.", 0),
+    BOOL("fast_travel", General, 1, "On the World Map, No on the GPS question puts the car at the chosen place (NFSU2FastTravel).", 0),
+    BOOL("options_menu", General, 1, "The Vita Settings icon in the game's menus (main menu and Options), and Select + Up opens it.", 0),
+
+    // ---- General: network play (src/lib/winapi/ws2_32.cpp, src/lib/winapi/revived) ----
+    ENUM("network", General, 0, "revived|direct|off", "LAN and Online through the NFSU2 Revived server, over local Wi-Fi only, or offline.", 0),
+    STR("revived_server", General, "nfsu2.xyz", "The NFSU2 Revived server (network=revived).", 0),
+    STR("revived_name", General, "", "Name other players see on the Revived server; empty uses the Vita's user name.", 0),
+    STR("revived_passphrase", General, "", "Your nfsu2.xyz passphrase, to play under the name it claimed. Never shown or logged.", SECRET),
+    STR("online_server", General, "eahub.eu", "network=direct: the community server the Online menu uses, or off.", 0),
 
     // ---- Display ----
     ENUM("frame_rate", Display, 0, "30|60|0", "30 locks to 30 fps for steady pacing; 60 shows each frame for one vblank; 0 unlocks.", 0),
     BOOL("widescreen", Display, 1, "On fills the 16:9 screen with the HUD at the edges; off is the original 4:3 with black bars.", 0),
     ENUM("gfx_preset", Display, 0, "vita|max", "Graphics the port is tuned for, or everything on (much slower). The Display menu changes them.", 0),
+    ENUM("skip_intro_movies", Display, 0, "off|logos|opening", "Skip the start-up movies: off plays them; logos skips EA, THX and the notice; opening skips the opening movie too.", 0),
     ENUM("movies", Display, 1, "game|native|vp6|vp6only", "native: the .mp4s, Vita decoder; vp6: else native VP6 (vp6only: VP6 always); game: the game's own decoder.", 0),
 
     // ---- Controls ----
@@ -40,6 +51,12 @@ const Setting s_table[] =
     BOOL("front_touch", Controls, 1, "Touching the screen clicks like a mouse in the menus; no cursor is drawn.", 0),
     BOOL("garage_stick", Controls, 1, "The right stick turns the car in the garage and the customisation menus.", 0),
     INT("garage_stick_deadzone", Controls, 30, 0, 99, 1, "Dead zone of the garage stick, in percent of its range.", 0),
+    INT("stick_deadzone", Controls, 15, 0, 40, 1, "Dead zone of both sticks (steering too), in percent of their range; the game's own dead zone still applies.", 0),
+    BOOL("camera_stick", Controls, 1, "While driving the right stick turns the chase camera round the car (hood, bumper: down looks back).", 0),
+    ENUM("quick_chat_button", Controls, 0, "dpad_down|dpad_up|triangle|select", "Free roam's quick chat: hold this and press a phrase button (Vita Settings, Friends and crews); select: Select + the button.", 0),
+    INT("camera_stick_speed", Controls, 4, 1, 10, 1, "How fast the right stick camera turns to the stick and comes back: 1 slowest, 10 fastest.", 0),
+    ENUM("steering", Controls, 0, "analog|digital", "analog: the left stick steers as far as it is pushed; digital: pushed past halfway it ramps to full lock, as a keyboard.", 0),
+    ENUM("stick_response", Controls, 0, "standard|linear|precise", "Stick response: standard is finer near the centre, linear follows the stick, precise is finer still.", 0),
 
     // ---- Audio ----
     BOOL("music_hw_decode", Audio, 1, "Decode music with the Vita's MP3 decoder, which frees the CPU; the game's decoder is the fallback.", 0),
@@ -119,6 +136,7 @@ const Setting s_table[] =
     INT("promote_hi", Developer, -1, -1, 0x7fffffff, 1, "Last function whose slots stay in locals; -1 is no limit.", 0),
 
     // ---- Developer: logs, timing, stalls ----
+    BOOL("crash_report", Developer, 1, "Write a crash report to the crashes folder when the game crashes (needs kubridge.skprx for registers).", 0),
     BOOL("console_log", Developer, 0, "Also print the log to the console.", 0),
     BOOL("log_async", Developer, 1, "Write the log on another thread.", 0),
     BOOL("memory_log", Developer, 0, "Log memory use.", 0),
@@ -205,6 +223,9 @@ const Setting s_table[] =
     BOOL("offload_context", Developer, 1, "Run each flush with its own context and device clone.", DS),
     BOOL("offload_sequential", Developer, 0, "Hand each flush to the worker and wait for it at once.", DS),
     BOOL("offload_poison", Developer, 0, "Poison a context's state after each flush to find leaks.", DS),
+    ENUM("offload_unload_mode", Developer, 0, "cancel|fence|off", "Unloads cancel the queued draws that use what they free, or wait for every flush.", DS),
+    INT("offload_unload_poison", Developer, 0, 0, 15, 1, "Test: poison unloaded memory; 1 solids, 2 texture packs, 4 streamed textures, 8 chunks.", DT),
+    INT("offload_worker_delay", Developer, 0, 0, 1000, 1, "Test: the flush worker waits this many ms before each flush.", DS),
     BOOL("offload_count", Developer, 0, "Count the flush's reads and writes of shared state.", DT),
     BOOL("offload_probe", Developer, 0, "Count the flush's reads of state and simulate a late join.", DT),
     BOOL("debug_constants_zero", Developer, 0, "Clear constants no program writes, so draw hashes compare.", DT),

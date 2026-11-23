@@ -25,12 +25,15 @@
 #include "scenery.h"
 #include "padbind.h"
 #include "textentry.h"
+#include "options_menu.h"
+#include "menu_entry.h"
 
 #include <lib/file.h>
 #include <lib/memmap.h>
 #include <recomp.h>
 #include <lib/registry.h>
 #include <platform/config.h>
+#include <platform/crashlog.h>
 #include <platform/cores.h>
 #include <platform/gxm.h>
 #include <platform/log.h>
@@ -241,6 +244,9 @@ int main(int argc, char** argv)
     scePowerSetGpuXbarClockFrequency(166);
 #endif
     const Folders f = folders(argc, argv);
+#ifdef __vita__
+    pf::crashlog::begin(f.data.c_str(), f.log.c_str(), NFSU_VERSION);
+#endif
     pf::logInit(f.log.c_str());
 #ifndef __vita__
     pf::crash::install();
@@ -268,7 +274,13 @@ int main(int argc, char** argv)
     pf::logSetInfo(pf::Config::getBool("log_info", true));
 #endif
     pf::logSetDeferred(pf::Config::getBool("log_async", true));
-    const std::vector<std::string> notices = ug2::notice::collect(cfgRead, f.config, ug2::readModSettings(f.game));
+#ifdef __vita__
+    pf::crashlog::install();
+#endif
+    std::vector<std::string> notices = ug2::notice::collect(cfgRead, f.config, ug2::readModSettings(f.game));
+#ifdef __vita__
+    notices.insert(notices.end(), pf::crashlog::notices().begin(), pf::crashlog::notices().end());
+#endif
     if (!notices.empty())
     {
         for (const std::string& line : notices)
@@ -326,6 +338,8 @@ int main(int argc, char** argv)
         ug2::music::configure(app);
         ug2::boot::configure(app);
         ug2::textentry::configure(app);
+        ug2::options::configure(f.config.c_str(), f.game.c_str());
+        ug2::menu::configure(app);
         ug2::padbind::configure(app);
         ug2::hitch::configure(app);
         ug2::textures::configure(app);
@@ -345,6 +359,9 @@ int main(int argc, char** argv)
         win32::d3d9::bridge::drain();
     }
     pf::logInfo("NeedForSpeedUnderground2 exiting");
+#ifdef __vita__
+    pf::crashlog::end();
+#endif
     pf::stall::stop();
     pf::sampler::stop();
 #ifdef NFSU_PGO_GENERATE

@@ -28,11 +28,18 @@ struct GarageStick
     float deadZone;
 };
 
+// Read again when the options menu changes a setting (pf::Config::generation).
 const GarageStick& settings()
 {
-    static const GarageStick s = { pf::Config::getBool("garage_stick", true),
-                                   garage_stick::deadZone(pf::Config::getInt("garage_stick_deadzone",
-                                                                             garage_stick::DefaultDeadZonePercent)) };
+    static GarageStick s;
+    static unsigned s_generation = ~0u;
+    if (s_generation != pf::Config::generation())
+    {
+        s_generation = pf::Config::generation();
+        s.enabled = pf::Config::getBool("garage_stick", true);
+        s.deadZone = garage_stick::deadZone(pf::Config::getInt("garage_stick_deadzone",
+                                                               garage_stick::DefaultDeadZonePercent));
+    }
     return s;
 }
 

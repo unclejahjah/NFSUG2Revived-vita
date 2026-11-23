@@ -527,7 +527,9 @@ void Configurator::drawConfigRows(Painter& p) const
         int x = Centre + 14;
         if (s.type == SettingType::String)
         {
-            const std::string shown = row.current.empty() ? "(empty)" : "\"" + clip(row.current, 28) + "\"";
+            const std::string shown = row.current.empty() ? "(empty)"
+                                    : (s.flags & pf::SettingSecret) ? "(set)"
+                                    : "\"" + clip(row.current, 28) + "\"";
             x += p.text(x, ty, shown, selected ? OnBar : Grey, FontNormal);
         }
         else

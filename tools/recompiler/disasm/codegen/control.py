@@ -88,7 +88,11 @@ def cg_call(ctx, destination):
                     '    %s(app, cpu);' % ctx.function_name(destination.imm), 'if (cpu.terminate) return;']
         if not ctx.record and any(x.edge == 'skip' for x in ctx.fn.exits[ctx.index]):
             return _skip_call(ctx, destination.imm, call)
-        return ctx.set_reg('esp', '%s - 4' % ctx.reg('esp')) + ctx.exit_sync('call') + call + ctx.after_call()
+        lines = ctx.set_reg('esp', '%s - 4' % ctx.reg('esp'))
+        if ctx.ins.address in getattr(ctx.fn.program, 'return_address_sites', ()):
+            # this call's return address in its slot, for a native callee that tells its callers apart
+            lines.append('rc::st32(%s, 0x%xu);' % (ctx.reg('esp'), ctx.ins.address + ctx.ins.size))
+        return lines + ctx.exit_sync('call') + call + ctx.after_call()
     ctx.boundary('dyncall')
     target = ['cpu.ip = %s;' % ctx.val(destination, 32)]
     call = ['app->dynamic_call(cpu.ip, cpu);', 'if (cpu.terminate) return;']

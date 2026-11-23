@@ -32,13 +32,19 @@ struct Entry
 
 std::vector<Entry> s_entries;
 
+// A secret (revived_passphrase) is never logged.
+bool isSecret(const char* key)
+{
+    return strstr(key, "passphrase") || strstr(key, "password");
+}
+
 const char* find(const char* wanted)
 {
     const char* key = canonicalKey(wanted);
     for (const Entry& entry : s_entries)
     {
         if (strcmp(entry.key, key) == 0)
-            return entry.value;
+            return entry.value[0] ? entry.value : nullptr;    // set() empties a removed key
     }
     return nullptr;
 }
@@ -145,7 +151,7 @@ bool Config::load(const char* path, const char* missingFileText)
             {
                 strcpy(existing->value, value);
                 existing->fromAlias = false;
-                logInfo("config %s=%s", existing->key, existing->value);
+                logInfo("config %s=%s", existing->key, isSecret(existing->key) ? "(set, not logged)" : existing->value);
             }
             else if (known)
                 logError("config line %d: %s repeated, first value kept", number, key);
@@ -157,10 +163,11 @@ bool Config::load(const char* path, const char* missingFileText)
         strcpy(entry.key, current);
         strcpy(entry.value, value);
         entry.fromAlias = alias;
+        const char* shown = isSecret(entry.key) ? (*entry.value ? "(set, not logged)" : "") : entry.value;
         if (alias)
-            logInfo("config %s is now %s, the old name still works: %s=%s", key, current, current, entry.value);
+            logInfo("config %s is now %s, the old name still works: %s=%s", key, current, current, shown);
         else if (known)
-            logInfo("config %s=%s", entry.key, entry.value);
+            logInfo("config %s=%s", entry.key, shown);
         else
             logError("config: unknown setting '%s'", entry.key);
     }
@@ -200,6 +207,36 @@ int Config::getInt(const char* key, int defaultValue)
 {
     int value = defaultValue;
     return tryGetInt(key, &value) ? value : defaultValue;
+}
+
+static unsigned s_generation = 0;
+
+void Config::set(const char* wanted, const char* value)
+{
+    const char* key = canonicalKey(wanted);
+    if (strlen(key) >= MaxKey || strlen(value) >= MaxValue)
+        return;
+    Entry* existing = nullptr;
+    for (Entry& entry : s_entries)
+    {
+        if (strcmp(entry.key, key) == 0)
+            existing = &entry;
+    }
+    if (!existing && *value)
+    {
+        s_entries.emplace_back();
+        existing = &s_entries.back();
+        strcpy(existing->key, key);
+        existing->fromAlias = false;
+    }
+    if (existing)
+        strcpy(existing->value, value);     // empty: find() treats the key as removed
+    ++s_generation;
+}
+
+unsigned Config::generation()
+{
+    return s_generation;
 }
 
 const char* Config::getString(const char* key, const char* defaultValue)

@@ -33,6 +33,7 @@ std::atomic<bool> s_abort{false};       // requestClose() was called for the cur
 SceWChar16  s_title[MaxTitleLength + 1];
 SceWChar16  s_initialText[MaxTextLength + 1];
 uint32_t    s_maxLength = MaxTextLength;
+bool        s_secret = false;
 
 // Render thread, except s_result and s_text which takeResult() reads once the state is StateFinished.
 bool        s_configured = false;
@@ -98,7 +99,7 @@ bool start()
     param.type = SCE_IME_TYPE_BASIC_LATIN;
     param.option = 0;
     param.dialogMode = SCE_IME_DIALOG_DIALOG_MODE_WITH_CANCEL;
-    param.textBoxMode = SCE_IME_DIALOG_TEXTBOX_MODE_DEFAULT;
+    param.textBoxMode = s_secret ? SCE_IME_DIALOG_TEXTBOX_MODE_PASSWORD : SCE_IME_DIALOG_TEXTBOX_MODE_DEFAULT;
     param.title = s_title;
     param.maxTextLength = s_maxLength;
     param.initialText = s_initialText;
@@ -148,16 +149,20 @@ void finish()
             s_text[length++] = char(s_input[i]);
     }
     s_text[length] = 0;
-    logInfo("ime text \"%s\"", s_text);
+    if (s_secret)
+        logInfo("ime text entered (%u characters, not logged)", unsigned(length));
+    else
+        logInfo("ime text \"%s\"", s_text);
     publish(ResultConfirmed);
 }
 
 }
 
-bool requestOpen(const char16_t* title, const char16_t* text, uint32_t maxLength)
+bool requestOpen(const char16_t* title, const char16_t* text, uint32_t maxLength, bool secret)
 {
     if (s_state.load(std::memory_order_acquire) != StateIdle)
         return false;
+    s_secret = secret;
     s_maxLength = maxLength < 1 ? 1 : maxLength > MaxTextLength ? MaxTextLength : maxLength;
     const std::string test = Config::getString("ime_test", "");
     if (!test.empty())

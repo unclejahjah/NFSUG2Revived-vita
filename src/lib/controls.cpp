@@ -7,8 +7,10 @@
 #include <psp2/touch.h>
 #else
 #include <mutex>
+#include <cstring>
 #endif
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -80,21 +82,142 @@ struct Chord
     uint32_t keys;
     int      button;    // -1 for none
     bool     ime;       // opens the on-screen keyboard
+    bool     settings;  // opens Vita Settings (src/ug2/menu_entry.cpp)
+    int      say;       // free roam's quick chat slot (Gamepad::takeSayChord), -1 for none
 };
 
 static const Chord s_chords[] =
 {
-    { Triangle,  0, -1, true  },    // text entry
+    { Triangle,  0, -1, true,  false, -1 }, // text entry
+    { DpadUp,    0, -1, false, true,  -1 }, // Vita Settings
+    // free roam's quick chat (scripts/NFSU2FreeRoam.ini Say1 to Say6)
+    { DpadDown,  0, -1, false, false, 0 },
+    { DpadLeft,  0, -1, false, false, 1 },
+    { DpadRight, 0, -1, false, false, 2 },
+    { Cross,     0, -1, false, false, 3 },
+    { Circle,    0, -1, false, false, 4 },
+    { Square,    0, -1, false, false, 5 },
+    { R,         0, -1, false, false, 6 },  // add the player nose to nose as a friend
 };
 
 // How long a Select tap holds its button, enough for one game frame at 10 fps.
 static const uint64_t s_tapUs = 100000;
 
 // Left and right stick: dead zone and saturation as fractions of full deflection, and the response curve
-// y = linear * x + (1 - linear) * x^3 between them (finer aim near the centre).
-static const float s_stickDeadZone   = 0.15f;
+// y = linear * x + (1 - linear) * x^3 between them (finer aim near the centre). The dead zone (stick_deadzone,
+// percent) and the curve (stick_response) are read again when Vita Settings changes them.
 static const float s_stickSaturation = 0.94f;
-static const float s_stickLinear     = 0.6f;
+
+struct StickShape
+{
+    unsigned generation = ~0u;
+    float deadZone = 0.15f;
+    float linear = 0.6f;
+};
+
+// steering=digital: how far the left stick goes before it counts, and the seconds to full lock and to the centre.
+static const float s_digitalThreshold = 0.5f;
+static const float s_digitalTurnS = 0.25f;
+static const float s_digitalReturnS = 0.12f;
+
+static bool digitalSteering()
+{
+    static std::atomic<unsigned> s_generation{~0u};
+    static std::atomic<bool> s_digital{false};
+    const unsigned generation = pf::Config::generation();
+    if (s_generation.load(std::memory_order_acquire) != generation)
+    {
+        static const char* const Modes[] = { "analog", "digital" };
+        s_digital.store(pf::Config::getChoice("steering", Modes, 2, 0) == 1, std::memory_order_relaxed);
+        s_generation.store(generation, std::memory_order_release);
+    }
+    return s_digital.load(std::memory_order_relaxed);
+}
+
+// Free roam proper says so every frame (setQuickChatLive); the button is the game's again 0.25 s after the last.
+static std::atomic<uint64_t> s_chatLiveUs{0};
+
+void setQuickChatLive(uint64_t nowUs)
+{
+    s_chatLiveUs.store(nowUs, std::memory_order_relaxed);
+}
+
+static std::atomic<uint64_t> s_cameraLiveUs{0};
+
+void setCameraStickLive(uint64_t nowUs)
+{
+    s_cameraLiveUs.store(nowUs, std::memory_order_relaxed);
+}
+
+static std::atomic<uint64_t> s_chatHeldSince{0};
+
+uint64_t quickChatHeldSince()
+{
+    return s_chatHeldSince.load(std::memory_order_relaxed);
+}
+
+static bool quickChatLive(uint64_t nowUs)
+{
+    const uint64_t at = s_chatLiveUs.load(std::memory_order_relaxed);
+    return at && nowUs - at < 250000;
+}
+
+// quick_chat_button: dpad_down (the default), dpad_up, triangle or select
+int quickChatButton()
+{
+    static std::atomic<unsigned> s_generation{~0u};
+    static std::atomic<int> s_button{DpadDown};
+    const unsigned generation = pf::Config::generation();
+    if (s_generation.load(std::memory_order_acquire) != generation)
+    {
+        static const char* const Names[] = { "dpad_down", "dpad_up", "triangle", "select" };
+        static const int Buttons[] = { DpadDown, DpadUp, Triangle, -1 };
+        s_button.store(Buttons[pf::Config::getChoice("quick_chat_button", Names, 4, 0)], std::memory_order_relaxed);
+        s_generation.store(generation, std::memory_order_release);
+    }
+    return s_button.load(std::memory_order_relaxed);
+}
+
+void quickChatSlots(Input slots[7])
+{
+    const int button = quickChatButton();
+    if (button < 0)
+    {
+        // Select's chords: Up is Vita Settings, Triangle the keyboard
+        static const Input Chords[7] = { DpadDown, DpadLeft, DpadRight, Cross, Circle, Square, R };
+        memcpy(slots, Chords, sizeof(Chords));
+        return;
+    }
+    static const Input Order[] = { DpadUp, DpadLeft, DpadRight, Cross, Circle, Square, DpadDown, Triangle };
+    static const Input Friend[] = { Triangle, DpadDown };   // the seventh: Triangle, or Down where Triangle is the button
+    int n = 0;
+    for (Input input : Order)
+        if (int(input) != button && n < 6)
+            slots[n++] = input;
+    slots[6] = button == Triangle ? Friend[1] : Friend[0];
+}
+
+static StickShape stickShape()
+{
+    static std::atomic<unsigned> s_generation{~0u};
+    static std::atomic<float> s_deadZone{0.15f}, s_linear{0.6f};
+    const unsigned generation = pf::Config::generation();
+    if (s_generation.load(std::memory_order_acquire) != generation)
+    {
+        static const char* const Responses[] = { "standard", "linear", "precise" };
+        static const float Linear[] = { 0.6f, 1.0f, 0.3f };
+        const int percent = std::clamp(pf::Config::getInt("stick_deadzone", 15), 0, 40);
+        const int response = pf::Config::getChoice("stick_response", Responses, 3, 0);
+        s_deadZone.store(float(percent) / 100.0f, std::memory_order_relaxed);
+        s_linear.store(Linear[response >= 0 && response < 3 ? response : 0], std::memory_order_relaxed);
+        s_generation.store(generation, std::memory_order_release);
+    }
+    StickShape shape;
+    shape.generation = generation;
+    shape.deadZone = s_deadZone.load(std::memory_order_relaxed);
+    shape.linear = s_linear.load(std::memory_order_relaxed);
+    return shape;
+}
 
 // ---- Keys ----
 
@@ -447,6 +570,12 @@ Mapper::Mapper()
     ,   m_chorded(0)
     ,   m_selectUsed(false)
     ,   m_selectPulseEndUs(0)
+    ,   m_chatSinceUs(0)
+    ,   m_chatUsed(false)
+    ,   m_chatSwallow(0)
+    ,   m_chatPulseEndUs(0)
+    ,   m_steer(0.0f)
+    ,   m_steerUs(0)
 {
 }
 
@@ -454,6 +583,7 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
 {
     State state;
     memset(&state, 0, sizeof(state));
+    state.sayChord = -1;
     const uint32_t inputs = pad.inputs;
     const uint32_t pressed = inputs & ~m_previous;
     const uint32_t released = m_previous & ~inputs;
@@ -462,23 +592,82 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
     if (pressed & bit(Select))
         m_selectUsed = false;
     m_chorded &= inputs;
+    const int chatButton = quickChatLive(nowUs) ? quickChatButton() : -2;   // -2: not in free roam now
     for (int input = 0; input < InputCount; ++input)
     {
         if (!(pressed & bit(Input(input))) || input == Select || !select)
             continue;
         const Chord* chord = findChord(Input(input));
-        if (!chord)
+        if (!chord || (chord->say >= 0 && chatButton != -1))  // (quick chat on another button, or not now: no chord)
             continue;
         m_chorded |= bit(Input(input));
         m_selectUsed = true;
         if (chord->ime)
             state.openIme = true;
+        if (chord->settings)
+            state.openSettings = true;
+        if (chord->say >= 0)
+            state.sayChord = chord->say;
     }
     if ((released & bit(Select)) && !m_selectUsed)
         m_selectPulseEndUs = nowUs + s_tapUs;
     m_previous = inputs;
 
-    const uint32_t normal = inputs & ~m_chorded;
+    // Quick chat on a button of its own: held, it and the phrase buttons pressed with it stay from the game (a phrase
+    // button until released); a short tap that picked nothing reaches the game afterwards, as a Select tap does.
+    uint32_t chatHidden = 0, chatPulse = 0;
+    m_chatSwallow &= inputs;
+    if (chatButton >= 0)
+    {
+        const uint32_t key = bit(Input(chatButton));
+        if (pressed & key)
+        {
+            m_chatSinceUs = nowUs;
+            m_chatUsed = false;
+        }
+        if (inputs & key)
+        {
+            chatHidden = key;
+            Input slots[7];
+            quickChatSlots(slots);
+            for (int i = 0; i < 7; ++i)
+                if (pressed & bit(slots[i]))
+                {
+                    state.sayChord = i;
+                    m_chatUsed = true;
+                    m_chatSwallow |= bit(slots[i]);
+                }
+        }
+        if ((released & key) && !m_chatUsed && nowUs - m_chatSinceUs < 400000)
+            m_chatPulseEndUs = nowUs + s_tapUs;
+        if (nowUs < m_chatPulseEndUs && !(inputs & key))
+            chatPulse = key;
+    }
+    // (what the HUD shows: the choices while the button is held; Select's chords alike)
+    const bool chatHeld = (chatButton >= 0 && (inputs & bit(Input(chatButton)))) || (chatButton == -1 && select);
+    if (!chatHeld)
+        s_chatHeldSince.store(0, std::memory_order_relaxed);
+    else if (!s_chatHeldSince.load(std::memory_order_relaxed))
+        s_chatHeldSince.store(nowUs ? nowUs : 1, std::memory_order_relaxed);
+    const uint32_t normal = (inputs & ~m_chorded & ~chatHidden & ~m_chatSwallow) | chatPulse;
+    // steering=digital: the left stick is left, centre or right, and its X axis ramps to full lock and back as a
+    // keyboard's steering does (the D-pad is not involved).
+    const bool digital = digitalSteering();
+    float steerX = pad.sticks[0];
+    if (digital)
+    {
+        const float target = pad.sticks[0] <= -s_digitalThreshold ? -1.0f
+                           : pad.sticks[0] >= s_digitalThreshold ? 1.0f : 0.0f;
+        const float seconds = m_steerUs ? std::fmin(0.1f, float(nowUs - m_steerUs) / 1e6f) : 0.0f;
+        // Full lock in s_digitalTurnS; back to the centre, or across it, faster.
+        const bool returning = target == 0.0f || target * m_steer < 0.0f;
+        const float step = seconds / (returning ? s_digitalReturnS : s_digitalTurnS);
+        m_steer = target > m_steer ? std::fmin(target, m_steer + step) : std::fmax(target, m_steer - step);
+        steerX = m_steer;
+    }
+    else
+        m_steer = 0.0f;
+    m_steerUs = nowUs;
     for (const ButtonMapping& mapping : s_buttons)
     {
         if (normal & bit(mapping.input))
@@ -500,10 +689,12 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
     if (nowUs < m_selectPulseEndUs)
         state.buttons |= uint32_t(1) << s_selectTapButton;
 
-    state.axes[AxisX] = pad.sticks[0];
+    state.axes[AxisX] = steerX;
     state.axes[AxisY] = pad.sticks[1];
-    state.axes[AxisZ] = pad.sticks[3];
-    state.axes[AxisRz] = pad.sticks[2];
+    const uint64_t cameraAt = s_cameraLiveUs.load(std::memory_order_relaxed);
+    const bool camera = cameraAt && nowUs - cameraAt < 250000;    // the stick camera has the right stick
+    state.axes[AxisZ] = camera ? 0.0f : pad.sticks[3];
+    state.axes[AxisRz] = camera ? 0.0f : pad.sticks[2];
     state.pov = -1;
     return state;
 }
@@ -512,7 +703,8 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
 
 void shapeStick(float x, float y, uint32_t deadZone, uint32_t saturation, float* outX, float* outY)
 {
-    const float dead = std::fmax(s_stickDeadZone, float(deadZone) / 10000.0f);
+    const StickShape shape = stickShape();
+    const float dead = std::fmax(shape.deadZone, float(deadZone) / 10000.0f);
     const float full = std::fmin(s_stickSaturation, float(saturation) / 10000.0f);
     const float magnitude = std::sqrt(x * x + y * y);
     if (magnitude <= dead)
@@ -522,7 +714,7 @@ void shapeStick(float x, float y, uint32_t deadZone, uint32_t saturation, float*
         return;
     }
     const float t = full > dead ? std::fmin(1.0f, (magnitude - dead) / (full - dead)) : 1.0f;
-    const float scale = (s_stickLinear * t + (1.0f - s_stickLinear) * t * t * t) / magnitude;
+    const float scale = (shape.linear * t + (1.0f - shape.linear) * t * t * t) / magnitude;
     *outX = std::fmax(-1.0f, std::fmin(1.0f, x * scale));
     *outY = std::fmax(-1.0f, std::fmin(1.0f, y * scale));
 }

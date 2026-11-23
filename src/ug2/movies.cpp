@@ -191,16 +191,31 @@ bool movieName(reg32 path, char* name, size_t size)
     return true;
 }
 
-// movies_redirect: a guest copy of the path with the movie's name replaced, or 0.
-reg32 redirectPath(reg32 path, const char* name)
+// skip_intro_movies: 1 the logos and the notice, 2 the opening movie too. Their open fails, as with the files
+// deleted on PC, so the game goes straight on without playing anything (blank.vp6 in their place showed a moment
+// of the movie screen each).
+int s_skipIntro = 0;
+const char* const RemovedMovie = "skip_intro_movies_removed";   // no such file
+
+bool skippedIntro(const char* name)
 {
-    if (s_redirectFrom.empty() || strcasecmp(name, s_redirectFrom.c_str()) != 0)
-        return 0;
+    static const char* const Logos[] = { "ealogo", "THX_logo", "PSA" };
+    for (const char* logo : Logos)
+    {
+        if (strcasecmp(name, logo) == 0)
+            return s_skipIntro >= 1;
+    }
+    return s_skipIntro >= 2 && strcasecmp(name, "FMVOpening") == 0;
+}
+
+// A guest copy of the path with the movie's name (name, the path's last part without .vp6) replaced by to.
+reg32 replacedPath(reg32 path, const char* name, const std::string& to)
+{
     std::string text;
     for (reg32 i = 0; rc::ld8(path + i) && i < 255; ++i)
         text += char(rc::ld8(path + i));
-    const size_t at = text.size() - 4 - s_redirectFrom.size();
-    text = text.substr(0, at) + s_redirectTo + ".vp6";
+    const size_t at = text.size() - 4 - strlen(name);
+    text = text.substr(0, at) + to + ".vp6";
     if (!s_redirectPath)
         s_redirectPath = new MemMap(4096, MemMap::High, pf::perf::AllocOther);
     const reg32 copy = s_redirectPath->getBlockStart();
@@ -209,13 +224,27 @@ reg32 redirectPath(reg32 path, const char* name)
     return copy;
 }
 
+// movies_redirect: a guest copy of the path with the movie's name replaced, or 0.
+reg32 redirectPath(reg32 path, const char* name)
+{
+    if (s_redirectFrom.empty() || strcasecmp(name, s_redirectFrom.c_str()) != 0)
+        return 0;
+    return replacedPath(path, name, s_redirectTo);
+}
+
 void createFileHook(win32::WinApplication* app, x86::CPU& cpu)
 {
     char name[sizeof(s_lastName)];
     const reg32 path = rc::ld32(cpu.esp + 4);
     if (movieName(path, name, sizeof(name)))
     {
-        if (const reg32 copy = redirectPath(path, name))
+        if (skippedIntro(name))
+        {
+            pf::logInfo("movies: skip_intro_movies: %s.vp6 is not opened", name);
+            rc::st32(cpu.esp + 4, replacedPath(path, name, RemovedMovie));
+            strcpy(name, RemovedMovie);
+        }
+        else if (const reg32 copy = redirectPath(path, name))
         {
             rc::st32(cpu.esp + 4, copy);
             strcpy(name, s_redirectTo.c_str());
@@ -815,6 +844,10 @@ void configure(win32::WinApplication& app)
 #endif
     static const char* const modes[] = { "game", "native", "vp6", "vp6only" };
     s_mode = Mode(pf::Config::getChoice("movies", modes, 4, strcmp(defaultMode, "native") == 0 ? 1 : 0));
+    static const char* const IntroSkips[] = { "off", "logos", "opening" };
+    s_skipIntro = pf::Config::getChoice("skip_intro_movies", IntroSkips, 3, 0);
+    if (s_skipIntro && !s_createFile)
+        s_createFile = app.replaceMethod(rc::ld32(CreateFileSlot), createFileHook);
     s_dir = pf::Config::getString("movies_dir", defaultDir);
     while (s_dir.size() > 1 && (s_dir.back() == '/' || s_dir.back() == '\\'))
         s_dir.pop_back();
@@ -852,7 +885,8 @@ void configure(win32::WinApplication& app)
         pf::logInfo("movies: movies_redirect: %s.vp6 opens %s.vp6", s_redirectFrom.c_str(), s_redirectTo.c_str());
     }
 #endif
-    s_createFile = app.replaceMethod(rc::ld32(CreateFileSlot), createFileHook);
+    if (!s_createFile)
+        s_createFile = app.replaceMethod(rc::ld32(CreateFileSlot), createFileHook);
     s_decode = app.replaceMethod(CodecDecode, decodeHook);
     s_destroy = app.replaceMethod(CodecDestroy, destroyHook);
     pf::logInfo("movies: movies=%s, playback from %s (the game's VP6 decoder when no source works)", modes[s_mode],

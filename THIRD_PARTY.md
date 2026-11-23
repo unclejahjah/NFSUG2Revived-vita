@@ -25,6 +25,26 @@ installs it into `.pydeps/`.
 The optional profile-guided build links compiler-rt's profile runtime (Apache License 2.0 with LLVM Exceptions). It
 is not part of the repository: `cmake/pgo-runtime.cmake` downloads it for the compiler's version.
 
+## nfsu2-web (NFSU2 Revived)
+
+`src/lib/winapi/revived/winsock.c`, `net_lan.c`, `net_proto.h`, `lan_vfd.h`, `racenet.h`, `winsock.h`, the free-roam
+mod in `src/lib/winapi/revived/roam/` (`roam_game.c`, `roam_core.c`, `roam_core.h`, `roam_plat.h`, `roam_web.c`,
+`carsfx.h`, `names.h`, the flag pictures `flags.dat`, and `phrases.h` made from the quick chat list in
+`web/src/app/phrases.ts`; `roam_host_win.h` after the PC plugin's) and `extras/scripts/NFSU2FreeRoam.ini` come from
+[nfsu2-web](https://github.com/th0mk/nfsu2-web)'s runtime, MIT License (Copyright (c) 2026 th0mk; portions
+copyright (c) 2026 Talha Müderrisoğlu), with small changes for the Vita marked `NFSU2_VLAN_BACKEND`. The license
+text is in `src/lib/winapi/revived/LICENSE.nfsu2-web`.
+
+## Mbed TLS
+
+The Revived link's TLS is Mbed TLS 3.6.2 (Apache License 2.0). It is not part of the repository:
+`cmake/revived.cmake` downloads its release archive and checks its SHA-256 (or uses `NFSU_MBEDTLS`).
+
+## Mozilla CA certificates
+
+`third_party/cacert/cacert.pem` is Mozilla's list of CA certificates, as packaged by certifi 2026.10.18, Mozilla
+Public License 2.0 (https://mozilla.org/MPL/2.0/).
+
 ## NFSU-XtendedInput
 
 The right stick's car orbit in the garage (the game's own car orbit pad events) and menu navigation kept to the
@@ -32,6 +52,12 @@ d-pad and left stick follow the approach of [NFSU-XtendedInput](https://github.c
 xan1242, MIT License, Copyright (c) 2022 Lovro Pleše. The port reimplements the behaviour natively
 (`src/ug2/garage_stick.h`, `src/ug2/native/sub_4a5d90.cpp`, `src/ug2/native/sub_571d50.cpp`) and contains none of
 its code.
+
+## NFSU2FastTravel
+
+Fast travel from the World Map (`fast_travel`, `src/ug2/fasttravel.cpp`) follows the approach of CrabJournal's
+NFSU2FastTravel PC mod for the same v1.2 executable (GNU General Public License v3.0): answering No to the map's GPS
+question moves the car to the chosen place. The port reimplements it natively on the translated game.
 
 ## FFmpeg
 

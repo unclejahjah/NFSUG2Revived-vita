@@ -332,6 +332,8 @@ def main():
                                inline_calls=getattr(GAME, 'INLINE_HELPERS', {}) if args.inline_ftol2 else {},
                                pure_natives=getattr(GAME, 'PURE_NATIVES', ()) if args.pure_natives else (),
                                native_writes=args.native_writes)
+    # Calls that write their return address, for a native callee that tells its callers apart (RETURN_ADDRESS_SITES)
+    program.return_address_sites = frozenset(getattr(GAME, 'RETURN_ADDRESS_SITES', ()))
     program.analyze()
     program.check_assumptions = args.check_assumptions
     program.fold_rdata = args.fold_rdata

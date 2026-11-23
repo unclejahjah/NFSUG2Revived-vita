@@ -1,4 +1,5 @@
 #include <platform/log.h>
+#include <platform/crashlog.h>
 #include <platform/perf.h>
 #include <psp2/kernel/clib.h>
 #include <psp2/kernel/processmgr.h>
@@ -115,10 +116,11 @@ static void output(const char* text, unsigned length, bool now)
     }
 }
 
+// level null: an info line while log_info is off, kept only in the crash ring.
 static void writeLine(const char* level, const char* fmt, va_list args, bool now)
 {
     char buffer[1024];
-    int prefix = snprintf(buffer, sizeof(buffer), "[%s] ", level);
+    int prefix = snprintf(buffer, sizeof(buffer), "[%s] ", level ? level : "info");
     int len = vsnprintf(buffer + prefix, sizeof(buffer) - prefix - 1, fmt, args);
     if (len < 0)
         return;
@@ -127,7 +129,9 @@ static void writeLine(const char* level, const char* fmt, va_list args, bool now
         len = int(sizeof(buffer)) - 2;
     buffer[len++] = '\n';
     buffer[len] = 0;
-    output(buffer, unsigned(len), now);
+    crashlog::record(buffer, unsigned(len));
+    if (level)
+        output(buffer, unsigned(len), now);
 }
 
 void logInit(const char* logFilePath)
@@ -209,16 +213,15 @@ void logDebug(const char* fmt, ...)
 
 void logInfo(const char* fmt, ...)
 {
-    if (!s_info)
-        return;
     va_list args;
     va_start(args, fmt);
-    writeLine("info", fmt, args, false);
+    writeLine(s_info ? "info" : nullptr, fmt, args, false);
     va_end(args);
 }
 
 void logBlock(const char* text, unsigned length)
 {
+    crashlog::record(text, length);
     if (length)
         output(text, length, false);
 }
@@ -227,6 +230,7 @@ void logBlockUnlocked(const char* text, unsigned length)
 {
     if (!length || !s_logPathBuffer[0])
         return;
+    crashlog::record(text, length);
     const SceUID file = sceIoOpen(s_logPathBuffer, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0666);
     if (file >= 0)
     {
@@ -259,6 +263,11 @@ void fatal(const char* fmt, ...)
     va_start(args, fmt);
     writeLine("fatal", fmt, args, true);
     va_end(args);
+    char reason[256];
+    va_start(args, fmt);
+    vsnprintf(reason, sizeof(reason), fmt, args);
+    va_end(args);
+    crashlog::report(reason);
     logShutdown();
     sceKernelExitProcess(1);
     for (;;) {}

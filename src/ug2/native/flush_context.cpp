@@ -1,10 +1,12 @@
 // Worker context of a draw flush segment: snapshot of the guest globals, write-back, chain return, check-mode poison.
 
 #include <native/flush_context.h>
+#include <platform/config.h>
 #include <platform/cores.h>
 #include <platform/log.h>
 #include <platform/perf.h>
 #include <platform/sync.h>
+#include <platform/time.h>
 
 namespace ug2 { namespace native { namespace flush {
 
@@ -212,6 +214,7 @@ inline void writeFpscr(uint32_t) {}
 void finished(Context& job)
 {
     job.state.store(JobDone, std::memory_order_seq_cst);
+    job.finishes.fetch_add(1, std::memory_order_seq_cst);
     if (s_waiters.load(std::memory_order_seq_cst))
     {
         pf::LockGuard guard(*s_doneLock);
@@ -249,6 +252,11 @@ int workerEntry(void*)
         const uint32_t first = s_first.load(std::memory_order_relaxed);
         Context* job = s_ring[first % RingSize];
         s_first.store(first + 1, std::memory_order_release);
+#ifdef DEV_SETTINGS
+        static const int delay = pf::Config::getInt("offload_worker_delay", 0);
+        if (delay > 0)
+            pf::sleepMs(uint32_t(delay));
+#endif
         if (claim(*job))
             runClaimed(*job);
     }
@@ -280,6 +288,7 @@ void submit(Context& job)
     (void)started;
     s_gameThread.store(pf::Thread::currentId(), std::memory_order_relaxed);
     job.fpscr = readFpscr();
+    job.submits.fetch_add(1, std::memory_order_seq_cst);
     job.state.store(JobQueued, std::memory_order_release);
     if (CoreMode == Mode::Worker)
     {
@@ -293,7 +302,9 @@ void submit(Context& job)
 void await(void* pointer)
 {
     Context& job = *static_cast<Context*>(pointer);
-    if (isDone(job))
+    // Not the state: the game thread may close the job (idle again) before a waiting render thread looks.
+    const uint32_t run = job.submits.load(std::memory_order_seq_cst);
+    if (job.finishes.load(std::memory_order_seq_cst) >= run)
         return;
     if (CoreMode == Mode::RenderThread && claim(job))
     {
@@ -304,13 +315,18 @@ void await(void* pointer)
     s_waiters.fetch_add(1, std::memory_order_seq_cst);
     {
         pf::LockGuard guard(*s_doneLock);
-        while (job.state.load(std::memory_order_seq_cst) != JobDone)
+        while (job.finishes.load(std::memory_order_seq_cst) < run)
             s_doneCond->wait();
     }
     s_waiters.fetch_sub(1, std::memory_order_seq_cst);
     const int game = pf::Thread::currentId() == s_gameThread.load(std::memory_order_relaxed);
     s_waitedUs[game].fetch_add(pf::perf::now() - start, std::memory_order_relaxed);
     s_waits[game].fetch_add(1, std::memory_order_relaxed);
+}
+
+int gameThread()
+{
+    return s_gameThread.load(std::memory_order_relaxed);
 }
 
 Totals totals()

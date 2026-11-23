@@ -18,6 +18,7 @@ enum SettingFlags : unsigned
     SettingOff              = 4,    // an Int that also takes "off", one step below min
     SettingAuto             = 8,    // absent means "auto": the code derives the value
     SettingHostOnly         = 16,   // read by the host build only
+    SettingSecret           = 32,   // a String never shown: only whether it is set
     SettingNeedsShadowBuild = 64,   // read only with NFSU_NATIVE_SHADOW
 };
 
