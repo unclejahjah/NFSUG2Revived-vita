@@ -2128,17 +2128,22 @@ void roam_probe_end(char *out, int n);
 static inline void roam_probe_begin(void){}
 static inline void roam_probe_end(char *out, int n){ (void)n; out[0] = 0; }
 #endif
-static void step_begin(void){ g_step_t = rh_ns(); roam_probe_begin(); }
+uint64_t roam_host_run_us(void);
+static uint64_t g_step_run;
+static void step_begin(void){ g_step_t = rh_ns(); g_step_run = roam_host_run_us(); roam_probe_begin(); }
 static void step_end(int k, const char *what){
     uint64_t us = (rh_ns() - g_step_t) / 1000u;
     char in[512]; roam_probe_end(in, (int)sizeof in);
     if (us >= SLOW_STEP_US){
         const char *br = !strcmp(what, "build ride") ? g_br : "";
-        rlog("[roam] f=%ld slot %d: slow step %s: %.1f ms%s%s%s%s%s%s\n", rh_frame(), k, what, us / 1000.0,
+        uint64_t run = roam_host_run_us() - g_step_run;
+        char ran[40] = "";
+        if (g_step_run && run * 2u < us) snprintf(ran, sizeof ran, " (on a CPU %.1f ms)", run / 1000.0);
+        rlog("[roam] f=%ld slot %d: slow step %s: %.1f ms%s%s%s%s%s%s%s\n", rh_frame(), k, what, us / 1000.0, ran,
              in[0] ? " (game:" : "", in, in[0] ? ")" : "", br[0] ? " (ride:" : "", br, br[0] ? ")" : "");
     }
     g_br[0] = 0;
-    g_step_t = rh_ns();
+    g_step_t = rh_ns(); g_step_run = roam_host_run_us();
     roam_probe_begin();
 }
 /* start loading peer's ride for slot k */
@@ -8933,20 +8938,31 @@ static void loader_watch(CPU *c, int64_t host){
 /* a frame of free roam's that takes over PH_SLOW_US: where its time went, by part (the Vita, 2026-11-22: frames of
  * 0.1 to 0.7 s, more than its car loads' slow steps said) */
 #define PH_SLOW_US 50000
-static struct { const char *what; uint64_t ns; } g_ph[16]; static int g_phn; static uint64_t g_ph_t;
+/* this thread's time on a CPU, us (the Vita: its run clock; 0 where the host has none): a slow frame's part that
+ * ran for much less than it took waited (the card, a lock, another thread) */
+__attribute__((weak)) uint64_t roam_host_run_us(void){ return 0; }
+static struct { const char *what; uint64_t ns, run_us; } g_ph[16]; static int g_phn; static uint64_t g_ph_t, g_ph_run, g_ph_run0;
 static void ph_mark(const char *what){
-    uint64_t t = rh_ns();
-    if (g_phn < 16){ g_ph[g_phn].what = what; g_ph[g_phn].ns = t - g_ph_t; g_phn++; }
-    g_ph_t = t;
+    uint64_t t = rh_ns(), r = roam_host_run_us();
+    if (g_phn < 16){ g_ph[g_phn].what = what; g_ph[g_phn].ns = t - g_ph_t; g_ph[g_phn].run_us = r - g_ph_run; g_phn++; }
+    g_ph_t = t; g_ph_run = r;
 }
 static void ph_report(uint64_t ns){
     { char none[8]; roam_probe_end(none, (int)sizeof none); }   /* (probing ends with the frame) */
     if (ns >= PH_SLOW_US * 1000ull){
         char b[384]; int at = 0;
         for (int i = 0; i < g_phn && at < (int)sizeof b - 48; i++)
-            if (g_ph[i].ns >= 2000000ull) at += snprintf(b + at, sizeof b - (size_t)at, " %s %.1f,", g_ph[i].what, g_ph[i].ns / 1e6);
+            if (g_ph[i].ns >= 2000000ull){
+                at += snprintf(b + at, sizeof b - (size_t)at, " %s %.1f", g_ph[i].what, g_ph[i].ns / 1e6);
+                if (g_ph_run0 && g_ph[i].ns >= 20000000ull && g_ph[i].run_us * 2000ull < g_ph[i].ns)   /* ran under half */
+                    at += snprintf(b + at, sizeof b - (size_t)at, " (ran %.1f)", g_ph[i].run_us / 1e3);
+                at += snprintf(b + at, sizeof b - (size_t)at, ",");
+            }
         if (at) b[at - 1] = 0; else b[0] = 0;
-        rlog("[roam] f=%ld slow frame: %.1f ms (ms by part:%s)\n", rh_frame(), ns / 1e6, at ? b : " none over 2");
+        uint64_t run = g_ph_run0 ? roam_host_run_us() - g_ph_run0 : 0;
+        char ran[48] = "";
+        if (g_ph_run0) snprintf(ran, sizeof ran, ", on a CPU %.1f ms", run / 1e3);
+        rlog("[roam] f=%ld slow frame: %.1f ms%s (ms by part:%s)\n", rh_frame(), ns / 1e6, ran, at ? b : " none over 2");
     }
     g_phn = 0;
 }
@@ -9196,7 +9212,10 @@ static void assign(CPU *c, int64_t host){
             if (s->plated) rlog("[roam] f=%ld slot %d for %s: license plate %s\n", rh_frame(), k, s->name, s->plate);
             continue;
         }
-        if (!begin_load(c, k, v->cfg, v->cfg_len, v->cfg_gen)){
+        ph_mark("assign, pick");
+        int began = begin_load(c, k, v->cfg, v->cfg_len, v->cfg_gen);
+        ph_mark("begin load");
+        if (!began){
             /* not now (memory, record): try again later */
             s->peer = -1; s->peer_id = 0; s->name[0] = 0;
             if (was == SL_FREE && k < NOPP){ s->car = 0; s->world = 0; }
@@ -9752,7 +9771,7 @@ void roam_game_frame(CPU *c){
 #endif
     g_step++;
     uint64_t t0 = rh_ns();
-    g_phn = 0; g_ph_t = t0;
+    g_phn = 0; g_ph_t = t0; g_ph_run = g_ph_run0 = roam_host_run_us();
     int64_t host = roam_plat_now_us();
     int in_roam = roaming();
     uint32_t w = world();

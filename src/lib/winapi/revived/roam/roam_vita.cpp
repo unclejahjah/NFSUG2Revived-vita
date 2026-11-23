@@ -18,6 +18,7 @@
 #include <recomp.h>
 
 #include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
 
 #include <pthread.h>
 
@@ -37,6 +38,7 @@ void roam_game_hud(struct CPU* c);
 const char* roam_game_phrase(int i);
 int roam_host_hud_line(char* tx, int n);
 void roam_host_net_thread(void);
+uint64_t roam_host_run_us(void);
 void revived_link_control_send(const char* json);   // revived_link.cpp
 }
 bool revived_link_ensure();
@@ -332,6 +334,17 @@ void roam_host_net_thread(void)
 {
     if (pf::Thread::setCurrentPriority(150))
         pf::logInfo("roam: network thread priority 150");
+}
+
+// This thread's time on a CPU (its run clock, us): roam_game.c's slow frames and steps say how much of them waited.
+uint64_t roam_host_run_us(void)
+{
+    SceKernelThreadInfo info;
+    memset(&info, 0, sizeof info);
+    info.size = sizeof info;
+    if (sceKernelGetThreadInfo(sceKernelGetThreadId(), &info) < 0)
+        return 0;
+    return info.runClocks;
 }
 
 int roam_host_hud_line(char* tx, int n)
