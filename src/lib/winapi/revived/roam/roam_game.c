@@ -859,6 +859,15 @@ uint32_t modpacks_for_others(uint32_t key);          /* modpacks.c: a mod part's
 /* set while a friend's look is loaded (begin_load): the car loader's texture list for it (overrides.c
  * sub_00631e20) names its engine's texture too, for an open hood (showoff.c) */
 int roam_texlist_engine;
+#ifdef ROAM_PROBE
+/* NewGetCarPart's answers remembered while a friend's car is built (src/ug2/carpart_cache.cpp) */
+void roam_partcache_on(int on);
+void roam_partcache_forget(void);
+void roam_partcache_counts(uint32_t *hits, uint32_t *misses);
+#else
+static inline void roam_partcache_on(int on){ (void)on; }
+static inline void roam_partcache_forget(void){}
+#endif
 static char g_br[160];                        /* build_ride's parts that took 1 ms or more (ROAM_PROBE: step_end) */
 #ifdef ROAM_PROBE
 static uint64_t g_br_t;
@@ -868,7 +877,14 @@ static uint64_t g_br_t;
 #else
 #define BR(name) do {} while (0)
 #endif
+static int build_ride_in(CPU *c, const rc_carcfg *cc, uint32_t ride, uint32_t skin, char *why, int whylen, int others);
 static int build_ride(CPU *c, const rc_carcfg *cc, uint32_t ride, uint32_t skin, char *why, int whylen, int others){
+    roam_partcache_on(1);
+    int r = build_ride_in(c, cc, ride, skin, why, whylen, others);
+    roam_partcache_on(0);
+    return r;
+}
+static int build_ride_in(CPU *c, const rc_carcfg *cc, uint32_t ride, uint32_t skin, char *why, int whylen, int others){
 #ifdef ROAM_PROBE
     g_br[0] = 0; g_br_t = rh_ns();
 #endif
@@ -1569,7 +1585,7 @@ static void world_gone(void){
         s->ride_new = rn; s->ride_orig = ro; s->rec = rec;
     }
     g_created_n = 0; g_em = EM_GAME; g_em_pin = 0; g_em_racing_noted = 0; g_em_release_at = 0;
-    part_cache_forget();
+    part_cache_forget(); roam_partcache_forget();
     rh_plates_forget();
     rh_stance_forget();
 }
@@ -2080,6 +2096,7 @@ static int part_packs(CPU *c){
     else rlog("[roam] f=%ld friends' shop parts: the packs are in after %.1f s\n", rh_frame(), (roam_plat_now_us() - g_packs_t0) / 1e6);
     packs_wake(c);                                  /* the player's car's models back in them first */
     g_packs_ok = 1;
+    roam_partcache_forget();                        /* (the shared packs' parts are in the database now) */
     return 1;
 }
 /* A car load's steps on the game thread, timed: any one over SLOW_STEP_US is
@@ -2100,7 +2117,7 @@ static inline void roam_probe_end(char *out, int n){ (void)n; out[0] = 0; }
 static void step_begin(void){ g_step_t = rh_ns(); roam_probe_begin(); }
 static void step_end(int k, const char *what){
     uint64_t us = (rh_ns() - g_step_t) / 1000u;
-    char in[320]; roam_probe_end(in, (int)sizeof in);
+    char in[512]; roam_probe_end(in, (int)sizeof in);
     if (us >= SLOW_STEP_US){
         const char *br = !strcmp(what, "build ride") ? g_br : "";
         rlog("[roam] f=%ld slot %d: slow step %s: %.1f ms%s%s%s%s%s%s\n", rh_frame(), k, what, us / 1000.0,
