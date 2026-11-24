@@ -2047,7 +2047,11 @@ static void step_back(CPU *c, long f){
         if ((mode & 0xfu) == 2u && guest_ok(next, sizeof nm)) for (unsigned i = 0; i + 1 < sizeof nm && MR8(next + i); i++){ nm[i] = (char)MR8(next + i); nm[i + 1] = 0; }
         fprintf(stderr, "[mprace] f=%ld the save: mode 0x%x, from 0x%x, next 0x%x%s%s; dialog %u, top %s\n", autotest_frame(), mode,
                 guest_rd32(G_MC_FROM), next, nm[0] ? " " : "", nm, guest_rd32(G_DLG), autotest_top_fng() ? autotest_top_fng() : "?");
+#ifdef ROAM_MPRACE_PLAYER_SAVES
+        M.next = f + 90; return;                                                 /* (the player answers it) */
+#else
         keys("LR"); M.next = f + 90; return;
+#endif
     }
 }
 
@@ -2072,6 +2076,11 @@ void mprace_frame(CPU *c){
      * cover goes too, mprace_covered), and the way back's time stands meanwhile; keys of ours still to press (the
      * save's "LR": the movie comes as the save ends) would answer the question or skip the movie: dropped */
     if (mpcredit_busy()){ M.owns = 0; M.nkeys = 0; }
+#ifdef ROAM_MPRACE_PLAYER_SAVES
+    /* the Vita: the autosave's screen on the way back is the player's to answer (the trip's taps did not reach it, and
+     * with the buttons held it stood there without any input, 2026-11-24) */
+    if (on("MC_Main.fng")){ M.owns = 0; M.nkeys = 0; }
+#endif
     if (M.goal == G_CAREER_GOAL){ if (mpcredit_busy()) M.since = f - M.held; else M.held = f - M.since; }
     if (step_racing(f)) return;
     if (keys_run(f) || f < M.next) return;

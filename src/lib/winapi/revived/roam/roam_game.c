@@ -6410,7 +6410,7 @@ static void mp_report(void){
 #ifdef ROAM_MPRACE_HOST_CHECK
 int roam_vita_can_host(void);
 static int mp_can_host(void){ return roam_vita_can_host(); }
-#define MP_NO_HOST "Hosting a race needs server.dll from the PC game (patch 1.2) next to SPEED2.EXE: join a lobby another player opens here"
+#define MP_NO_HOST "Hosting a race needs server.dll and server.cfg from the PC game (patch 1.2) next to SPEED2.EXE: join a lobby another player opens here"
 #else
 static int mp_can_host(void){ return 1; }
 #define MP_NO_HOST ""

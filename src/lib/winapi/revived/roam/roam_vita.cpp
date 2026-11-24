@@ -11,6 +11,7 @@
 #include <winapi/revived.h>
 #include <lib/memmap.h>
 #include <lib/guestmodule.h>
+#include <lib/file.h>
 #include <lib/controls.h>
 #include <lib/gamepad.h>
 #include <platform/time.h>
@@ -580,10 +581,21 @@ void roam_vita_tap(unsigned dik)
 }
 
 // Whether this game can host a lobby's race (roam_game.c mp_can_host): the game's LAN server, server.dll, translated
-// into this build and the same file next to SPEED2.EXE (src/lib/guestmodule.cpp)
+// into this build and the same file next to SPEED2.EXE (src/lib/guestmodule.cpp), with its server.cfg from the PC game:
+// without it the server stops at "ServerConfig: config load failed" and never listens, so joiners are refused
 int roam_vita_can_host(void)
 {
-    return win32::guestmodule::available("server.dll") ? 1 : 0;
+    if (!win32::guestmodule::available("server.dll"))
+        return 0;
+    static int cfg;                 // 0 not asked yet, 1 there, -1 not
+    if (!cfg)
+    {
+        win32::File f("server.cfg", win32::GENERIC_READ, 0, win32::OPEN_EXISTING);
+        cfg = static_cast<void*>(f) ? 1 : -1;
+        pf::logInfo("server.cfg: %s", cfg > 0 ? "in the game folder" : "not in the game folder: no hosting of LAN "
+                    "games (put the server.cfg of the PC game next to SPEED2.EXE)");
+    }
+    return cfg > 0;
 }
 
 // mod packs (runtime/modpacks.c): none on the Vita, every part is the game's own
