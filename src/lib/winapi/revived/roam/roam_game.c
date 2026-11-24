@@ -2567,7 +2567,9 @@ static void push_pose(Slot *s, rc_pose *P, int64_t newest, int64_t rt, float dt)
 #define TAG_DUEL        TAG_N         /* one more: the outrun's line of text (du_hud) */
 #define TAG_MP0         (TAG_N + 1)   /* and eight: labels over race spots and lobbies, the lines of a start's stack (mp_labels) */
 #define TAG_MPN         8
-#define TAG_ALL         (TAG_N + 1 + TAG_MPN)
+#define TAG_QC0         (TAG_MP0 + TAG_MPN)   /* and quick chat's box: its title and a line for each choice (qc_panel) */
+#define TAG_QCN         8
+#define TAG_ALL         (TAG_N + 1 + TAG_MPN + TAG_QCN)
 #define TAG_DUEL_MAX    120
 /* the names' objects in a HUD; co-op free roam has a set for each player's (its half of the screen) */
 typedef struct { uint32_t hud, obj[TAG_ALL]; uint8_t looked[TAG_ALL], shown[TAG_ALL], alpha[TAG_ALL]; char text[TAG_ALL][TAG_DUEL_MAX]; uint32_t rgb[TAG_ALL];
@@ -2714,8 +2716,8 @@ static uint32_t tag_obj(CPU *c, int k, uint32_t pkg){
     g_tag.looked[k] = 1;
     if (k >= TAG_GAME){
         uint32_t o1 = tag_obj(c, 0, pkg);
-        char nm[24]; snprintf(nm, sizeof nm, k == TAG_DUEL ? "ROAM_OUTRUN" : k >= TAG_MP0 ? "ROAM_RACE_%d" : "ROAM_PLAYER_%d",
-                              k >= TAG_MP0 ? k - TAG_MP0 + 1 : k + 1);   /* past the HUD's six: copies of the first */
+        char nm[24]; snprintf(nm, sizeof nm, k == TAG_DUEL ? "ROAM_OUTRUN" : k >= TAG_QC0 ? "ROAM_CHAT_%d" : k >= TAG_MP0 ? "ROAM_RACE_%d" : "ROAM_PLAYER_%d",
+                              k >= TAG_QC0 ? k - TAG_QC0 + 1 : k >= TAG_MP0 ? k - TAG_MP0 + 1 : k + 1);   /* past the HUD's six: copies of the first */
         g_tag.obj[k] = o1 ? fe_clone(c, pkg, o1, nm) : 0;
         if (g_tag.obj[k] && !g_tag.probe){ g_tag.probe = g_tag.obj[k]; g_tag.probe_hash = MR32(g_tag.obj[k] + 0x10u); }
         if (!g_tag.obj[k] && k == TAG_DUEL) rlog("[roam] f=%ld no copy of ONLINE_PLAYER_1 for the outrun's line of text\n", rh_frame());
@@ -2910,7 +2912,9 @@ static uint32_t flag_texture(CPU *c, int i){
 }
 /* each name's image for its flag, made (or looked up) once per HUD: a copy of the package's first image, which is
  * off the screen and not in a group, its turn, pivot and texture corners as a flag needs them */
-typedef struct { uint32_t hud, like, obj[TAG_N]; uint8_t looked[TAG_N], shown[TAG_N], alpha[TAG_N]; uint32_t tex[TAG_N]; int said;
+#define FL_BOX          TAG_N         /* two more images: quick chat's box and its edge (qc_panel) */
+#define FL_ALL          (TAG_N + 2)
+typedef struct { uint32_t hud, like, obj[FL_ALL]; uint8_t looked[FL_ALL], shown[FL_ALL], alpha[FL_ALL]; uint32_t tex[FL_ALL]; int said;
                  uint32_t probe, probe_hash; } FlagSet;   /* (probe: the first image made, its hash: tags_live) */
 static FlagSet g_fls[2], *g_flp = &g_fls[0];
 #define g_fl (*g_flp)
@@ -5708,6 +5712,71 @@ static void gh_frame(void){
     }
 }
 
+#if SAYS && defined(ROAM_SAY_TAGS)
+/* Quick chat's choices while its button is held (the Vita: roam_host_chat_menu), as a small box on the right of the
+ * screen as the game's own prompts are: a dark box with a lit edge, its title and a line a choice in the HUD's font
+ * (copies of ONLINE_PLAYER_1; the box, the HUD's plain white image as the flags are, FLAG_TEMPLATE).  1 when drawn */
+int roam_host_chat_menu(const char **keys, const char **texts, int max);
+#define QC_X            452.f         /* the box: its left, HUD units (640 x 480) */
+#define QC_W            176.f
+#define QC_TOP          176.f
+#define QC_LINE         17.f          /* a line's height */
+#define QC_SC           0.78f         /* the text's scale */
+static int g_qc_drawn;
+static void qc_hide(CPU *c){
+    for (int i = 0; i < TAG_QCN; i++) tag_hide(c, TAG_QC0 + i);
+#if FLAGS
+    flag_hide(c, FL_BOX); flag_hide(c, FL_BOX + 1);
+#endif
+    g_qc_drawn = 0;
+}
+#if FLAGS
+static void qc_image(CPU *c, int k, uint32_t pkg, float x, float y, float w, float h, int32_t b, int32_t g, int32_t r, uint8_t a, float z){
+    uint32_t o = flag_obj(c, k, pkg);
+    if (!o) return;
+    if (g_fl.tex[k] != FLAG_TEMPLATE){ uint32_t av[2] = { o, FLAG_TEMPLATE }; rh_call(c, FN_FE_SETTEX, 0, 0, 2, av); g_fl.tex[k] = FLAG_TEMPLATE; }
+    if (g_fl.alpha[k] != a || !g_fl.shown[k]){ fe_colour_set(c, o, b, g, r, a); g_fl.alpha[k] = a; }
+    uint32_t ap[2] = { gvec(g_gmem + TAG_SCR + 0x20u, x - 320.f, y - 240.f, z), 0 };
+    rh_call(c, FN_FE_POS, o, 0, 2, ap);
+    uint32_t as[2] = { gvec(g_gmem + TAG_SCR + 0x30u, w, h, 1.f), 0 };
+    rh_call(c, FN_FE_SCALE, o, 0, 2, as);
+    if (!g_fl.shown[k]) gcall1(c, FN_FE_SHOW, 0, o);
+    g_fl.shown[k] = 1;
+}
+#endif
+static void qc_text(CPU *c, int k, uint32_t pkg, const char *tx, uint32_t rgb, float x, float y){
+    uint32_t obj = tag_obj(c, k, pkg);
+    if (!obj) return;
+    tag_text_rgb(c, k, obj, tx, rgb);
+    if ((MR32(obj + 0x6cu) & 0xfu) != 4u){ MR32(obj + 0x6cu) = (MR32(obj + 0x6cu) & ~0xfu) | 4u; MR32(obj + 0x1cu) |= 0x400002u; }   /* from its left */
+    uint32_t ap[2] = { gvec(g_gmem + TAG_SCR + 0x20u, x - 320.f, y - 240.f, 0.4f), 0 };
+    rh_call(c, FN_FE_POS, obj, 0, 2, ap);
+    uint32_t as[2] = { gvec(g_gmem + TAG_SCR + 0x30u, QC_SC, QC_SC, 1.f), 0 };
+    rh_call(c, FN_FE_SCALE, obj, 0, 2, as);
+    gcall1(c, FN_FE_SHOW, 0, obj);
+    g_tag.shown[k] = 1;
+}
+static int qc_panel(CPU *c, uint32_t pkg){
+    const char *keys[TAG_QCN - 1], *texts[TAG_QCN - 1];
+    int n = roam_host_chat_menu(keys, texts, TAG_QCN - 1);
+    if (n <= 0){ if (g_qc_drawn) qc_hide(c); return 0; }
+    if (!tag_obj(c, TAG_QC0, pkg)) return 0;
+    float h = QC_LINE * (float)(n + 1) + 10.f, cy = QC_TOP + h * 0.5f;
+#if FLAGS
+    qc_image(c, FL_BOX, pkg, QC_X + QC_W * 0.5f, cy, QC_W, h, 0x20, 0x10, 0x08, 190, 0.45f);        /* dark, a little blue */
+    qc_image(c, FL_BOX + 1, pkg, QC_X + 1.5f, cy, 3.f, h, 0xff, 0xc8, 0x46, 255, 0.42f);            /* the lit edge */
+#endif
+    qc_text(c, TAG_QC0, pkg, "QUICK CHAT", 0x46c8ffu, QC_X + 10.f, QC_TOP + 5.f + QC_LINE * 0.5f);
+    for (int i = 0; i < n; i++){
+        char tx[TAG_DUEL_MAX]; snprintf(tx, sizeof tx, "%s  %s", keys[i], texts[i]);
+        qc_text(c, TAG_QC0 + 1 + i, pkg, tx, 0, QC_X + 10.f, QC_TOP + 5.f + QC_LINE * ((float)i + 1.5f));
+    }
+    for (int i = n + 1; i < TAG_QCN; i++) tag_hide(c, TAG_QC0 + i);
+    g_qc_drawn = 1;
+    return 1;
+}
+int roam_game_chat_panel_drawn(void){ return g_qc_drawn; }
+#endif
 /* the line of text, top centre, after the HUD's update (roam_game_hud) */
 #if MPRACES
 static int mp_line(int64_t host, char *tx, int n);
@@ -5743,7 +5812,10 @@ static void du_hud(CPU *c, int64_t host){
         if (!tx[0] && g_du.note[0] && host < g_du.note_until && g_du.st != DU_RACE && g_du.st != DU_OVER) snprintf(tx, sizeof tx, "%s", g_du.note);
     }
 #ifdef ROAM_SAY_TAGS
-    /* the host's line when there is none of ours: quick chat's choices while its button is held (roam_vita.cpp) */
+    /* quick chat's choices while its button is held: their box on the right (qc_panel) */
+    if (g_in_roam && hud_on_top(pkg)) qc_panel(c, pkg);
+    else if (g_qc_drawn) qc_hide(c);
+    /* the host's line when there is none of ours: the phrase just said (roam_vita.cpp) */
     if (!tx[0] && g_in_roam && hud_on_top(pkg)){ extern int roam_host_hud_line(char *tx, int n); roam_host_hud_line(tx, (int)sizeof tx); }
 #endif
     if (!tx[0]){ tag_hide(c, TAG_DUEL); return; }
