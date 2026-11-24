@@ -999,9 +999,8 @@ void configure(win32::WinApplication& app)
     }
     s_moviesSkip = atof(pf::Config::getString("movies_skip", "0"));
     static const char* const IntroSkips[] = { "off", "logos", "opening" };
-    s_skipIntro = pf::Config::getChoice("skip_intro_movies", IntroSkips, 3, 0);
-    if (s_skipIntro)
-        pf::logInfo("frontend: skip_intro_movies=%s", IntroSkips[s_skipIntro]);
+    s_skipIntro = 0;   // skip_intro_movies takes the screens out of the boot flow (movies.cpp)
+    (void)IntroSkips;
     parseQuit(pf::Config::getString("boot_quit_after", ""));
     if (pf::Config::getBool("fe_msg", false))
         s_msgApp = &app;
