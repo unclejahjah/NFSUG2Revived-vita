@@ -191,21 +191,33 @@ bool movieName(reg32 path, char* name, size_t size)
     return true;
 }
 
-// skip_intro_movies: 1 the logos and the notice, 2 the opening movie too. Their open fails, as with the files
-// deleted on PC, so the game goes straight on without playing anything (blank.vp6 in their place showed a moment
-// of the movie screen each).
-int s_skipIntro = 0;
-const char* const RemovedMovie = "skip_intro_movies_removed";   // no such file
+// skip_intro_movies: 1 the logos and the notice, 2 the opening movie too. Their screens are taken out of the
+// boot flow's list of screens (0x4D9580 builds it from the name tables 0x7F65E8 and 0x7F6620, and skips the empty
+// names the game itself leaves there), so nothing of them shows; the movies still play from anywhere else.
+const reg32 EmptyName = 0x00783FE5;          // the game's ""
+const reg32 BootScreenTables[][2] = { { 0x007F65E8, 0x007F6620 }, { 0x007F6620, 0x007F6654 } };
 
-bool skippedIntro(const char* name)
+void removeIntroScreens(int skip)
 {
-    static const char* const Logos[] = { "ealogo", "THX_logo", "PSA" };
-    for (const char* logo : Logos)
+    static const char* const Logos[] = { "LS_BlankMovie.fng", "LS_EAlogo.fng", "LS_THXMovie.fng", "LS_PSAMovie.fng" };
+    int removed = 0;
+    for (const auto& table : BootScreenTables)
     {
-        if (strcasecmp(name, logo) == 0)
-            return s_skipIntro >= 1;
+        for (reg32 slot = table[0]; slot < table[1]; slot += 4)
+        {
+            std::string name;
+            for (reg32 p = rc::ld32(slot); p && rc::ld8(p) && name.size() < 64; ++p)
+                name += char(rc::ld8(p));
+            bool remove = skip >= 2 && name == "UG_LS_IntroFMV.fng";
+            for (const char* logo : Logos)
+                remove = remove || name == logo;
+            if (!remove)
+                continue;
+            rc::st32(slot, EmptyName);
+            ++removed;
+        }
     }
-    return s_skipIntro >= 2 && strcasecmp(name, "FMVOpening") == 0;
+    pf::logInfo("movies: skip_intro_movies: %d start-up screens taken out of the boot flow", removed);
 }
 
 // A guest copy of the path with the movie's name (name, the path's last part without .vp6) replaced by to.
@@ -238,13 +250,7 @@ void createFileHook(win32::WinApplication* app, x86::CPU& cpu)
     const reg32 path = rc::ld32(cpu.esp + 4);
     if (movieName(path, name, sizeof(name)))
     {
-        if (skippedIntro(name))
-        {
-            pf::logInfo("movies: skip_intro_movies: %s.vp6 is not opened", name);
-            rc::st32(cpu.esp + 4, replacedPath(path, name, RemovedMovie));
-            strcpy(name, RemovedMovie);
-        }
-        else if (const reg32 copy = redirectPath(path, name))
+        if (const reg32 copy = redirectPath(path, name))
         {
             rc::st32(cpu.esp + 4, copy);
             strcpy(name, s_redirectTo.c_str());
@@ -845,9 +851,8 @@ void configure(win32::WinApplication& app)
     static const char* const modes[] = { "game", "native", "vp6", "vp6only" };
     s_mode = Mode(pf::Config::getChoice("movies", modes, 4, strcmp(defaultMode, "native") == 0 ? 1 : 0));
     static const char* const IntroSkips[] = { "off", "logos", "opening" };
-    s_skipIntro = pf::Config::getChoice("skip_intro_movies", IntroSkips, 3, 0);
-    if (s_skipIntro && !s_createFile)
-        s_createFile = app.replaceMethod(rc::ld32(CreateFileSlot), createFileHook);
+    if (const int skip = pf::Config::getChoice("skip_intro_movies", IntroSkips, 3, 0))
+        removeIntroScreens(skip);
     s_dir = pf::Config::getString("movies_dir", defaultDir);
     while (s_dir.size() > 1 && (s_dir.back() == '/' || s_dir.back() == '\\'))
         s_dir.pop_back();

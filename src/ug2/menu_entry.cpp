@@ -28,6 +28,9 @@
 #include <string>
 #include <vector>
 
+// free roam's texts of its own (revived/roam/mp/mp_vita.c): the guest string of a text hash, 0 for none of ours
+extern "C" uint32_t roam_lang_text(uint32_t hash);
+
 namespace ug2
 {
 
@@ -716,6 +719,13 @@ void sub_4c4bd0(win32::WinApplication* app, x86::CPU& cpu)
 // The game's text of a label hash (edx; the text in eax): ours for our hashes.
 void sub_4ff9d0(win32::WinApplication* app, x86::CPU& cpu)
 {
+    // free roam's texts of its own (the race card's Solo, Multiplayer, Join: revived/roam/mp/mp_vita.c)
+    if (const reg32 own = roam_lang_text(cpu.edx))
+    {
+        cpu.eax = own;
+        cpu.esp += 4;
+        return;
+    }
     if (cpu.edx == LabelHash || (cpu.edx & 0xFFFF0000) == OurHashes)
     {
         const std::map<reg32, reg32>::const_iterator it = s_texts.find(cpu.edx);

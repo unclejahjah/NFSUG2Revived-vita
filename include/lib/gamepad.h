@@ -123,6 +123,11 @@ public:
     static bool takeSettingsRequest();
     // Once after a quick chat chord (Select + Down, Left, Right, Cross, Circle, Square): its slot 0-5, else -1.
     static int takeSayChord();
+    // A key pressed for the game by host code (free roam's races driving the game's menus: Enter, Escape, Left):
+    // queued like typed text, down then up, and while it is queued the pad holds no keys or buttons. Any thread.
+    static void tapKey(const controls::KeyCode& key);
+    // While held, the pad holds no keys or buttons and no sticks (host code drives the game's menus). Any thread.
+    static void setPadHeld(bool held);
     // For an editor that only appends and deletes at its end: clearing a field skips the End key.
     static void setTextAppendOnly(bool appendOnly);
     // Ends the edit of the field: a keyboard still open for it closes without typing.

@@ -12,7 +12,8 @@
 #include <string.h>
 #include <strings.h>
 
-typedef struct CPU CPU;                  /* not used here (always 0) */
+/* the registers of a patched handler (mp/cpu.h: the race card's, ROAM_MPRACES); elsewhere not used (always 0) */
+typedef struct CPU CPU;
 
 /* ---- guest memory: at the guest base -------------------------------------------- */
 extern uint8_t *nfsu2_guest_base;
@@ -27,6 +28,9 @@ typedef float    __attribute__((may_alias, aligned(1))) rh_f32;
 #define GPTR(a)  (nfsu2_guest_base + (uint32_t)(a))
 int      roam_win_committed(uint32_t a);          /* inside the guest's address space */
 #define rh_committed(a) roam_win_committed(a)
+#ifdef ROAM_MPRACES
+#include "mp/cpu.h"
+#endif
 
 /* the game's Player index (runtime/splitscreen_mem.h, the native builds' address) */
 #define SPLIT_PLAYERS_INDEX 0x008900acu
