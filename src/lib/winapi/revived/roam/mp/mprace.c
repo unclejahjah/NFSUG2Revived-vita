@@ -1066,6 +1066,16 @@ void mprace_end_in_roam(CPU *c){
     M.goal = G_CAREER_GOAL; M.owns = 0; M.nkeys = 0;
     to_phase(M.raced ? MPR_DONE : MPR_FAILED);
 }
+/* the player holds Start + Select on the trip (the Vita, roam_vita.cpp): on the way to the race, give it up (the trip
+ * drives back to free roam); on the way back, or a second time, the controls are the player's at once */
+void mprace_player_cancel(void){
+    if (M.phase == MPR_IDLE || M.phase == MPR_DONE || M.phase == MPR_FAILED) return;
+    if (M.goal == G_RACE_GOAL && !M.raced){ fail("the player called it off (Start + Select)"); return; }
+    if (!M.why[0]) snprintf(M.why, sizeof M.why, "the player took the controls back (Start + Select) on %s", autotest_top_fng() ? autotest_top_fng() : "?");
+    mlog("FAILED: %s", M.why);
+    M.goal = G_CAREER_GOAL; M.owns = 0; M.nkeys = 0;
+    to_phase(MPR_FAILED);
+}
 int mprace_covered(void){ return M.phase == MPR_OUT || M.phase == MPR_LAN || (M.phase == MPR_BACK && M.owns); }
 const char *mprace_step(void){ return M.step ? M.step : ""; }
 

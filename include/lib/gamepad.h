@@ -128,6 +128,8 @@ public:
     static void tapKey(const controls::KeyCode& key);
     // While held, the pad holds no keys or buttons and no sticks (host code drives the game's menus). Any thread.
     static void setPadHeld(bool held);
+    // The pad's inputs at the last pump (controls::bit), held or not: for host code's own chords
+    static uint32_t rawInputs();
     // For an editor that only appends and deletes at its end: clearing a field skips the End key.
     static void setTextAppendOnly(bool appendOnly);
     // Ends the edit of the field: a keyboard still open for it closes without typing.

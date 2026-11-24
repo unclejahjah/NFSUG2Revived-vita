@@ -43,6 +43,7 @@ const char* roam_game_phrase(int i);
 struct CPU;
 void mprace_frame(struct CPU* c);
 int mprace_owns_input(void);
+void mprace_player_cancel(void);
 void mp_vita_port_frame(void);
 void roam_vita_tap(unsigned dik);
 int roam_vita_can_host(void);
@@ -656,6 +657,28 @@ void frame(win32::WinApplication* app, x86::CPU& cpu)
     static CPU* const s_tripCpu = reinterpret_cast<CPU*>(s_tripRegs);
     mp_vita_port_frame();   // (a racer's quit, from the race's own port)
     mprace_frame(s_tripCpu);
+    // the way out while the trip holds the buttons: Start + Select held 2 s (once: give the race up and drive back;
+    // again: the controls back at once)
+    {
+        static uint64_t s_cancelSince;
+        static bool s_cancelDone;
+        const uint32_t both = win32::controls::bit(win32::controls::Start) | win32::controls::bit(win32::controls::Select);
+        const bool held = mprace_owns_input() && (win32::Gamepad::rawInputs() & both) == both;
+        const uint64_t now = pf::ticksUs();
+        if (!held)
+        {
+            s_cancelSince = 0;
+            s_cancelDone = false;
+        }
+        else if (!s_cancelSince)
+            s_cancelSince = now;
+        else if (!s_cancelDone && now - s_cancelSince >= 2000000)
+        {
+            s_cancelDone = true;
+            roam_log("[mprace] f=%ld Start + Select held 2 s: the player calls the trip off", s_frame);
+            mprace_player_cancel();
+        }
+    }
     const bool owns = mprace_owns_input() != 0;
     if (owns != s_padHeld)
     {

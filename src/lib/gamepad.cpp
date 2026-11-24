@@ -497,6 +497,11 @@ void Gamepad::tapKey(const controls::KeyCode& key)
     s_typing.push_back(TypedKey{ key, false, 0 });
 }
 
+uint32_t Gamepad::rawInputs()
+{
+    return s_padInputs;
+}
+
 void Gamepad::setPadHeld(bool held)
 {
     s_padHeld = held;
