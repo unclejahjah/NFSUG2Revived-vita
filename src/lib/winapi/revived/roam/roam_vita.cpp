@@ -37,6 +37,8 @@ void roam_game_frame(struct CPU* c);
 void roam_game_hud(struct CPU* c);
 const char* roam_game_phrase(int i);
 int roam_host_hud_line(char* tx, int n);
+int roam_host_chat_menu(const char** keys, const char** texts, int max);
+int roam_game_chat_panel_drawn(void);
 void roam_host_net_thread(void);
 uint64_t roam_host_run_us(void);
 void revived_link_control_send(const char* json);   // revived_link.cpp
@@ -347,12 +349,36 @@ uint64_t roam_host_run_us(void)
     return info.runClocks;
 }
 
+// Quick chat's choices while its button is held (after 0.2 s, so that a tap passed on to the game shows nothing): each
+// one's button and phrase, for roam_game.c's box on the right of the screen (qc_panel); their count, 0 none.
+int roam_host_chat_menu(const char** keys, const char** texts, int max)
+{
+    if (!optOn(roam_opt("NFSU2_ROAM_SAY")))
+        return 0;
+    const uint64_t now = pf::ticksUs(), held = win32::controls::quickChatHeldSince();
+    if (!held || now - held < 200000)
+        return 0;
+    win32::controls::Input slots[7];
+    win32::controls::quickChatSlots(slots);
+    int n = 0;
+    for (int i = 0; i < 7 && n < max; ++i)
+    {
+        const char* text = i == 6 ? "Add friend" : roam_game_phrase(slotPhrase(i));
+        if (!text)
+            continue;
+        keys[n] = inputName(slots[i]);
+        texts[n] = text;
+        ++n;
+    }
+    return n;
+}
+
 int roam_host_hud_line(char* tx, int n)
 {
     if (!optOn(roam_opt("NFSU2_ROAM_SAY")))
         return 0;
     const uint64_t now = pf::ticksUs(), held = win32::controls::quickChatHeldSince();
-    if (held && now - held >= 200000)
+    if (held && now - held >= 200000 && !roam_game_chat_panel_drawn())   // (the box could not be made: the old line)
     {
         win32::controls::Input slots[7];
         win32::controls::quickChatSlots(slots);
