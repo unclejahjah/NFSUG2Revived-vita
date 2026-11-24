@@ -36,6 +36,12 @@ extern uint8_t* nfsu2_guest_base;
 void roam_game_frame(struct CPU* c);
 void roam_game_hud(struct CPU* c);
 const char* roam_game_phrase(int i);
+// multiplayer races from free roam (roam_game.c mp_*, mp/mprace.c): the trip through the game's LAN race, a step a
+// frame, menus included; its input is the trip's while it drives the menus
+struct CPU;
+void mprace_frame(struct CPU* c);
+int mprace_owns_input(void);
+void roam_vita_tap(unsigned dik);
 int roam_host_hud_line(char* tx, int n);
 void roam_host_net_thread(void);
 uint64_t roam_host_run_us(void);
@@ -77,6 +83,8 @@ const struct { const char *name, *key, *def; } Opts[] = {
     { "NFSU2_ROAM_FLAG",        "Flag",        ""  },
     // quick chat (settings.ini quick_chat): on or off, and the phrases of its six slots by their numbers (phrases.h);
     // the cfg's quick_chat_button says which buttons they are (controls::quickChatSlots)
+    // multiplayer races from free roam (roam_game.c mp_*): lobbies at the race markers, joined with the race's button
+    { "NFSU2_ROAM_MPRACES",     "Races",       "1" },
     { "NFSU2_ROAM_SAY",         "QuickChat",   "1" },
     { "NFSU2_ROAM_SAY1",        "Say1",        "0"  },   // Hey!
     { "NFSU2_ROAM_SAY2",        "Say2",        "2"  },   // Thanks!
@@ -149,6 +157,9 @@ FILE* s_log = nullptr;
 long s_frame = 0;
 win32::WinApplication* s_app = nullptr;
 x86::CPU* s_cpu = nullptr;
+// the trip's CPU (mp/cpu.h: 9 registers, never run) and whether its buttons are held now
+uint32_t s_tripRegs[16];
+bool s_padHeld = false;
 
 bool optOn(const char* v)
 {
@@ -522,6 +533,21 @@ uint64_t roam_win_ns(void)
     return sceKernelGetProcessTimeWide() * 1000ull;
 }
 
+// A key for the trip (mp_vita.c autotest_tap): the three it presses, through the synthesized keyboard.
+void roam_vita_tap(unsigned dik)
+{
+    static const win32::controls::KeyCode Enter = { 0x0D, 0x1C, false };
+    static const win32::controls::KeyCode Escape = { 0x1B, 0x01, false };
+    static const win32::controls::KeyCode Left = { 0x25, 0x4B, true };
+    switch (dik)
+    {
+    case 0x1C: win32::Gamepad::tapKey(Enter); break;
+    case 0x01: win32::Gamepad::tapKey(Escape); break;
+    case 0xCB: win32::Gamepad::tapKey(Left); break;
+    default: roam_log("[mprace] no key 0x%02x on the Vita", dik); break;
+    }
+}
+
 // mod packs (runtime/modpacks.c): none on the Vita, every part is the game's own
 uint32_t modpacks_for_others(uint32_t key)
 {
@@ -575,8 +601,35 @@ void frame(win32::WinApplication* app, x86::CPU& cpu)
     s_cpu = &cpu;
     ++s_frame;
     roam_game_frame(nullptr);
+    // the trip of a multiplayer race (out of free roam, the game's LAN race, back): its CPU is only passed along,
+    // its guest calls go through roam_win_call on this frame's
+    static CPU* const s_tripCpu = reinterpret_cast<CPU*>(s_tripRegs);
+    mprace_frame(s_tripCpu);
+    const bool owns = mprace_owns_input() != 0;
+    if (owns != s_padHeld)
+    {
+        s_padHeld = owns;
+        win32::Gamepad::setPadHeld(owns);
+        roam_log("[mprace] f=%ld the Vita's buttons %s", s_frame, owns ? "held: the trip drives the menus" : "back to the player");
+    }
     s_app = nullptr;
     s_cpu = nullptr;
+}
+
+GuestScope::GuestScope(win32::WinApplication* app, x86::CPU& cpu)
+    : m_app(s_app), m_cpu(s_cpu)
+{
+    if (!s_cpu)
+    {
+        s_app = app;
+        s_cpu = &cpu;
+    }
+}
+
+GuestScope::~GuestScope()
+{
+    s_app = m_app;
+    s_cpu = m_cpu;
 }
 
 void hud(win32::WinApplication* app, x86::CPU& cpu)

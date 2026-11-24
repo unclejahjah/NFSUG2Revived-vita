@@ -114,11 +114,16 @@ static inline uint32_t coop_player(void){ return 0; }
 #endif
 
 /* ---- game addresses (v1.2 NA) ------------------------------------------------ */
-/* multiplayer races from free roam (mp_*, mprace.c): not in the Windows plugin */
-#ifdef ROAM_HOST_WIN
+/* multiplayer races from free roam (mp_*, mprace.c): not in the Windows plugin (the Vita build has them: ROAM_MPRACES) */
+#if defined(ROAM_HOST_WIN) && !defined(ROAM_MPRACES)
 #define MPRACES         0
 #else
 #define MPRACES         1
+#endif
+#if MPRACES
+/* multiplayer races switched on (NFSU2_ROAM_MPRACES, the Vita's .ini Races; on by default): off, this game takes no
+ * lobbies (its HELLO says so), shows no spots or lines, and leaves the race card to the game */
+static int g_mp_on = 1;
 #endif
 /* flags before the names over friends' cars (flag_*): not in the Windows plugin (the Vita build has them: ROAM_FLAGS) */
 #if defined(ROAM_HOST_WIN) && !defined(ROAM_FLAGS)
@@ -5715,7 +5720,12 @@ static void du_hud(CPU *c, int64_t host){
     char tx[TAG_DUEL_MAX] = {0};
 #if MPRACES
     if (g_in_roam && hud_on_top(pkg) && !rd32(0x00838974u /* a dialog up */)) g_mp_hud_at = host;
-    if (g_in_roam && hud_on_top(pkg) && g_du.st == DU_IDLE && !g_du.icon && !rd32(0x00838974u /* a dialog up */)) mp_line(host, tx, sizeof tx);   /* the race lobby's, else the outrun's */
+#ifdef ROAM_SAY_TAGS
+    /* quick chat's choices while its button is held, and the phrase just said, over the race lobby's line (the
+     * player is picking one now); the line comes back once the button is let go */
+    if (g_in_roam && hud_on_top(pkg)){ extern int roam_host_hud_line(char *tx, int n); roam_host_hud_line(tx, (int)sizeof tx); }
+#endif
+    if (!tx[0] && g_in_roam && hud_on_top(pkg) && g_du.st == DU_IDLE && !g_du.icon && !rd32(0x00838974u /* a dialog up */)) mp_line(host, tx, sizeof tx);   /* the race lobby's, else the outrun's */
     if (!tx[0] && g_in_roam && hud_on_top(pkg)){
 #else
     if (g_in_roam && hud_on_top(pkg)){
@@ -5845,6 +5855,11 @@ static const char *mp_test_env(const char *name){ const char *s = getenv("NFSU2_
  * only in an SUV.  Never a race of a later stage, a story race (no LAN race)
  * or one already won; none in the prologue or while a story step runs */
 static int mp_counts(uint32_t r){
+#ifdef ROAM_MPRACE_NO_CREDIT
+    /* the Vita build has no career credit (mpcredit.c): a race pays its prize money only */
+    (void)r;
+    return 0;
+#endif
     uint32_t stage = rd32(G_CAREER + C_STAGE);
     if (!r || !ok(r, RACE_SZ) || !race_lan(r) || !stage || rd32(G_CAREER + C_GUIDED) || race_won(r)) return 0;
     {   /* test aid: NFSU2_MPRACE_TEST_COUNTS, race names (comma-separated) that count whatever their gates (a URL race
@@ -5955,8 +5970,8 @@ static void spots_read(CPU *c, int64_t host){
  * (the world map), JOIN and LEAVE to the host, START and CLOSE from it.
  * Lobbies are within a room, as everything in free roam. */
 #if MPRACES
-#include "mprace.h"
-#include "mpcredit.h"
+#include "mp/mprace.h"
+#include "mp/mpcredit.h"
 /* the car-look record's rating (car_cfg): the car as the game rates it, which the others' games cannot (RC_EXT_RATING) */
 static void cfg_rating(uint32_t car, rc_carcfg *c){
     CarPerf pf;
@@ -6315,8 +6330,18 @@ static void mp_report(void){
     }
 }
 /* we open a lobby for race r */
+/* this game can host a lobby's race: it runs the game's LAN server (server.dll).  The Vita build has none yet
+ * (ROAM_MPRACE_JOIN_ONLY): it joins the lobbies others open, and opens none */
+#ifdef ROAM_MPRACE_JOIN_ONLY
+static int mp_can_host(void){ return 0; }
+#define MP_NO_HOST "Hosting a race is not on the Vita yet: join a lobby another player opens here"
+#else
+static int mp_can_host(void){ return 1; }
+#define MP_NO_HOST ""
+#endif
 static int mp_open(int64_t host, uint32_t r){
     if (g_mp.st != MP_IDLE || !r) return 0;
+    if (!mp_can_host()){ mp_note(host, MP_NO_HOST); return 0; }
     memset(&g_mp.l, 0, sizeof g_mp.l);
     roam_plat_lock(); do g_mp.l.id = roam_plat_random(); while (!g_mp.l.id); roam_plat_unlock();
     g_mp.l.host = g_s.conf.self_id; g_mp.l.race = r; g_mp.l.max = (uint8_t)race_max(r); g_mp.l.state = RC_LS_OPEN;
@@ -6814,7 +6839,7 @@ static void mp_pad(int64_t host, int in_roam){
     if (in_roam && host - g_mp_hud_at < 250000 && !mp_cannot()){
         if (g_mp.st == MP_IDLE){
             MpLobby *h[MP_SEEN]; int n = mp_here(h);
-            if (n >= 1 && mp_new_page(mp_spot_here(), n)) l = ROAM_LB_NEW;      /* (a start with no lobby: the game's Engage) */
+            if (n >= 1 && mp_new_page(mp_spot_here(), n) && mp_can_host()) l = ROAM_LB_NEW;      /* (a start with no lobby: the game's Engage) */
             if (n >= 2) r = ROAM_LB_NEXT;
         } else if (g_mp.st == MP_HOST) l = ROAM_LB_PRIVATE;
         else if ((g_mp.st == MP_IN || g_mp.st == MP_ASKED) && g_mp.far) l = ROAM_LB_LEAVE;
@@ -6985,6 +7010,7 @@ static void mp_frame(CPU *c, int64_t host, int in_roam, int world_runs, const ui
 static int g_mp_panel = -1;                   /* the platform's panel: 1 the page shows it, 0 none, -1 not known yet */
 static int mp_line(int64_t host, char *tx, int n){
     char nm[24];
+    if (!g_mp_on) return 0;
     if (g_mp_panel == 1) return 0;
     switch (g_mp.st){
     case MP_HOST:
@@ -7018,6 +7044,10 @@ static int mp_line(int64_t host, char *tx, int n){
                           l->race && mprace_evened(race_net_mode(l->race)) ? ". The cars are evened out" : "");
             return 1;
         }
+        if (sp && sp->kind == MPS_ONLY && !mp_can_host()){
+            snprintf(tx, (size_t)n, "Multiplayer %s here: no lobby open yet (the Vita joins lobbies others open)", race_kind(sp->race));
+            return 1;
+        }
         if (sp && sp->kind == MPS_ONLY){
             snprintf(tx, (size_t)n, "Multiplayer %s here (%s): press Enter to open a lobby", race_kind(sp->race),
                      mp_counts(sp->race) ? "a win counts in your career" : mpw_text[sp->why]);
@@ -7031,9 +7061,10 @@ static int mp_line(int64_t host, char *tx, int n){
 /* no outrun in a lobby, at a multiplayer-only spot or by a lobby to join:
  * Enter there is for the race (as at the game's own markers, du_free) */
 static int mp_busy(void){
+    if (!g_mp_on) return 0;
     if (g_mp.st != MP_IDLE) return 1;
     const MpSpot *sp = mp_spot_here();
-    return (sp && sp->kind == MPS_ONLY) || mp_joinable();
+    return (sp && sp->kind == MPS_ONLY && mp_can_host()) || mp_joinable();
 }
 
 /* The lobby's panel over the game (the page's, roam_plat_lobby): what the
@@ -7508,6 +7539,7 @@ static void mp_card(CPU *c){
         uint32_t r = rd32(G_ENGAGED_RACE);
         if (!r || !race_lan(r)){ sub_00499c00(c); return; }                        /* a race no LAN race can be: as before */
         MpLobby *l = mp_joinable();                                                /* (the lobby card's page: else a new lobby) */
+        if (!l && !mp_can_host()){ sub_00499c00(c); return; }                     /* (no lobby to join, none to open: Solo) */
         char t[320];
         /* (with others a win counts too where it counts with Solo: mp_counts; a friend's win too); in the game's
          * language, in its letters */
@@ -8822,6 +8854,10 @@ static void init_once(CPU *c){
     cf.platform = RC_PLAT_MAC;
 #endif
     cf.test_mode = O.test; cf.max_players = maxp; cf.rate_hz = O.rate; cf.duels = DUELS; cf.drifts = DRIFTS; cf.lobbies = MPRACES;
+#if MPRACES
+    g_mp_on = env_int("NFSU2_ROAM_MPRACES", 1, 0, 1);
+    cf.lobbies = g_mp_on;
+#endif
 #ifndef ROAM_HOST_WIN
     /* the hub links us with as many players as we show cars (a hub before version 10 gives 32; 0 shown: not said, 32
      * for quick chat and the lobbies); the Windows plugin's 5 cars say nothing */
@@ -10024,7 +10060,7 @@ void roam_game_frame(CPU *c){
         soft_me(c, host, st);
         if (DUELS) gh_frame();
 #if MPRACES
-        spots_read(c, host);
+        if (g_mp_on) spots_read(c, host);
 #endif
         g_heavy = 0;
         rides_tidy(c);
@@ -10160,8 +10196,7 @@ void roam_game_frame(CPU *c){
     du_frame(c, host, in_roam, world_runs, duin, nduin);
     ph_mark("outruns");
 #if MPRACES
-    mp_frame(c, host, in_roam, world_runs, mpfrom, mpin, nmpin);
-    mp_panel(host, in_roam);
+    if (g_mp_on){ mp_frame(c, host, in_roam, world_runs, mpfrom, mpin, nmpin); mp_panel(host, in_roam); }
 #endif
     g_engage = in_roam && world_runs && engage_ours();
     sounds_update(have_ls ? &ls : 0, world_runs);
@@ -10206,7 +10241,7 @@ void roam_game_hud(CPU *c){
     if (DUELS) du_hud(c, roam_plat_now_us());
 #endif
 #if MPRACES
-    mp_labels(c);
+    if (g_mp_on) mp_labels(c);
 #endif
     g_cost_hud += rh_ns() - t0;
 }

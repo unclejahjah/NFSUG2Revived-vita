@@ -86,6 +86,7 @@ bool                    s_pressPending;     // a press or release not yet read b
 bool                    s_releasePending;
 bool                    s_buttonReader;     // getTouch(button) has been called: presses and releases are kept
 Gamepad::TouchMap       s_touchMap;
+std::atomic<bool>       s_padHeld(false);   // setPadHeld
 
 // Under s_mutex: one finger drives the mouse until it lifts.
 void trackTouch(const controls::PadSample& pad, bool busy)
@@ -264,7 +265,7 @@ void typeNext(uint64_t now)
     {
         Window::pushChar(x86::reg8(typed.character));
     }
-    else
+    else if (typed.key.vk)   // (none: a wait, tapKey)
     {
         s_typedDown[typed.key.dik()] = typed.down;
         postKey(typed.key, typed.down);
@@ -302,7 +303,7 @@ void pump()
                                        controls::bit(controls::RearL3) | controls::bit(controls::RearR3));
     else
         s_releaseWait &= pad.inputs;
-    const bool busy = s_imeOpen || !s_typing.empty() || s_releaseWait != 0;
+    const bool busy = s_imeOpen || !s_typing.empty() || s_releaseWait != 0 || s_padHeld;
     trackTouch(pad, busy);
     if (!busy && state.openSettings)
         s_settingsWanted = true;
@@ -483,6 +484,22 @@ void Gamepad::getState(x86::reg32* buttons, x86::sreg32 (&axes)[controls::AxisCo
         const float range = float(properties.max) - float(properties.min);
         axes[axis] = x86::sreg32(std::lround(float(properties.min) + position * range));
     }
+}
+
+void Gamepad::tapKey(const controls::KeyCode& key)
+{
+    pf::LwLockGuard lock(s_mutex);
+    // held for four intervals (80 ms), past the game's next poll of the keyboard at any frame rate it runs at; the
+    // entries between are waits (no key, no character), so no key repeat is posted
+    s_typing.push_back(TypedKey{ key, true, 0 });
+    for (int i = 0; i < 3; ++i)
+        s_typing.push_back(TypedKey{ controls::KeyCode{ 0, 0, false }, false, 0 });
+    s_typing.push_back(TypedKey{ key, false, 0 });
+}
+
+void Gamepad::setPadHeld(bool held)
+{
+    s_padHeld = held;
 }
 
 void Gamepad::setPollHook(PollHook hook)
