@@ -41,6 +41,7 @@ const char* roam_game_phrase(int i);
 struct CPU;
 void mprace_frame(struct CPU* c);
 int mprace_owns_input(void);
+void mp_vita_port_frame(void);
 void roam_vita_tap(unsigned dik);
 int roam_host_hud_line(char* tx, int n);
 void roam_host_net_thread(void);
@@ -604,6 +605,7 @@ void frame(win32::WinApplication* app, x86::CPU& cpu)
     // the trip of a multiplayer race (out of free roam, the game's LAN race, back): its CPU is only passed along,
     // its guest calls go through roam_win_call on this frame's
     static CPU* const s_tripCpu = reinterpret_cast<CPU*>(s_tripRegs);
+    mp_vita_port_frame();   // (a racer's quit, from the race's own port)
     mprace_frame(s_tripCpu);
     const bool owns = mprace_owns_input() != 0;
     if (owns != s_padHeld)

@@ -10,8 +10,9 @@
  *    0x4FF9D0 (src/ug2/menu_entry.cpp asks roam_lang_text), in guest memory;
  *  - the log: mprace.c's fprintf(stderr, ...) lines into the free roam log;
  *  - patched handlers (dispatch_patch): remembered here, run by the natives of src/ug2/mprace_hooks.cpp.
+ *  - a racer's quit from the race's own port (racehorn.c's "N2QT"; the port's other messages are dropped).
  * Not here (yet): a career win that counts (mpcredit.c: races pay prize money only, roam_game.c mp_counts), the
- * network race's car smoothing (racenet.c), the horn port's quit notices (racehorn.c). */
+ * network race's car smoothing (racenet.c), horns and quick chat in the race (racehorn.c). */
 #define MP_NO_LOG_MACROS
 #include "cpu.h"
 #include "guest.h"
@@ -191,3 +192,15 @@ float racenet_farthest(char name[16]){ name[0] = 0; return 0.f; }
  * Vita, where the D-pad is the game's; Enter's own pick is the lobby joined */
 void pad_lobby_offer(int left, int right){ (void)left; (void)right; }
 int pad_lobby_take(void){ return 0; }
+
+/* ---- the race's own port (racehorn.c HORN_PORT, next to the race link's 3658) ------------------------------- */
+/* Of what the browser's games send there (horns, frame rates, car states, quick chat), only a racer's quit ("N2QT")
+ * is taken here: mprace.c ends a race of two, and a host stops waiting for that player.  The rest is dropped */
+#define HORN_PORT 3659u
+int  vlan_rt_recv(uint16_t port, uint32_t *ip_h, void *p, int cap);
+void mprace_quit_heard(uint8_t *m, int n, uint32_t from);
+void mp_vita_port_frame(void){
+    uint8_t m[256]; uint32_t from = 0; int n, k = 0;
+    while (k++ < 64 && (n = vlan_rt_recv(HORN_PORT, &from, m, sizeof m)) >= 0)
+        if (n >= 4 && !memcmp(m, "N2QT", 4)) mprace_quit_heard(m, n, from);
+}
