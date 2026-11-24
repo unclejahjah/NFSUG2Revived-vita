@@ -2569,7 +2569,9 @@ static void push_pose(Slot *s, rc_pose *P, int64_t newest, int64_t rt, float dt)
 #define TAG_MPN         8
 #define TAG_QC0         (TAG_MP0 + TAG_MPN)   /* and quick chat's box: its title and a line for each choice (qc_panel) */
 #define TAG_QCN         8
-#define TAG_ALL         (TAG_N + 1 + TAG_MPN + TAG_QCN)
+#define TAG_LB0         (TAG_QC0 + TAG_QCN)   /* and the race lobby's panel: title, race, a line a player, two of keys (lb_panel) */
+#define TAG_LBN         10
+#define TAG_ALL         (TAG_N + 1 + TAG_MPN + TAG_QCN + TAG_LBN)
 #define TAG_DUEL_MAX    120
 /* the names' objects in a HUD; co-op free roam has a set for each player's (its half of the screen) */
 typedef struct { uint32_t hud, obj[TAG_ALL]; uint8_t looked[TAG_ALL], shown[TAG_ALL], alpha[TAG_ALL]; char text[TAG_ALL][TAG_DUEL_MAX]; uint32_t rgb[TAG_ALL];
@@ -2716,8 +2718,8 @@ static uint32_t tag_obj(CPU *c, int k, uint32_t pkg){
     g_tag.looked[k] = 1;
     if (k >= TAG_GAME){
         uint32_t o1 = tag_obj(c, 0, pkg);
-        char nm[24]; snprintf(nm, sizeof nm, k == TAG_DUEL ? "ROAM_OUTRUN" : k >= TAG_QC0 ? "ROAM_CHAT_%d" : k >= TAG_MP0 ? "ROAM_RACE_%d" : "ROAM_PLAYER_%d",
-                              k >= TAG_QC0 ? k - TAG_QC0 + 1 : k >= TAG_MP0 ? k - TAG_MP0 + 1 : k + 1);   /* past the HUD's six: copies of the first */
+        char nm[24]; snprintf(nm, sizeof nm, k == TAG_DUEL ? "ROAM_OUTRUN" : k >= TAG_LB0 ? "ROAM_LOBBY_%d" : k >= TAG_QC0 ? "ROAM_CHAT_%d" : k >= TAG_MP0 ? "ROAM_RACE_%d" : "ROAM_PLAYER_%d",
+                              k >= TAG_LB0 ? k - TAG_LB0 + 1 : k >= TAG_QC0 ? k - TAG_QC0 + 1 : k >= TAG_MP0 ? k - TAG_MP0 + 1 : k + 1);   /* past the HUD's six: copies of the first */
         g_tag.obj[k] = o1 ? fe_clone(c, pkg, o1, nm) : 0;
         if (g_tag.obj[k] && !g_tag.probe){ g_tag.probe = g_tag.obj[k]; g_tag.probe_hash = MR32(g_tag.obj[k] + 0x10u); }
         if (!g_tag.obj[k] && k == TAG_DUEL) rlog("[roam] f=%ld no copy of ONLINE_PLAYER_1 for the outrun's line of text\n", rh_frame());
@@ -2913,7 +2915,8 @@ static uint32_t flag_texture(CPU *c, int i){
 /* each name's image for its flag, made (or looked up) once per HUD: a copy of the package's first image, which is
  * off the screen and not in a group, its turn, pivot and texture corners as a flag needs them */
 #define FL_BOX          TAG_N         /* two more images: quick chat's box and its edge (qc_panel) */
-#define FL_ALL          (TAG_N + 2)
+#define FL_LB           (TAG_N + 2)   /* and two: the race lobby's panel and its edge (lb_panel) */
+#define FL_ALL          (TAG_N + 4)
 typedef struct { uint32_t hud, like, obj[FL_ALL]; uint8_t looked[FL_ALL], shown[FL_ALL], alpha[FL_ALL]; uint32_t tex[FL_ALL]; int said;
                  uint32_t probe, probe_hash; } FlagSet;   /* (probe: the first image made, its hash: tags_live) */
 static FlagSet g_fls[2], *g_flp = &g_fls[0];
@@ -5782,6 +5785,11 @@ int roam_game_chat_panel_drawn(void){ return g_qc_drawn; }
 /* the line of text, top centre, after the HUD's update (roam_game_hud) */
 #if MPRACES
 static int mp_line(int64_t host, char *tx, int n);
+#ifdef ROAM_LOBBY_PANEL
+static int g_lb_drawn;
+static int lb_panel(CPU *c, uint32_t pkg, int64_t host);
+static void lb_hide(CPU *c);
+#endif
 static int64_t g_mp_hud_at;                   /* free roam's HUD was up, no dialog over it (the lobby's panel shows) */
 #endif
 static void du_hud(CPU *c, int64_t host){
@@ -5795,6 +5803,11 @@ static void du_hud(CPU *c, int64_t host){
     /* quick chat's choices while its button is held, and the phrase just said, over the race lobby's line (the
      * player is picking one now); the line comes back once the button is let go */
     if (g_in_roam && hud_on_top(pkg)){ extern int roam_host_hud_line(char *tx, int n); roam_host_hud_line(tx, (int)sizeof tx); }
+#endif
+#ifdef ROAM_LOBBY_PANEL
+    /* a race lobby of ours, or one we are in: its panel on the left, the players and what Enter does (no top line) */
+    if (g_in_roam && hud_on_top(pkg) && !rd32(0x00838974u /* a dialog up */)) lb_panel(c, pkg, host);
+    else if (g_lb_drawn) lb_hide(c);
 #endif
     if (!tx[0] && g_in_roam && hud_on_top(pkg) && g_du.st == DU_IDLE && !g_du.icon && !rd32(0x00838974u /* a dialog up */)) mp_line(host, tx, sizeof tx);   /* the race lobby's, else the outrun's */
     if (!tx[0] && g_in_roam && hud_on_top(pkg)){
@@ -7088,6 +7101,9 @@ static int mp_line(int64_t host, char *tx, int n){
     char nm[24];
     if (!g_mp_on) return 0;
     if (g_mp_panel == 1) return 0;
+#ifdef ROAM_LOBBY_PANEL
+    if (g_lb_drawn) return 0;                    /* (the lobby's panel says it) */
+#endif
     switch (g_mp.st){
     case MP_HOST:
         if (g_mp.l.n < 2) snprintf(tx, (size_t)n, "Multiplayer %s: waiting for players (drive away to call it off)", race_kind(g_mp.l.race));
@@ -7224,6 +7240,84 @@ static void js_race(MpJs *j, uint32_t r){
     uint8_t ty = MR8(r + 0xfu); int laps = MR8(r + 0x1bu), lo = ty == 2 ? 4 : 2;
     if (MR8(r + 0x34u) != 2u && (ty == 0 || ty == 2 || ty == 5) && laps > 1) js_int(j, "laps", laps < lo ? lo : laps > 10 ? 10 : laps);
 }
+
+#ifdef ROAM_LOBBY_PANEL
+/* The race lobby's panel in the game, for a platform with no page around it (the Vita): while we host a lobby or are
+ * in one, a box on the left as quick chat's on the right (qc_panel's look): the race, the players (the host first)
+ * and what Enter does; mp_line's top line gives way to it.  Its lines in the HUD's font (copies of ONLINE_PLAYER_1),
+ * the box the HUD's plain white image (FLAG_TEMPLATE) */
+#define LB_X            12.f          /* the box: its left, HUD units (640 x 480) */
+#define LB_W            196.f
+#define LB_TOP          96.f
+static void lb_hide(CPU *c){
+    for (int i = 0; i < TAG_LBN; i++) tag_hide(c, TAG_LB0 + i);
+#if FLAGS
+    flag_hide(c, FL_LB); flag_hide(c, FL_LB + 1);
+#endif
+    g_lb_drawn = 0;
+}
+static int lb_panel(CPU *c, uint32_t pkg, int64_t host){
+    if (!g_mp_on || g_mp.st == MP_IDLE || g_mp.st == MP_TRIP){ if (g_lb_drawn) lb_hide(c); return 0; }
+    if (!tag_obj(c, TAG_LB0, pkg)) return 0;
+    static uint32_t cr; static char tn[64];
+    const MpLobby *l = &g_mp.l;
+    if (l->race != cr){ cr = l->race; tn[0] = 0; if (l->race) track_name(MR16(l->race + 0x18u), MR8(l->race + 0x1au) & 1, tn, sizeof tn); }
+    char line[TAG_LBN][TAG_DUEL_MAX]; uint32_t rgb[TAG_LBN]; int n = 0;
+    const char *kind = race_kind(l->race);
+    snprintf(line[n], sizeof line[n], "%s LOBBY", kind);
+    for (char *q = line[n]; *q; q++) if (*q >= 'a' && *q <= 'z') *q -= 32;
+    rgb[n++] = 0x46c8ffu;
+    {
+        char t[TAG_DUEL_MAX]; int k = snprintf(t, sizeof t, "%s", tn[0] ? tn : kind);
+        int laps = l->race ? MR8(l->race + 0x1bu) : 0; uint8_t ty = l->race ? MR8(l->race + 0xfu) : 0;
+        if (l->race && MR8(l->race + 0x34u) != 2u && (ty == 0 || ty == 2 || ty == 5) && laps > 1 && k < (int)sizeof t)
+            k += snprintf(t + k, sizeof t - (size_t)k, "  -  %d laps", laps);
+        int sg = l->race ? MR8(l->race + 0x37u) : 0;
+        if (sg >= 1 && sg <= 9 && k < (int)sizeof t) snprintf(t + k, sizeof t - (size_t)k, "  -  stage %d", sg);
+        snprintf(line[n], sizeof line[n], "%s", t); rgb[n++] = 0xa9c3d8u;
+    }
+    int np = l->n < RC_LOBBY_MAX ? l->n : RC_LOBBY_MAX, shown = 0;
+    for (int i = 0; i < np && n < TAG_LBN - 2; i++, shown++){
+        int me = l->ids[i] == g_s.conf.self_id;
+        snprintf(line[n], sizeof line[n], "%d  %s%s%s", i + 1, mp_name(l->ids[i]), i == 0 ? "  (host)" : "", me ? "  - you" : "");
+        rgb[n++] = i == 0 ? 0xffd24au : me ? 0x3cc0ffu : 0;          /* (the host gold, us light blue) */
+    }
+    for (int i = shown; i < l->max && n < TAG_LBN - 2; i++){ snprintf(line[n], sizeof line[n], "%d  open", i + 1); rgb[n++] = 0x5d7085u; }
+    char nm[24]; snprintf(nm, sizeof nm, "%s", mp_name(l->host));
+    const char *a = "", *b = "";
+    char ta[TAG_DUEL_MAX], tb[TAG_DUEL_MAX]; ta[0] = tb[0] = 0;
+    switch (g_mp.st){
+    case MP_HOST:
+        if (l->away_s){ snprintf(ta, sizeof ta, "You seem away: it closes in %d s", l->away_s); b = "unless you press a key"; }
+        else if (l->n < 2){ a = "Waiting for players"; b = "Drive away to call it off"; }
+        else { snprintf(ta, sizeof ta, "Press Enter to start (%d of %d)", l->n, l->max); b = "Drive away to call it off"; }
+        break;
+    case MP_ASKED: snprintf(ta, sizeof ta, "Joining %s's race...", nm); break;
+    case MP_IN:
+        if (l->away_s){ snprintf(ta, sizeof ta, "%s seems away", nm); snprintf(tb, sizeof tb, "the lobby closes in %d s", l->away_s); }
+        else { snprintf(ta, sizeof ta, "Waiting for %s to start (%d of %d)", nm, l->n, l->max);
+               b = g_mp.far ? "" : "Drive away to leave"; }
+        break;
+    case MP_COUNT: {
+        int64_t s = (g_mp.start_at - host + 999999) / 1000000;
+        snprintf(ta, sizeof ta, "Starting the race... %d", (int)(s < 0 ? 0 : s)); break; }
+    }
+    if (!ta[0]) snprintf(ta, sizeof ta, "%s", a);
+    if (!tb[0]) snprintf(tb, sizeof tb, "%s", b);
+    if (ta[0]){ snprintf(line[n], sizeof line[n], "%s", ta); rgb[n++] = 0; }
+    if (tb[0]){ snprintf(line[n], sizeof line[n], "%s", tb); rgb[n++] = 0xa9c3d8u; }
+    float h = QC_LINE * (float)n + 12.f, cy = LB_TOP + h * 0.5f;
+#if FLAGS
+    qc_image(c, FL_LB, pkg, LB_X + LB_W * 0.5f, cy, LB_W, h, 0x20, 0x10, 0x08, 190, 0.45f);
+    qc_image(c, FL_LB + 1, pkg, LB_X + 1.5f, cy, 3.f, h, 0xff, 0xc8, 0x46, 255, 0.42f);
+#endif
+    for (int i = 0; i < n; i++) qc_text(c, TAG_LB0 + i, pkg, line[i], rgb[i], LB_X + 10.f, LB_TOP + 6.f + QC_LINE * ((float)i + 0.5f));
+    for (int i = n; i < TAG_LBN; i++) tag_hide(c, TAG_LB0 + i);
+    if (!g_lb_drawn) rlog("[roam] f=%ld race lobby %08x: its panel shows (%d of %d players)\n", rh_frame(), l->id, l->n, l->max);
+    g_lb_drawn = 1;
+    return 1;
+}
+#endif
 /* on the trip of a URL race's heats (mprace_series): heat, the one raced now or last (1 ..), and its track; fin: the
  * last heat's results are in (res is the standing then); stand: the points after the heats raced so far, the leader
  * first, each {n: the player's name, p: its points, me: 1 ours} */
@@ -7330,6 +7424,9 @@ static void js_results(MpJs *j){
 }
 static void mp_panel(int64_t host, int in_roam){
     static char last[1200];
+#ifdef ROAM_LOBBY_PANEL
+    g_mp_panel = 0; (void)last; return;          /* no page around the game: lb_panel draws the lobby in it */
+#endif
     if (!g_mp_panel) return;
     char buf[1200]; MpJs j = { buf, 0, sizeof buf };
     js_raw(&j, "{");
