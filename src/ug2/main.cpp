@@ -49,6 +49,7 @@
 #include <mmx.h>
 #include <ug2.h>
 #include <ug2_layout.h>
+#include <lib/guestmodule.h>
 #include <winapi/d3d9_native.h>
 #include <winapi/kernel32.h>
 #ifdef __vita__
@@ -224,6 +225,8 @@ std::vector<win32::Section> imageSections(const std::vector<uint8_t>& image)
         sections.push_back(win32::Section{ image.data() + s.fileOffset, s.address, std::min(s.rawSize, size) });
         sections.push_back(win32::Section{ nullptr, s.address, size });
     }
+    // The range of the translated DLLs (server.dll), zero until LoadLibraryA maps one (lib/guestmodule.cpp).
+    sections.push_back(win32::Section{ nullptr, win32::ModuleRangeBegin, win32::ModuleRangeEnd - win32::ModuleRangeBegin });
     return sections;
 }
 

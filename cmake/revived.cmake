@@ -54,8 +54,8 @@ function(nfsu_revived_libraries out_var)
   # free roam (src/ug2/freeroam.cpp): nfsu2-web's mod as its PC plugin builds it (-DROAM_HOST_WIN), on the
   # browser's network (roam_web.c)
   # ...and its multiplayer races from free roam (roam_game.c mp_*, ROAM_MPRACES): nfsu2-web's mprace.c, the trip through
-  # the game's own LAN race, with what it needs of the browser's runtime (mp/mp_vita.c); join only for now (no
-  # server.dll to host with: ROAM_MPRACE_JOIN_ONLY), prize money only (no career credit: ROAM_MPRACE_NO_CREDIT)
+  # the game's own LAN race, with what it needs of the browser's runtime (mp/mp_vita.c); hosting only with the
+  # translated server.dll next to SPEED2.EXE (ROAM_MPRACE_HOST_CHECK, src/lib/guestmodule.cpp), prize money only (no career credit: ROAM_MPRACE_NO_CREDIT)
   set(roam_sources ${dir}/roam/roam_game.c ${dir}/roam/roam_core.c ${dir}/roam/roam_web.c
                    ${dir}/roam/mp/mprace.c ${dir}/roam/mp/mp_vita.c)
   add_library(nfsu_revived STATIC
@@ -73,6 +73,6 @@ function(nfsu_revived_libraries out_var)
   target_link_libraries(nfsu_revived PRIVATE nfsu_mbedtls)
   # nfsu2-web's own code as it is (its warnings are its own); the browser backend of its virtual LAN
   set_source_files_properties(${c_sources} PROPERTIES COMPILE_OPTIONS "-w" COMPILE_DEFINITIONS NFSU2_VLAN_BACKEND)
-  set_source_files_properties(${roam_sources} PROPERTIES COMPILE_OPTIONS "-w" COMPILE_DEFINITIONS "ROAM_HOST_WIN;ROAM_GROUP_CAP;ROAM_FLAGS;ROAM_SAYS;ROAM_SAY_TAGS;ROAM_MPRACES;ROAM_MPRACE_JOIN_ONLY;ROAM_MPRACE_NO_CREDIT;ROAM_PROBE;HEAVY_PER_FRAME=1")
+  set_source_files_properties(${roam_sources} PROPERTIES COMPILE_OPTIONS "-w" COMPILE_DEFINITIONS "ROAM_HOST_WIN;ROAM_GROUP_CAP;ROAM_FLAGS;ROAM_SAYS;ROAM_SAY_TAGS;ROAM_MPRACES;ROAM_MPRACE_HOST_CHECK;ROAM_MPRACE_NO_CREDIT;ROAM_PROBE;HEAVY_PER_FRAME=1")
   set(${out_var} nfsu_revived nfsu_mbedtls PARENT_SCOPE)
 endfunction()

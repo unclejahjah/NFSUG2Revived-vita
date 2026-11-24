@@ -6402,11 +6402,13 @@ static void mp_report(void){
     }
 }
 /* we open a lobby for race r */
-/* this game can host a lobby's race: it runs the game's LAN server (server.dll).  The Vita build has none yet
- * (ROAM_MPRACE_JOIN_ONLY): it joins the lobbies others open, and opens none */
-#ifdef ROAM_MPRACE_JOIN_ONLY
-static int mp_can_host(void){ return 0; }
-#define MP_NO_HOST "Hosting a race is not on the Vita yet: join a lobby another player opens here"
+/* this game can host a lobby's race: it runs the game's LAN server (server.dll).  On the Vita that needs the PC
+ * game's own server.dll next to SPEED2.EXE, the file the build translated (ROAM_MPRACE_HOST_CHECK: roam_vita.cpp asks
+ * src/lib/guestmodule.cpp); without it the Vita joins the lobbies others open, and opens none */
+#ifdef ROAM_MPRACE_HOST_CHECK
+int roam_vita_can_host(void);
+static int mp_can_host(void){ return roam_vita_can_host(); }
+#define MP_NO_HOST "Hosting a race needs server.dll from the PC game (patch 1.2) next to SPEED2.EXE: join a lobby another player opens here"
 #else
 static int mp_can_host(void){ return 1; }
 #define MP_NO_HOST ""
@@ -7117,7 +7119,7 @@ static int mp_line(int64_t host, char *tx, int n){
             return 1;
         }
         if (sp && sp->kind == MPS_ONLY && !mp_can_host()){
-            snprintf(tx, (size_t)n, "Multiplayer %s here: no lobby open yet (the Vita joins lobbies others open)", race_kind(sp->race));
+            snprintf(tx, (size_t)n, "Multiplayer %s here: no lobby open yet (hosting one needs server.dll next to SPEED2.EXE)", race_kind(sp->race));
             return 1;
         }
         if (sp && sp->kind == MPS_ONLY){

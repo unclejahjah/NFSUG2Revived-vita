@@ -38,6 +38,10 @@ def run(command, **options):
     return subprocess.call(command, **options)
 
 
+# Game DLLs translated with the executable when they are next to it (tools/recompiler/games/srv.py).
+DLLS = ('server.dll',)
+
+
 def find_exe(folder):
     """The executable's path in a folder, whatever its letter case."""
     if folder and os.path.isdir(folder):
@@ -66,6 +70,7 @@ def game_folder(given):
 def generator_stamp(folder):
     """Fingerprint of everything the translated code depends on."""
     files = [find_exe(folder)]
+    files += [os.path.join(folder, n) for n in os.listdir(folder) if n.lower() in DLLS]
     for root, _, names in os.walk(folder):
         if os.path.basename(root).upper() == 'MOVIES':
             continue
@@ -91,7 +96,8 @@ def translate(folder, force):
     stamp_file = os.path.join(GENERATED, '.stamp')
     stamp = generator_stamp(folder)
     current = open(stamp_file).read().strip() if os.path.isfile(stamp_file) else ''
-    changed = force or stamp != current or not os.path.isfile(os.path.join(GENERATED, 'ug2.cpp'))
+    changed = force or stamp != current or not os.path.isfile(os.path.join(GENERATED, 'ug2.cpp')) \
+        or not os.path.isfile(os.path.join(GENERATED, 'srv.cpp'))
     if changed:
         step('Translating the game code (about 5 minutes)')
         os.makedirs(GENERATED, exist_ok=True)
@@ -99,6 +105,11 @@ def translate(folder, force):
                    '--binaries', folder, '--out', GENERATED] + CODEGEN_OPTIONS
         if run(command) != 0:
             sys.exit('Translating the game code failed.')
+        # The game DLLs (games/srv.py: server.dll, for hosting LAN games), when the folder has them.
+        command = python() + [os.path.join(HERE, 'recompiler', 'generate.py'), '--game', 'srv', '--missing-ok',
+                   '--binaries', folder, '--out', GENERATED] + CODEGEN_OPTIONS
+        if run(command) != 0:
+            sys.exit('Translating server.dll failed.')
         with open(stamp_file, 'w') as f:
             f.write(stamp + '\n')
     if changed or not os.path.isfile(FX_TABLES):

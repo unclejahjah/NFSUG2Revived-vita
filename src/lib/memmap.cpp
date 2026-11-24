@@ -1,4 +1,5 @@
 #include <lib/memmap.h>
+#include <lib/guestmodule.h>
 #include <lib/mutex.h>
 #include <platform/log.h>
 #include <platform/perf.h>
@@ -24,8 +25,9 @@ namespace win32
 [[maybe_unused]] static const x86::reg32 s_minMemory = 96*1024*1024;
 static const x86::reg32 s_maxMemory = 192*1024*1024;
 [[maybe_unused]] static const x86::reg32 s_reserveMemory = 64*1024*1024;
-// End of the highest image section (the generated layout), page-aligned.
-static const x86::reg32 s_sectionLimit = (ug2::layout::imageEnd + 4095) & ~4095u;
+// End of the highest image section (the generated layout) or of the range kept for translated DLLs
+// (lib/guestmodule.h), page-aligned.
+static const x86::reg32 s_sectionLimit = (std::max(ug2::layout::imageEnd, ModuleRangeEnd) + 4095) & ~4095u;
 // One byte per 4 KB block of the simulated memory, page-aligned.
 static x86::reg32 blockMapSize(x86::reg32 memory)
 {

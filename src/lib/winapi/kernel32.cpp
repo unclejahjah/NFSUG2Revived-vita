@@ -12,6 +12,7 @@
 #include <lib/mutex.h>
 #include <lib/event.h>
 #include <lib/file.h>
+#include <lib/guestmodule.h>
 #include <lib/heap.h>
 #include <lib/hostref.h>
 #include <lib/library.h>
@@ -484,6 +485,8 @@ BOOL FreeLibrary(WinApplication* app, x86::CPU& cpu,
 {
     if (hLibModule == ExecutableHandle || dynamic_cast<win32::LibraryHandle*>(app->getResource(hLibModule)))
         return 1;
+    if (guestmodule::free(app, cpu, hLibModule))
+        return 1;
     setLastError(app, cpu, error::InvalidHandle);
     return 0;
 }
@@ -753,6 +756,16 @@ DWORD GetLogicalDrives(WinApplication* app, x86::CPU& cpu)
 DWORD GetModuleFileNameA(WinApplication* app, x86::CPU& cpu,
                          HMODULE hModule, LPSTR lpFilename, DWORD nSize)
 {
+    // A translated DLL's: the path it was loaded from.
+    if (const char* dll = guestmodule::fileName(hModule))
+    {
+        if (!lpFilename || nSize == 0)
+            return 0;
+        const DWORD length = DWORD(std::min<size_t>(strlen(dll), nSize - 1));
+        memcpy(lpFilename, dll, length);
+        lpFilename[length] = 0;
+        return length < strlen(dll) ? nSize : length;
+    }
     // Only the executable (handle 0 or its image base) has a file name.
     if ((hModule != 0 && hModule != ExecutableHandle) || !lpFilename || nSize == 0)
     {
@@ -808,6 +821,7 @@ void registerModules(WinApplication* app)
     s_kernel32Library.registerSymbols(app);
     s_user32Library.registerSymbols(app);
     s_d3d9Library.registerSymbols(app);
+    guestmodule::registerAll(app);
 }
 
 // One handle per library for the process's lifetime.
@@ -835,6 +849,8 @@ HMODULE GetModuleHandleA(WinApplication* app, x86::CPU& cpu,
 {
     if (!lpModuleName || isExecutableName(lpModuleName))
         return ExecutableHandle;
+    if (const HMODULE dll = guestmodule::find(lpModuleName))
+        return dll;
     const HMODULE handle = moduleHandle(app, lpModuleName);
     if (!handle)
         setLastError(app, cpu, 126);    // ERROR_MOD_NOT_FOUND
@@ -866,6 +882,17 @@ FARPROC GetProcAddress(WinApplication* app, x86::CPU& cpu,
 {
     static const DWORD ERROR_PROC_NOT_FOUND = 127;
     const x86::reg32 nameAddress = app->getMemory<x86::reg32>(cpu.esp + 8);
+    bool translated = false;
+    if (nameAddress >= 0x10000)
+    {
+        const x86::reg32 address = guestmodule::procAddress(hModule, lpProcName, &translated);
+        if (translated)
+        {
+            if (!address)
+                setLastError(app, cpu, ERROR_PROC_NOT_FOUND);
+            return address;
+        }
+    }
     win32::LibraryHandle* libraryHandle = dynamic_cast<win32::LibraryHandle*>(app->getResource(hModule));
     if (!libraryHandle && hModule != ExecutableHandle)
     {
@@ -1059,6 +1086,10 @@ HMODULE LoadLibraryA(WinApplication* app, x86::CPU& cpu,
         setLastError(app, cpu, error::InvalidParameter);
         return 0;
     }
+    bool translated = false;
+    const HMODULE dll = guestmodule::load(app, cpu, lpLibFileName, &translated);
+    if (translated)
+        return dll;
     const HMODULE handle = moduleHandle(app, lpLibFileName);
     if (!handle)
     {

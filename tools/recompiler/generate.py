@@ -59,8 +59,17 @@ start, may crash, or may run much slower. Changes inside functions the port repl
 
 
 # Warns about an untested executable, and asks when someone can answer.
+def find_binary(directory):
+    """The game file in directory, whatever its letter case (the game folder of a PC install), or None."""
+    if os.path.isdir(directory):
+        for name in os.listdir(directory):
+            if name.lower() == GAME.EXE_NAME.lower():
+                return os.path.join(directory, name)
+    return None
+
+
 def check_binary(directory):
-    path = os.path.join(directory, GAME.EXE_NAME)
+    path = find_binary(directory) or os.path.join(directory, GAME.EXE_NAME)
     if not os.path.isfile(path):
         sys.exit('missing %s' % path)
     with open(path, 'rb') as f:
@@ -76,7 +85,7 @@ def check_binary(directory):
                 sys.exit('stopped: nothing was generated')
         else:
             print('Continuing with it: there is no terminal to ask on.', flush=True)
-    return pe_image.Image(path, getattr(GAME, 'RELOCATION_SECTION', None))
+    return pe_image.Image(path, getattr(GAME, 'RELOCATION_SECTION', None), getattr(GAME, 'REBASE', None))
 
 
 def apply_patches(image):
@@ -267,6 +276,8 @@ def main():
     parser.add_argument('--binaries', required=True, help='directory with the game executable')
     parser.add_argument('--out', required=True, help='output directory for the generated sources')
     parser.add_argument('--analysis', help='also write the analysis summary (JSON) for test tools')
+    parser.add_argument('--missing-ok', action='store_true',
+                        help='a game DLL that is not in --binaries: write the module without code (not available)')
     parser.add_argument('--memory-x87', action='store_true',
                         help='keep the x87 stack in cpu.fpu instead of C++ locals (for comparisons)')
     parser.add_argument('--memory-registers', action='store_true',
@@ -309,6 +320,12 @@ def main():
     codegen.fpu.FLOAT_ALIGN = args.float_align
     codegen.fpu.FLOAT_ALIGN_CHECK = args.float_align_check
     started = time.time()
+    if args.missing_ok and getattr(GAME, 'LIBRARY', False) and not find_binary(args.binaries):
+        with tempfile.TemporaryDirectory(prefix='nfsugen-') as stage:
+            writer.write_library_stub(stage, GAME.MODULE, GAME.EXE_NAME, 'not in the game folder')
+            sync_output(stage, args.out)
+        print('%s: not in %s, so the module has no code' % (GAME.EXE_NAME, args.binaries))
+        return
     image = check_binary(args.binaries)
     apply_patches(image)
     print('%s: read, %d sections, %d relocations, %d imports, %d patches'
@@ -319,7 +336,10 @@ def main():
     cs.detail = True
     discovery = discover.Discovery(image, cs, no_return=GAME.NO_RETURN)
     discovery.discover(extra_entries=GAME.NATIVE_OVERRIDES + getattr(GAME, 'EXTRA_ENTRIES', [])
+                       + [a for _, a in image.exports if image.is_code(a)]
                        + ([GAME.SETJMP] if GAME.SETJMP is not None else []))
+    # A DLL's exports are called through GetProcAddress's pointers.
+    discovery.address_taken |= set(a for _, a in image.exports if a in discovery.entries)
     print('discovery took %.0f s' % (time.time() - started))
     subroutines = [discovery.subroutine(e) for e in sorted(discovery.entries)]
     module = GameModule(image, subroutines)
@@ -347,7 +367,7 @@ def main():
     if missing:
         sys.exit('calls to addresses that are no function: %s' % ' '.join('0x%x' % a for a in missing[:20]))
     with tempfile.TemporaryDirectory(prefix='nfsugen-') as stage:
-        writer.Writer(module, program, stage).write()
+        writer.Writer(module, program, stage, library=getattr(GAME, 'LIBRARY', False)).write()
         if GAME.BANK_LIBRARY_TABLE is not None:
             bankcode.write(args.binaries, image, capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32), stage,
                            GAME.BANK_LIBRARY_TABLE, GAME.BANK_DIR, GAME.MODULE,

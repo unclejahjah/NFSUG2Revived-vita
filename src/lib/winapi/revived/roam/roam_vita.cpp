@@ -10,6 +10,7 @@
 #include <freeroam.h>
 #include <winapi/revived.h>
 #include <lib/memmap.h>
+#include <lib/guestmodule.h>
 #include <lib/controls.h>
 #include <lib/gamepad.h>
 #include <platform/time.h>
@@ -43,6 +44,7 @@ void mprace_frame(struct CPU* c);
 int mprace_owns_input(void);
 void mp_vita_port_frame(void);
 void roam_vita_tap(unsigned dik);
+int roam_vita_can_host(void);
 int roam_host_hud_line(char* tx, int n);
 int roam_host_chat_menu(const char** keys, const char** texts, int max);
 int roam_game_chat_panel_drawn(void);
@@ -573,6 +575,13 @@ void roam_vita_tap(unsigned dik)
     case 0xCB: win32::Gamepad::tapKey(Left); break;
     default: roam_log("[mprace] no key 0x%02x on the Vita", dik); break;
     }
+}
+
+// Whether this game can host a lobby's race (roam_game.c mp_can_host): the game's LAN server, server.dll, translated
+// into this build and the same file next to SPEED2.EXE (src/lib/guestmodule.cpp)
+int roam_vita_can_host(void)
+{
+    return win32::guestmodule::available("server.dll") ? 1 : 0;
 }
 
 // mod packs (runtime/modpacks.c): none on the Vita, every part is the game's own

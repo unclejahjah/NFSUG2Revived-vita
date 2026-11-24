@@ -46,6 +46,11 @@ int getpeername(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 name, x
 int getsockname(WinApplication* app, x86::CPU& cpu, SOCKET s, x86::reg32 name, x86::reg32 namelen);
 x86::reg32 gethostbyname(WinApplication* app, x86::CPU& cpu, LPCSTR name);
 int gethostname(WinApplication* app, x86::CPU& cpu, x86::reg32 name, int namelen);
+// Byte order (server.dll imports them; SPEED2.EXE has its own).
+x86::reg32 htonl(WinApplication* app, x86::CPU& cpu, x86::reg32 hostlong);
+x86::reg32 htons(WinApplication* app, x86::CPU& cpu, x86::reg32 hostshort);
+x86::reg32 ntohl(WinApplication* app, x86::CPU& cpu, x86::reg32 netlong);
+x86::reg32 ntohs(WinApplication* app, x86::CPU& cpu, x86::reg32 netshort);
 
 // SceNet up (network=off: false), for the Revived link (include/winapi/revived.h).
 bool netStart();
