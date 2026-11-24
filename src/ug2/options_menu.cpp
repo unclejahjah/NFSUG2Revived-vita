@@ -189,6 +189,8 @@ const Item FreeRoam[] = {
       "The flag the other players see before your name. Players on nfsu2.xyz pick from the same list." },
     { "Other flag", Ini, "Flag", Text, nullptr, 0, "", 8, "None",
       "Any other flag by its two-letter country code (de, jp, br), or gb-eng style for a nation." },
+    { "Show flags", Ini, "ShowFlags", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "Show the flags before the names over the cars on your screen. The others still see yours." },
     { "World", Ini, "Room", Choice, OPTIONS(Worlds), "", 0, nullptr,
       "Free roam shows only the players in the same world. World 4 has ghost cars off for everyone in it." },
     { "Own world", Ini, "Room", Text, nullptr, 0, "", 32, "Main world",
@@ -339,6 +341,8 @@ const char IniTemplate[] =
     "; (gb, us, de, gb-eng; empty = none)\n"
     "Names = 1\n"
     "Flag =\n"
+    "; the flags before the names drawn on your screen (1) or not (0)\n"
+    "ShowFlags = 1\n"
     "\n"
     "; quick chat (1 on, 0 off) and the phrase numbers of slots 1-6 (the cfg's quick_chat_button picks them)\n"
     "QuickChat = 1\n"

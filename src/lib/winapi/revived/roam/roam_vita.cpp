@@ -86,6 +86,8 @@ const struct { const char *name, *key, *def; } Opts[] = {
     // players' cars, and our flag before our name (a code of flags.dat: gb, us, gb-eng)
     { "NFSU2_ROAM_LABELS",      "Names",       "1" },
     { "NFSU2_ROAM_FLAG",        "Flag",        ""  },
+    // the flags before the names drawn on this screen (1) or not (0): ours and everyone else's
+    { "NFSU2_ROAM_SHOW_FLAGS",  "ShowFlags",   "1" },
     // quick chat (settings.ini quick_chat): on or off, and the phrases of its six slots by their numbers (phrases.h);
     // the cfg's quick_chat_button says which buttons they are (controls::quickChatSlots)
     // multiplayer races from free roam (roam_game.c mp_*): lobbies at the race markers, joined with the race's button

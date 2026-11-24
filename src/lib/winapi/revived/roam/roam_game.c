@@ -396,7 +396,7 @@ static int env_int(const char *k, int def, int lo, int hi){
     return (int)x;
 }
 static struct {
-    int on, test, collide, max_cars, rate, delay_ms, extrap_ms, carpool_kb, labels, spawn_m;
+    int on, test, collide, max_cars, rate, delay_ms, extrap_ms, carpool_kb, labels, flags_shown, spawn_m;
     int ghost_all;                            /* NFSU2_ROAM_COLLIDE=none (Ghost mode: Everything): friends' cars are ghosts
                                                  (collide 0), and the game's traffic and tuners pass through the player's car
                                                  too (ghost_pair) */
@@ -3205,7 +3205,7 @@ static void tags_update_seat(CPU *c){
         /* the flag (its texture there: else none, not a gap) and its gap left of the name, the two centred on hx */
         float fw = 0.f;
 #if FLAGS
-        int fi = t[q].k == NSLOT ? O.flag : s->flagcode[0] ? s->flag : -1;
+        int fi = !O.flags_shown ? -1 : t[q].k == NSLOT ? O.flag : s->flagcode[0] ? s->flag : -1;
         if (fi >= 0 && !flag_texture(c, fi)) fi = -1;
         if (fi >= 0) fw = (FLAG_CAP * 4.f / 3.f + FLAG_GAP) * sc;
 #endif
@@ -8837,6 +8837,7 @@ static void init_once(CPU *c){
     O.collide = O.ghost_all ? 0 : env_int("NFSU2_ROAM_COLLIDE", 1, 0, 1);
 #endif
     O.labels = env_int("NFSU2_ROAM_LABELS", 1, 0, 1);
+    O.flags_shown = env_int("NFSU2_ROAM_SHOW_FLAGS", 1, 0, 1);   /* the flags before the names drawn here (1) or not */
     O.spawn_m = env_int("NFSU2_ROAM_SPAWN_M", SPAWN_M, 0, 1000);
     O.hit_share = env_int("NFSU2_ROAM_HIT_SHARE", -1, -1, 100);
     O.test_mass = env_int("NFSU2_ROAM_TEST_MASS", 0, 0, 20000);
