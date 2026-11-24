@@ -3656,6 +3656,7 @@ static int wm_dress(CPU *c, uint32_t map, uint32_t pkg, int max){
 }
 #if MPRACES
 static int mp_map_icons(CPU *c, uint32_t map, uint32_t pkg, uint32_t room, int hub);   /* lobbies on the map */
+static int mp_map_spots(CPU *c, uint32_t map, uint32_t pkg, uint32_t room);            /* and the race spots */
 static void mp_map_labels(CPU *c, uint32_t map);
 static uint32_t meet_icon(CPU *c, uint32_t pkg);                                        /* car meets on the map */
 static int meet_update(CPU *c, uint32_t map, uint32_t pkg, uint32_t pk, uint32_t w, int64_t host);
@@ -4182,6 +4183,7 @@ static void map_update(CPU *c, uint32_t w, int64_t host){
         wmf_begin(map);
 #if MPRACES
         mp_map_icons(c, map, pkg, (uint32_t)wm_room(pk), 0);                   /* (before the cars take the room) */
+        if (g_mp_on) mp_map_spots(c, map, pkg, (uint32_t)wm_room(pk));
 #endif
         for (int k = NOPP; k < NSLOT; k++){
             Slot *s = &g_sl[k];
@@ -7821,7 +7823,8 @@ static void mp_labels(CPU *c){
 #if MPRACES
 #define G_WM_PREFIX     0x007f4348u   /* char *[type]: the map's icon names ("CIRCUITEVENTINDICATOR_") */
 #define WM_ICON_SZ      0x2cu         /* a marker: +8 type, +0xC FE object, +0x10/+0x14 x y, +0x18 heading, +0x28 1 (an event) */
-#define WM_LOBBIES      24
+#define WM_LOBBIES      36            /* lobbies and multiplayer-only spots (WM_SPOTS of them) */
+#define WM_SPOTS        12            /* the nearest multiplayer-only spots on the map: their race's icon, light blue */
 #define WM_LABELS       4             /* lobbies with their words beside the icon: the nearest, none over another */
 #define WM_CHAR_W       6.4f          /* a character of the legend's text in the map's units, at its own size (measured: 6.2, and a margin) */
 #define WM_TEXT_H       15.f          /* its line's height */
@@ -7839,7 +7842,7 @@ static int race_icon(uint32_t r){
     if (MR8(r + 0x34u) == 2u) return 5;
     switch (MR8(r + 0xfu)){ case 1: return 4; case 2: return 2; case 4: return 1; case 5: return 3; default: return 0; }
 }
-static int mp_map_icon(CPU *c, uint32_t map, uint32_t pkg, uint32_t room, uint32_t r, float x, float y, const char *text){
+static int mp_map_icon(CPU *c, uint32_t map, uint32_t pkg, uint32_t room, uint32_t r, float x, float y, const char *text, uint32_t rgb){
     if (g_wml.map != map){ memset(&g_wml, 0, sizeof g_wml); g_wml.map = map; }
     for (int i = 0; i < g_wml.n; i++) if ((g_wml.x[i] - x) * (g_wml.x[i] - x) + (g_wml.y[i] - y) * (g_wml.y[i] - y) < 15.f * 15.f) return 0;
     if (g_wml.n >= WM_LOBBIES || !r) return 0;
@@ -7864,6 +7867,12 @@ static int mp_map_icon(CPU *c, uint32_t map, uint32_t pkg, uint32_t room, uint32
     g_wml.used[type] = 1; g_wml.x[g_wml.n] = x; g_wml.y[g_wml.n] = y; g_wml.m[g_wml.n] = m; g_wml.lbl[g_wml.n] = 0;
     g_wml.d[g_wml.n] = g_mp.st != MP_IDLE && x == g_mp.l.x && y == g_mp.l.y ? -1.f : mp_dist(x, y);     /* (ours first) */
     if (g_wml.d[g_wml.n] >= 0.f) wmf_track(map, m, WMF_RACES);          /* (the legend's Players' races: not ours) */
+    if (rgb != MP_RGB_LOBBY){
+        /* a multiplayer-only spot: its icon in the spots' colour, its label after every lobby's (mp_map_labels) */
+        int32_t ic[4];
+        if (fe_colour_get(obj, ic)) fe_colour_set(c, obj, (int32_t)(rgb & 0xffu), (int32_t)(rgb >> 8 & 0xffu), (int32_t)(rgb >> 16 & 0xffu), ic[3]);
+        g_wml.d[g_wml.n] += 1e6f;
+    }
     /* its label: a copy of the legend's string, in front of the map (a smaller z), gold */
     uint32_t base = room > 1 ? wm_find(c, pkg, WM_TEXT_BASE) : 0;
     char ln[24]; snprintf(ln, sizeof ln, "ROAM_LOBBYTXT_%d", g_wml.n);
@@ -7876,7 +7885,7 @@ static int mp_map_icon(CPU *c, uint32_t map, uint32_t pkg, uint32_t room, uint32
         g_wml.len[g_wml.n] = (uint8_t)(strlen(text) < 255 ? strlen(text) : 255);   /* (the size: each frame, mp_map_labels) */
         uint32_t d0 = rd32(base + 0x2cu);
         if (ok(d0, 0x40) && MRF32(d0 + 0x38u) > 0.f && MRF32(d0 + 0x38u) < 4.f) g_wml_s0 = MRF32(d0 + 0x38u);
-        MR32(col) = MP_RGB_LOBBY & 0xffu; MR32(col + 4u) = MP_RGB_LOBBY >> 8 & 0xffu; MR32(col + 8u) = MP_RGB_LOBBY >> 16 & 0xffu; MR32(col + 12u) = 0xffu;
+        MR32(col) = rgb & 0xffu; MR32(col + 4u) = rgb >> 8 & 0xffu; MR32(col + 8u) = rgb >> 16 & 0xffu; MR32(col + 12u) = 0xffu;
         uint32_t ac[2] = { col, 0 }; rh_call(c, FN_FE_COLOR, lbl, 0, 2, ac);
         gcall1(c, FN_FE_HIDE, 0, lbl);
         g_wml.lbl[g_wml.n] = lbl;
@@ -7963,13 +7972,13 @@ static int mp_map_icons(CPU *c, uint32_t map, uint32_t pkg, uint32_t room, int h
             const char *cr = mp_counts(g_mp.l.race) ? MP_COUNTS_TAG : "";
             if (g_mp.l.host == g_s.conf.self_id) snprintf(t, sizeof t, "Your %s %d/%d%s", race_kind(g_mp.l.race), g_mp.l.n, g_mp.l.max, cr);
             else snprintf(t, sizeof t, "%s's %s %d/%d%s", mp_name(g_mp.l.host), race_kind(g_mp.l.race), g_mp.l.n, g_mp.l.max, cr);
-            n += mp_map_icon(c, map, pkg, room, g_mp.l.race, g_mp.l.x, g_mp.l.y, t);
+            n += mp_map_icon(c, map, pkg, room, g_mp.l.race, g_mp.l.x, g_mp.l.y, t, MP_RGB_LOBBY);
         }
         for (int i = 0; i < g_mp.nseen; i++){
             const MpLobby *l = &g_mp.seen[i];
             if (!mp_shown(l)) continue;
             snprintf(t, sizeof t, "%s's %s %d/%d%s", mp_name(l->host), race_kind(l->race), l->n, l->max, mp_counts(l->race) ? MP_COUNTS_TAG : "");
-            n += mp_map_icon(c, map, pkg, room, l->race, l->x, l->y, t);
+            n += mp_map_icon(c, map, pkg, room, l->race, l->x, l->y, t, MP_RGB_LOBBY);
         }
     } else {
         /* (as mp_shown: open, with room, not one that keeps out our stage, but a friend's or crew-mate's;
@@ -7987,11 +7996,44 @@ static int mp_map_icons(CPU *c, uint32_t map, uint32_t pkg, uint32_t room, int h
             if (e[i].state != RC_LS_OPEN || e[i].n >= e[i].max || (cap && (int)rd32(G_CAREER + C_STAGE) > cap && !(e[i].flags & RC_LOBBIES_MATE))) continue;
             char t[64]; snprintf(t, sizeof t, "%s %d/%d%s", race_kind(r), e[i].n, e[i].max, mp_counts(r) ? MP_COUNTS_TAG : "");
             if (t[0] >= 'a' && t[0] <= 'z') t[0] = (char)(t[0] - 32);
-            n += mp_map_icon(c, map, pkg, room, r, e[i].x, e[i].y, t);
+            n += mp_map_icon(c, map, pkg, room, r, e[i].x, e[i].y, t, MP_RGB_LOBBY);
         }
     }
     rlog("[roam] f=%ld world map: %d race lobbies marked%s (%d heard of, the hub's %d)\n", rh_frame(), n, hub ? " (the hub's)" : "",
          g_mp.nseen + (g_mp.st != MP_IDLE), g_s.lobbies_n);
+    return n;
+}
+
+/* The multiplayer-only race spots (no ring of the game's there: their race is not open in the career), the WM_SPOTS
+ * nearest the player's car, with their race's icon in the spots' light blue and "Drift (multiplayer)" beside it as
+ * over the spot itself (mp_labels); none where a lobby's icon is (mp_map_icon).  Under the legend's Players' races */
+static int mp_map_spots(CPU *c, uint32_t map, uint32_t pkg, uint32_t room){
+    int idx[WM_SPOTS], k = 0;
+    float dd[WM_SPOTS];
+    for (int i = 0; i < g_spot.n; i++){
+        const MpSpot *sp = &g_spot.s[i];
+        if (sp->kind != MPS_ONLY || !sp->race) continue;
+        float x = (sp->box[0] + sp->box[2]) / 2, y = (sp->box[1] + sp->box[3]) / 2, d = mp_dist(x, y);
+        /* (a lobby of the hub's there, its icon still to come with the map's answer: the lobby's, gold) */
+        int lob = 0;
+        roam_plat_lock();
+        for (int e = 0; e < g_s.lobbies_n && e < RC_LOBBIES_MAX && !lob; e++)
+            lob = (g_s.lobbies_e[e].x - x) * (g_s.lobbies_e[e].x - x) + (g_s.lobbies_e[e].y - y) * (g_s.lobbies_e[e].y - y) < 20.f * 20.f;
+        roam_plat_unlock();
+        if (lob) continue;
+        if (k == WM_SPOTS && d >= dd[k - 1]) continue;                  /* (the nearest WM_SPOTS, nearest first) */
+        int j = k < WM_SPOTS ? k++ : WM_SPOTS - 1;
+        for (; j > 0 && dd[j - 1] > d; j--){ dd[j] = dd[j - 1]; idx[j] = idx[j - 1]; }
+        dd[j] = d; idx[j] = i;
+    }
+    int n = 0;
+    for (int q = 0; q < k; q++){
+        const MpSpot *sp = &g_spot.s[idx[q]];
+        char t[48], kd[16]; snprintf(kd, sizeof kd, "%s", race_kind(sp->race)); kd[0] = (char)(kd[0] >= 'a' && kd[0] <= 'z' ? kd[0] - 32 : kd[0]);
+        snprintf(t, sizeof t, "%s (multiplayer)", kd);
+        n += mp_map_icon(c, map, pkg, room, sp->race, (sp->box[0] + sp->box[2]) / 2, (sp->box[1] + sp->box[3]) / 2, t, MP_RGB_ONLY);
+    }
+    rlog("[roam] f=%ld world map: %d multiplayer-only race spots marked (of %d known)\n", rh_frame(), n, g_spot.n);
     return n;
 }
 
