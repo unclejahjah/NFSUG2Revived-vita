@@ -54,6 +54,7 @@ const Setting s_table[] =
     INT("stick_deadzone", Controls, 15, 0, 40, 1, "Dead zone of both sticks (steering too), in percent of their range; the game's own dead zone still applies.", 0),
     BOOL("camera_stick", Controls, 1, "While driving the right stick turns the chase camera round the car (hood, bumper: down looks back).", 0),
     ENUM("horn_button", Controls, 0, "rear_l3|rear_r3|dpad_left|dpad_right|off", "Free roam's horn: hold this to honk; the other players hear it. rear_l3 is the rear touch pad's lower left.", 0),
+    ENUM("drift_button", Controls, 0, "rear_r3|rear_l3|dpad_left|dpad_right|off", "Free roam's drift mode: press this to switch it on or off. rear_r3 is the rear touch pad's lower right.", 0),
     ENUM("quick_chat_button", Controls, 0, "dpad_down|dpad_up|triangle|select", "Free roam's quick chat: hold this and press a phrase button (Vita Settings, Friends and crews); select: Select + the button.", 0),
     INT("camera_stick_speed", Controls, 4, 1, 10, 1, "How fast the right stick camera turns to the stick and comes back: 1 slowest, 10 fastest.", 0),
     ENUM("steering", Controls, 0, "analog|digital", "analog: the left stick steers as far as it is pushed; digital: pushed past halfway it ramps to full lock, as a keyboard.", 0),

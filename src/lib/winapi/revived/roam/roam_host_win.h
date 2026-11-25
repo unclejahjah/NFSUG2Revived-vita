@@ -121,17 +121,36 @@ void stance_forget(void);
 /* the game's "No Profile" in English only (the port also knows the other
  * languages' names from the game's text, language.c) */
 #define rh_no_profile(name) (!strcasecmp((name), "No Profile"))
+/* no trips to the race tracks' maps here (travel.c): always the city */
+#define rh_travel_room() 0u
+#ifdef ROAM_VITA_DRIFT
+/* the Vita port: drift.c (the drift button, drift_button in the cfg), and so drift battles */
+int  drift_kept_tuning(uint8_t *out);
+int  drift_wanted(void);
+void drift_battle_begin(void);
+void drift_battle_go(CPU *c);
+void drift_battle_score(double *banked, double *pend);
+uint32_t drift_battle_x(void);
+void drift_battle_end(void);
+#define rh_drift_tuning(out) drift_kept_tuning(out)
+#define ROAM_HOST_DRIFT  1
+#define rh_drift_want()  drift_wanted()
+#define rh_drift_begin() drift_battle_begin()
+#define rh_drift_go(c)   drift_battle_go(c)
+#define rh_drift_score(b, p) drift_battle_score((b), (p))
+#define rh_drift_x()     drift_battle_x()
+#define rh_drift_end()   drift_battle_end()
+#else
 /* no drift mode here (drift.c): the ride's dyno setup is always its own */
 #define rh_drift_tuning(out) ((void)(out), 0)
 #define ROAM_HOST_DRIFT  0               /* ...so no drift battles */
 #define rh_drift_want()  0
-/* no trips to the race tracks' maps here (travel.c): always the city */
-#define rh_travel_room() 0u
 #define rh_drift_begin() ((void)0)
 #define rh_drift_go(c)   ((void)(c))
 #define rh_drift_score(b, p) (*(b) = 0, *(p) = 0)
 #define rh_drift_x()     0u
 #define rh_drift_end()   ((void)0)
+#endif
 
 /* the pose log (test aid, PoseLog in the .ini) */
 typedef struct rh_file rh_file;

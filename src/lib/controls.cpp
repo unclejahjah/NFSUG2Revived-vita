@@ -198,6 +198,35 @@ static int hornButton()
     return s_button.load(std::memory_order_relaxed);
 }
 
+// drift_button: rear_r3 (the default: the rear touch pad's lower right), rear_l3, dpad_left, dpad_right or off
+static int driftButton()
+{
+    static std::atomic<unsigned> s_generation{~0u};
+    static std::atomic<int> s_button{RearR3};
+    const unsigned generation = pf::Config::generation();
+    if (s_generation.load(std::memory_order_acquire) != generation)
+    {
+        static const char* const Names[] = { "rear_r3", "rear_l3", "dpad_left", "dpad_right", "off" };
+        static const int Buttons[] = { RearR3, RearL3, DpadLeft, DpadRight, -1 };
+        s_button.store(Buttons[pf::Config::getChoice("drift_button", Names, 5, 0)], std::memory_order_relaxed);
+        s_generation.store(generation, std::memory_order_release);
+    }
+    return s_button.load(std::memory_order_relaxed);
+}
+
+static std::atomic<int> s_driftPresses{0};
+static std::atomic<uint64_t> s_driftLiveUs{0};
+
+void setDriftLive(uint64_t nowUs)
+{
+    s_driftLiveUs.store(nowUs, std::memory_order_relaxed);
+}
+
+int takeDriftPresses()
+{
+    return s_driftPresses.exchange(0, std::memory_order_relaxed);
+}
+
 static std::atomic<int> s_showoffPresses{0};
 
 int takeShowoffPresses()
@@ -697,7 +726,18 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
     const bool horn = hornBtn >= 0 && hornBtn != chatButton && (inputs & bit(Input(hornBtn))) && !(m_chorded & bit(Input(hornBtn)));
     s_hornHeld.store(horn, std::memory_order_relaxed);
     const uint32_t hornHidden = horn ? bit(Input(hornBtn)) : 0;
-    const uint32_t normal = (inputs & ~m_chorded & ~chatHidden & ~m_chatSwallow & ~hornHidden) | chatPulse;
+    // drift mode's button, in free roam's world (not on the horn's or quick chat's): a press switches it, and the
+    // button is not the game's meanwhile
+    const uint64_t driftAt = s_driftLiveUs.load(std::memory_order_relaxed);
+    const int driftBtn = driftAt && nowUs - driftAt < 250000 && !chatHeld ? driftButton() : -1;
+    uint32_t driftHidden = 0;
+    if (driftBtn >= 0 && driftBtn != chatButton && driftBtn != hornBtn && !(m_chorded & bit(Input(driftBtn))))
+    {
+        driftHidden = bit(Input(driftBtn));
+        if (pressed & driftHidden)
+            s_driftPresses.fetch_add(1, std::memory_order_relaxed);
+    }
+    const uint32_t normal = (inputs & ~m_chorded & ~chatHidden & ~m_chatSwallow & ~hornHidden & ~driftHidden) | chatPulse;
     // steering=digital: the left stick is left, centre or right, and its X axis ramps to full lock and back as a
     // keyboard's steering does (the D-pad is not involved).
     const bool digital = digitalSteering();

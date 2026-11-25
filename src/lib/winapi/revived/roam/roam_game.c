@@ -5838,6 +5838,10 @@ static void du_hud(CPU *c, int64_t host){
     /* ...else the next of the page's notices (a player joined, left...: nfsu2.xyz's log on the left) */
     if (!tx[0] && g_in_roam && hud_on_top(pkg) && !rd32(0x00838974u /* a dialog up */)){ extern int roam_host_notice_line(char *tx, int n); roam_host_notice_line(tx, (int)sizeof tx); }
 #endif
+#ifdef ROAM_VITA_DRIFT
+    /* ...else drift mode's: a press's answer, the drift under way and its multiplier, the points (drift.c) */
+    if (!tx[0] && g_in_roam && hud_on_top(pkg)){ extern int drift_vita_line(char *tx, int n); drift_vita_line(tx, (int)sizeof tx); }
+#endif
     if (!tx[0]){ tag_hide(c, TAG_DUEL); return; }
     uint32_t obj = tag_obj(c, TAG_DUEL, pkg);
     if (!obj) return;

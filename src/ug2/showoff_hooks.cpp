@@ -7,6 +7,9 @@
 //   0x438140  the part animation banks thrown away (cdecl, a car type's hash): ours first, and safely
 //   0x6E2310  EAGL's animation heap made at the boot (size, ret 4): big enough for every car type's part animations
 //   0x6E2290  ...an object of a size from it, 0x6E2240 one of a kind (ret 4): the process heap when it is full
+// ...and drift mode's (nfsu2-web's drift.c), while its switch [0x890104] is ours (drift_music_hidden):
+//   0x56DDD0  the drift leaderboard, 0x4C85D0 the style points' drift branch, 0x4AC120 ShowNiftyDriftyMessage: skipped
+//   0x482180  the music manager's tick and 0x471970 the in-game mix: run without the switch, so free roam's songs play on
 // The game's drawing and the lights make no guest calls of ours; the heap's and the banks' do (roam_win_call, on this
 // CPU through freeroam::GuestScope).
 #include <freeroam.h>
@@ -25,6 +28,11 @@ void sub_00438140(CPU* c);
 void showoff_eagl_init(CPU* c);
 void showoff_eagl_new(CPU* c);
 void showoff_eagl_kind(CPU* c);
+void sub_0056ddd0(CPU* c);   // drift.c's
+void sub_004c85d0(CPU* c);
+void sub_004ac120(CPU* c);
+int drift_music_hidden(void);
+int roam_vita_on_game_thread(void);   // roam_vita.cpp
 }
 
 namespace ug2
@@ -36,6 +44,11 @@ void sub_438140_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_6e2310_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_6e2290_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_6e2240_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_56ddd0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_4c85d0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_4ac120_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_482180_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_471970_guest(win32::WinApplication* app, x86::CPU& cpu);
 
 namespace
 {
@@ -151,6 +164,49 @@ void sub_6e2240(win32::WinApplication* app, x86::CPU& cpu)
     run(app, cpu, showoff_eagl_kind, true);
 }
 
+void sub_56ddd0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    run(app, cpu, sub_0056ddd0, false);
+}
+
+void sub_4c85d0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    run(app, cpu, sub_004c85d0, false);
+}
+
+void sub_4ac120(win32::WinApplication* app, x86::CPU& cpu)
+{
+    run(app, cpu, sub_004ac120, false);
+}
+
+// The game's function with drift mode's switch off for the call, on the game's thread only (the car's physics read
+// it too); a value the call wrote stays
+static void withoutDriftSwitch(win32::WinApplication* app, x86::CPU& cpu, GuestFunction guest)
+{
+    const uint32_t ForceDrift = 0x00890104u;
+    if (!drift_music_hidden() || !roam_vita_on_game_thread())
+    {
+        guest(app, cpu);
+        return;
+    }
+    uint32_t* const sw = reinterpret_cast<uint32_t*>(win32::g_guestBase + ForceDrift);
+    const uint32_t was = *sw;
+    *sw = 0;
+    guest(app, cpu);
+    if (!*sw)
+        *sw = was;
+}
+
+void sub_482180(win32::WinApplication* app, x86::CPU& cpu)
+{
+    withoutDriftSwitch(app, cpu, sub_482180_guest);
+}
+
+void sub_471970(win32::WinApplication* app, x86::CPU& cpu)
+{
+    withoutDriftSwitch(app, cpu, sub_471970_guest);
+}
+
 }
 
 }
@@ -164,5 +220,8 @@ void sub_00438140_orig(CPU* c) { ug2::guestFrom(c, ug2::sub_438140_guest); }
 void sub_006e2310(CPU* c) { ug2::guestFrom(c, ug2::sub_6e2310_guest); }
 void sub_006e2290(CPU* c) { ug2::guestFrom(c, ug2::sub_6e2290_guest); }
 void sub_006e2240(CPU* c) { ug2::guestFrom(c, ug2::sub_6e2240_guest); }
+void sub_0056ddd0_orig(CPU* c) { ug2::guestFrom(c, ug2::sub_56ddd0_guest); }
+void sub_004c85d0_orig(CPU* c) { ug2::guestFrom(c, ug2::sub_4c85d0_guest); }
+void sub_004ac120_orig(CPU* c) { ug2::guestFrom(c, ug2::sub_4ac120_guest); }
 
 }

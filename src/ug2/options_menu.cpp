@@ -115,6 +115,9 @@ const Item Mods[] = {
       "Meet other players in the city (NFSU2 Revived's free-roam mod, scripts/NFSU2FreeRoam.ini)." },
     { "EU Car Content", Extra, "UnlockRegionalCars", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
       "Drive the Peugeot 106 and Vauxhall Corsa in the US game (NFSU2 Extra Options). Needs their car folders." },
+    { "Stance", Ini, "Stance", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Camber, offset and tire width for your car (Stance Mod by Archie, as on nfsu2.xyz). Set them on the Stance "
+      "page. Only the look changes; players near you in free roam see it." },
 };
 
 const Item Multiplayer[] = {
@@ -156,6 +159,9 @@ const Option Horns[] = { { "dual", "Dual tone" }, { "single", "Single tone" }, {
 
 const Option HornButtons[] = { { "rear_l3", "Rear touch, lower left" }, { "rear_r3", "Rear touch, lower right" },
                                { "dpad_left", "D-pad Left" }, { "dpad_right", "D-pad Right" }, { "off", "Off" } };
+
+const Option DriftButtons[] = { { "rear_r3", "Rear touch, lower right" }, { "rear_l3", "Rear touch, lower left" },
+                                { "dpad_left", "D-pad Left" }, { "dpad_right", "D-pad Right" }, { "off", "Off" } };
 
 const Option ChatButtons[] = { { "dpad_down", "Hold D-pad Down" }, { "dpad_up", "Hold D-pad Up" },
                                { "triangle", "Hold Triangle" }, { "select", "Select chords" } };
@@ -224,7 +230,8 @@ const Item RoamExtras[] = {
       "nearby. Never while you race." },
     { "Outruns with players", Ini, "Outruns", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "Stay close to another player for a few seconds and the outrun icon comes up: Engage challenges them to the "
-      "game's own outrun. Off: nobody can challenge you, and you challenge nobody." },
+      "game's own outrun, or to a drift battle when your drift mode is on. Off: nobody can challenge you, and you "
+      "challenge nobody." },
     { "Blocked players", Ini, "Blocked", Text, nullptr, 0, "", 255, "None",
       "Names as they show over cars, joined by commas (up to 32). You and they never see each other in free roam: "
       "no car, name, quick chat, outrun or race lobby. Takes effect the next time you go online." },
@@ -232,6 +239,9 @@ const Item RoamExtras[] = {
       "Your horn in free roam: the players near you hear it from your car. Off: you have none, theirs still sound." },
     { "Horn button", Cfg, "horn_button", Choice, OPTIONS(HornButtons), "rear_l3", 0, nullptr,
       "Hold it to honk in free roam. In free roam it is the horn's only, not the game's." },
+    { "Drift button", Cfg, "drift_button", Choice, OPTIONS(DriftButtons), "rear_r3", 0, nullptr,
+      "Press it in free roam to switch drift mode on or off: the drift events' handling, camera and points while you "
+      "drive around. With it on, a challenge is a drift battle: most points in 90 seconds wins $100." },
     { "Other players' car sounds", Ini, "CarSounds", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "Hear the other players' engines, nitrous and hydraulics from their cars, with the game's own sounds." },
     { "Show-off", Ini, "ShowOff", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,

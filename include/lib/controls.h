@@ -176,6 +176,10 @@ bool hornHeld();
 int takeShowoffPresses();
 // Free roam's world runs (driving, not paused) says so each frame, with pf::ticksUs(): only then is the horn taken.
 void setHornLive(uint64_t nowUs);
+// Free roam's drift mode (drift_button: rear_r3 by default, rear_l3, dpad_left, dpad_right or off): the presses since
+// the last call, taken only while free roam's world says so (setDriftLive, each frame, with pf::ticksUs()).
+int takeDriftPresses();
+void setDriftLive(uint64_t nowUs);
 
 // Radial dead zone and response curve of one stick (x, y in -1..1). deadZone and saturation are DirectInput
 // property values (0..10000 of full deflection); the larger dead zone and the smaller saturation of these and the

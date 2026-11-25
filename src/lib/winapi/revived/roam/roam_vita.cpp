@@ -51,6 +51,7 @@ int mprace_owns_input(void);
 void mprace_player_cancel(void);
 void mp_vita_port_frame(void);
 void showoff_frame(struct CPU* c);   // showoff.c: the hood, the trunk and the doors (Select + L)
+void drift_frame(struct CPU* c);     // drift.c: drift mode (drift_button) and drift battles
 void roam_vita_tap(unsigned dik);
 int roam_vita_can_host(void);
 int roam_host_hud_line(char* tx, int n);
@@ -588,6 +589,25 @@ int roam_host_showoff_presses(void)
     return optOn(roam_opt("NFSU2_ROAM_SHOWOFF")) ? n : 0;
 }
 
+// drift.c: the drift button's presses since the last frame, taken in the world only (G_FLOW 6: elsewhere the button
+// stays the game's)
+int roam_win_committed(uint32_t a);
+int roam_host_drift_presses(void)
+{
+    const uint32_t flow = 0x008654a4u;
+    if (nfsu2_guest_base && roam_win_committed(flow) && *reinterpret_cast<uint32_t*>(nfsu2_guest_base + flow) == 6u)
+        win32::controls::setDriftLive(pf::ticksUs());
+    return win32::controls::takeDriftPresses();
+}
+
+// The game's thread, as free roam's frame runs on it (showoff_hooks.cpp: drift mode's music natives change the
+// switch only there)
+static int s_gameThread = 0;
+extern "C" int roam_vita_on_game_thread(void)
+{
+    return s_gameThread && pf::Thread::currentId() == s_gameThread;
+}
+
 // the HUD's top line when nothing else has one (roam_game.c du_hud): the next notice
 extern "C" int roam_host_notice_line(char* tx, int n)
 {
@@ -883,6 +903,8 @@ void frame(win32::WinApplication* app, x86::CPU& cpu)
     ++s_frame;
     roam_game_frame(nullptr);
     showoff_frame(nullptr);   // (its guest calls go through roam_win_call on this frame's CPU too)
+    s_gameThread = pf::Thread::currentId();
+    drift_frame(nullptr);
     // the trip of a multiplayer race (out of free roam, the game's LAN race, back): its CPU is only passed along,
     // its guest calls go through roam_win_call on this frame's
     static CPU* const s_tripCpu = reinterpret_cast<CPU*>(s_tripRegs);
