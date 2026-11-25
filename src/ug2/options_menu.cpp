@@ -207,7 +207,7 @@ const Item FreeRoam[] = {
     { "Show flags", Ini, "ShowFlags", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "Show the flags before the names over the cars on your screen. The others still see yours." },
     { "Race rings", Ini, "RaceRings", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
-      "A ring on the ground where a race's career marker is gone: blue with nobody hosting, gold with a lobby open." },
+      "The game's own ring where a race's career marker is gone; a different ring while a lobby is open there." },
     { "World", Ini, "Room", Choice, OPTIONS(Worlds), "", 0, nullptr,
       "Free roam shows only the players in the same world. World 4 has ghost cars off for everyone in it." },
     { "Own world", Ini, "Room", Text, nullptr, 0, "", 32, "Main world",
@@ -414,8 +414,9 @@ const char IniTemplate[] =
     "Flag =\n"
     "; the flags before the names drawn on your screen (1) or not (0)\n"
     "ShowFlags = 1\n"
-    "; a ring on the ground at race spots with no career marker: blue, gold with a lobby open (1) or none (0)\n"
+    "; the game's own ring at race spots with no career marker (1) or none (0), and the ring while a lobby is open\n"
     "RaceRings = 1\n"
+    "RingLobby = XEE_WORLD_CHALLENGE\n"
     "; a line at the top of the screen when a player joins free roam, leaves or goes into a race (1 on, 0 off)\n"
     "Messages = 1\n"
     "\n"
