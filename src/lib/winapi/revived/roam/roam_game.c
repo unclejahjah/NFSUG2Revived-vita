@@ -4968,11 +4968,14 @@ static int64_t render_delay(int i, const rc_peer *p, int64_t frame_dt){
  * friends still see the two.  Messages: RC_MSG_DUEL (roam_core.h), each
  * repeated until answered (a datagram lost on a LAN).  Not in the Windows
  * plugin (DUELS): its players are not offered one. */
-#ifdef ROAM_HOST_WIN
+#if defined(ROAM_HOST_WIN) && !defined(ROAM_DUELS)
 #define DUELS           0
 #else
 #define DUELS           1
 #endif
+/* outruns between players switched on (NFSU2_ROAM_DUELS, the Vita's .ini Outruns; on by default): off, this game's
+ * HELLO says it takes none, so nobody is offered one with us, and we are offered none */
+static int g_du_on = 1;
 #define DRIFTS          (DUELS && ROAM_HOST_DRIFT)   /* drift battles (below): drift mode is drift.c's */
 #define G_ACTIONS       0x0086eaf0u   /* the joystick actions held this frame, a bit per action, 0 = held (0x5CFD60) */
 #define ACT_ENGAGE      15u           /* Engage */
@@ -5531,7 +5534,7 @@ static void du_recv(CPU *c, int64_t host, uint32_t from, uint8_t op, uint8_t arg
 }
 /* per frame, after the slots (the friends' cars are where they are drawn) */
 static void du_frame(CPU *c, int64_t host, int in_roam, int world_runs, const uint32_t *in, int nin){
-    if (!DUELS) return;
+    if (!DUELS || !g_du_on) return;
     for (int i = 0; i < nin; i++) du_recv(c, host, in[5 * i], (uint8_t)in[5 * i + 1], (uint8_t)in[5 * i + 2], in[5 * i + 3], in[5 * i + 4], in_roam, world_runs);
     uint32_t race = rd32(G_RACE), me = player_car();
     int eng = in_roam && world_runs && !(rd32(G_ACTIONS) & (1u << ACT_ENGAGE));
@@ -9067,7 +9070,7 @@ static void init_once(CPU *c){
 #else
     cf.platform = RC_PLAT_MAC;
 #endif
-    cf.test_mode = O.test; cf.max_players = maxp; cf.rate_hz = O.rate; cf.duels = DUELS; cf.drifts = DRIFTS; cf.lobbies = MPRACES;
+    cf.test_mode = O.test; cf.max_players = maxp; cf.rate_hz = O.rate; g_du_on = env_int("NFSU2_ROAM_DUELS", 1, 0, 1); cf.duels = DUELS && g_du_on; cf.drifts = DRIFTS && g_du_on; cf.lobbies = MPRACES;
 #if MPRACES
     g_mp_on = env_int("NFSU2_ROAM_MPRACES", 1, 0, 1);
     cf.lobbies = g_mp_on;

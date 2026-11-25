@@ -73,6 +73,6 @@ function(nfsu_revived_libraries out_var)
   target_link_libraries(nfsu_revived PRIVATE nfsu_mbedtls)
   # nfsu2-web's own code as it is (its warnings are its own); the browser backend of its virtual LAN
   set_source_files_properties(${c_sources} PROPERTIES COMPILE_OPTIONS "-w" COMPILE_DEFINITIONS NFSU2_VLAN_BACKEND)
-  set_source_files_properties(${roam_sources} PROPERTIES COMPILE_OPTIONS "-w" COMPILE_DEFINITIONS "ROAM_HOST_WIN;ROAM_GROUP_CAP;ROAM_FLAGS;ROAM_SAYS;ROAM_SAY_TAGS;ROAM_LOBBY_PANEL;ROAM_MPRACES;ROAM_MPRACE_HOST_CHECK;ROAM_MPRACE_PLAYER_SAVES;ROAM_MPRACE_NO_CREDIT;ROAM_PROBE;HEAVY_PER_FRAME=1")
+  set_source_files_properties(${roam_sources} PROPERTIES COMPILE_OPTIONS "-w" COMPILE_DEFINITIONS "ROAM_HOST_WIN;ROAM_GROUP_CAP;ROAM_FLAGS;ROAM_SAYS;ROAM_SAY_TAGS;ROAM_DUELS;ROAM_LOBBY_PANEL;ROAM_MPRACES;ROAM_MPRACE_HOST_CHECK;ROAM_MPRACE_PLAYER_SAVES;ROAM_MPRACE_NO_CREDIT;ROAM_PROBE;HEAVY_PER_FRAME=1")
   set(${out_var} nfsu_revived nfsu_mbedtls PARENT_SCOPE)
 endfunction()

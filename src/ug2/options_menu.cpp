@@ -197,6 +197,9 @@ const Item FreeRoam[] = {
       "A world of your own by its name: only the players who type the same name see each other." },
     { "Ghost mode", Ini, "Collide", Choice, OPTIONS(Collide), "0", 0, nullptr,
       "Ghost cars: drive through other players. Solid cars: they can shove yours. Ghost everything: traffic too." },
+    { "Outruns with players", Ini, "Outruns", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "Stay close to another player for a few seconds and the outrun icon comes up: Engage challenges them to the "
+      "game's own outrun. Off: nobody can challenge you, and you challenge nobody." },
     { "Group size", Ini, "MaxPlayers", Choice, OPTIONS(MaxPlayers), "8", 0, nullptr,
       "Players in your group, you included. More players cost frames on the Vita." },
     { "Players' cars shown", Ini, "MaxCars", Choice, OPTIONS(MaxCars), "2", 0, nullptr,
@@ -355,6 +358,9 @@ const char IniTemplate[] =
     "\n"
     "; 1 = friends' cars are solid; 0 = ghost cars you drive through; none = traffic is a ghost too\n"
     "Collide = 0\n"
+    "\n"
+    "; outruns with other players: stay near one and press Engage to challenge them (1 on, 0 off)\n"
+    "Outruns = 1\n"
     "\n"
     "; group size, you included (2..33), and friends' cars shown at once (0..5)\n"
     "MaxPlayers = 8\n"

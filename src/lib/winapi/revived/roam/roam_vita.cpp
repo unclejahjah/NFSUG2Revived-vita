@@ -93,6 +93,8 @@ const struct { const char *name, *key, *def; } Opts[] = {
     // quick chat (settings.ini quick_chat): on or off, and the phrases of its six slots by their numbers (phrases.h);
     // the cfg's quick_chat_button says which buttons they are (controls::quickChatSlots)
     // multiplayer races from free roam (roam_game.c mp_*): lobbies at the race markers, joined with the race's button
+    // outruns between players (roam_game.c du_*): stay near another player and press Engage to challenge them
+    { "NFSU2_ROAM_DUELS",       "Outruns",     "1" },
     { "NFSU2_ROAM_MPRACES",     "Races",       "1" },
     { "NFSU2_ROAM_SAY",         "QuickChat",   "1" },
     { "NFSU2_ROAM_SAY1",        "Say1",        "0"  },   // Hey!
