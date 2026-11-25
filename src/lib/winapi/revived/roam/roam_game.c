@@ -2568,9 +2568,9 @@ static void push_pose(Slot *s, rc_pose *P, int64_t newest, int64_t rt, float dt)
 #define TAG_MP0         (TAG_N + 1)   /* and eight: labels over race spots and lobbies, the lines of a start's stack (mp_labels) */
 #define TAG_MPN         8
 #define TAG_QC0         (TAG_MP0 + TAG_MPN)   /* and quick chat's box: its title and a line for each choice (qc_panel) */
-#define TAG_QCN         8
+#define TAG_QCN         9
 #define TAG_LB0         (TAG_QC0 + TAG_QCN)   /* and the race lobby's panel: title, race, a line a player, two of keys (lb_panel) */
-#define TAG_LBN         10
+#define TAG_LBN         18
 #define TAG_ALL         (TAG_N + 1 + TAG_MPN + TAG_QCN + TAG_LBN)
 #define TAG_DUEL_MAX    120
 /* the names' objects in a HUD; co-op free roam has a set for each player's (its half of the screen) */
@@ -2914,9 +2914,13 @@ static uint32_t flag_texture(CPU *c, int i){
 }
 /* each name's image for its flag, made (or looked up) once per HUD: a copy of the package's first image, which is
  * off the screen and not in a group, its turn, pivot and texture corners as a flag needs them */
-#define FL_BOX          TAG_N         /* two more images: quick chat's box and its edge (qc_panel) */
-#define FL_LB           (TAG_N + 2)   /* and two: the race lobby's panel and its edge (lb_panel) */
-#define FL_ALL          (TAG_N + 4)
+#define FL_QC           TAG_N         /* more images: quick chat's panel, its rule and glyphs (qc_panel, ui_panel) */
+#define FL_QCN          16
+#define FL_LB           (FL_QC + FL_QCN)   /* the race lobby's: panel, rule, highlight, value boxes, glyph (lb_panel) */
+#define FL_LBN          24
+#define FL_TOP          (FL_LB + FL_LBN)   /* the line at the top's: panel, rule, glyph (du_hud) */
+#define FL_TOPN         10
+#define FL_ALL          (FL_TOP + FL_TOPN)
 typedef struct { uint32_t hud, like, obj[FL_ALL]; uint8_t looked[FL_ALL], shown[FL_ALL], alpha[FL_ALL]; uint32_t tex[FL_ALL]; int said;
                  uint32_t probe, probe_hash; } FlagSet;   /* (probe: the first image made, its hash: tags_live) */
 static FlagSet g_fls[2], *g_flp = &g_fls[0];
@@ -5717,66 +5721,186 @@ static void gh_frame(void){
     }
 }
 
-#if SAYS && defined(ROAM_SAY_TAGS)
-/* Quick chat's choices while its button is held (the Vita: roam_host_chat_menu), as a small box on the right of the
- * screen as the game's own prompts are: a dark box with a lit edge, its title and a line a choice in the HUD's font
- * (copies of ONLINE_PLAYER_1; the box, the HUD's plain white image as the flags are, FLAG_TEMPLATE).  1 when drawn */
-int roam_host_chat_menu(const char **keys, const char **texts, int max);
-#define QC_X            452.f         /* the box: its left, HUD units (640 x 480) */
-#define QC_W            176.f
-#define QC_TOP          176.f
-#define QC_LINE         17.f          /* a line's height */
-#define QC_SC           0.78f         /* the text's scale */
-static int g_qc_drawn;
-static void qc_hide(CPU *c){
-    for (int i = 0; i < TAG_QCN; i++) tag_hide(c, TAG_QC0 + i);
-#if FLAGS
-    flag_hide(c, FL_BOX); flag_hide(c, FL_BOX + 1);
-#endif
-    g_qc_drawn = 0;
+/* ---- our HUD panels in the look of the game's own menus (the pause menu, Vita Settings) ------------------ *
+ * Quick chat's choices, the race lobby's panel and the line of text at the top are drawn as the pause menu's
+ * panels are: GlobalB's U2_MENU_BOX (black, 60 %) with U2_MENU_ROUNDEDCORNER at each corner (its round is the
+ * texture's bottom right: the other three corners flip its texture corners), a lit rule under the title, a row
+ * picked out as Vita Settings' highlighted one, values in dark boxes, and the Vita's buttons as PlayStation glyphs
+ * (VITA_GLYPH_*, which tools/vita/ps_glyphs.py adds to GlobalB.lzc with the PC key icons swapped for them).  Each
+ * picture is a copy of the HUD's first image (flag_obj), its texture set by hash; the texts are copies of
+ * ONLINE_PLAYER_1 (tag_obj).  A texture GlobalB has not (a GlobalB without ps_glyphs.py's): the glyph's button
+ * said in text instead, the corners square. */
+#define UI_BOX          0xa67c3fe2u   /* U2_MENU_BOX: black at 60 %, the pause menu's panel */
+#define UI_CORNER       0xd253b8f3u   /* U2_MENU_ROUNDEDCORNER: its corner, round at the bottom right */
+#define UI_BOX_W        0x014245e2u   /* U2_MENU_BOX_WHITE: white at 60 % (tinted: the highlight, the rule) */
+#define UI_CORNER_W     0xad749e02u   /* U2_MENU_CORNER_WHITE: its corner */
+#define UI_BOX_K        0xffc8509eu   /* U2_MENU_BOX_BLACK: black, solid (a value's box) */
+#define UI_R            7.f           /* a panel's corners: HUD units (640 x 480) */
+#define UI_LIME         0xc8f07au     /* the menus' lit colour (titles, rules, the highlight's edge) */
+#define UI_TEXT         0xe6e6e6u
+#define UI_DIM          0x8a8a8au
+#define UI_GOLD         0xffd24au
+#define UI_Z            0.42f         /* panels' depth: behind their texts (0.4) */
+/* the glyphs' textures (ps_glyphs.py ADD) and the buttons they are */
+enum { GL_CROSS, GL_CIRCLE, GL_TRIANGLE, GL_SQUARE, GL_L, GL_R, GL_START, GL_SELECT, GL_UP, GL_DOWN, GL_LEFT, GL_RIGHT, GL_N };
+static const char *const GL_NAMES[GL_N] = { "VITA_GLYPH_CROSS", "VITA_GLYPH_CIRCLE", "VITA_GLYPH_TRIANGLE", "VITA_GLYPH_SQUARE",
+    "VITA_GLYPH_L", "VITA_GLYPH_R", "VITA_GLYPH_START", "VITA_GLYPH_SELECT", "VITA_GLYPH_UP", "VITA_GLYPH_DOWN",
+    "VITA_GLYPH_LEFT", "VITA_GLYPH_RIGHT" };
+static const char *const GL_SAY[GL_N] = { "X", "O", "Triangle", "Square", "L", "R", "Start", "Select", "Up", "Down", "Left", "Right" };
+static int8_t g_gl_have[GL_N];                  /* 0 not looked, 1 GlobalB has it, -1 not */
+static int8_t g_ui_box_have;                    /* the same for the panel's corner */
+/* a texture by hash is loaded (FN_TEXINFO with no default) */
+static int ui_tex_loaded(CPU *c, uint32_t h){ uint32_t a[3] = { h, 0, 0 }; return ok(rh_call(c, FN_TEXINFO, 0, 0, 3, a), 0x50); }
+static int ui_glyph_ok(CPU *c, int g){
+    if (g < 0 || g >= GL_N) return 0;
+    if (!g_gl_have[g]){
+        g_gl_have[g] = ui_tex_loaded(c, bhash(GL_NAMES[g])) ? 1 : -1;
+        if (g_gl_have[g] < 0) rlog("[roam] f=%ld ui: no %s in GlobalB (tools/vita/ps_glyphs.py): its button in text\n", rh_frame(), GL_NAMES[g]);
+    }
+    return g_gl_have[g] > 0;
+}
+/* a button's glyph by the name roam_vita.cpp's inputName gives it ("X", "O", "Square", "Up", ...), -1 none */
+__attribute__((unused)) static int ui_glyph_of(const char *key){
+    static const char *const by[][2] = { { "X", "0" }, { "O", "1" }, { "Triangle", "2" }, { "Square", "3" }, { "L", "4" }, { "R", "5" },
+        { "Start", "6" }, { "Select", "7" }, { "Up", "8" }, { "Down", "9" }, { "Left", ":" }, { "Right", ";" } };
+    for (unsigned i = 0; key && i < sizeof by / sizeof by[0]; i++) if (!strcmp(key, by[i][0])) return by[i][1][0] - '0';
+    return -1;
 }
 #if FLAGS
-static void qc_image(CPU *c, int k, uint32_t pkg, float x, float y, float w, float h, int32_t b, int32_t g, int32_t r, uint8_t a, float z){
-    uint32_t o = flag_obj(c, k, pkg);
-    if (!o) return;
-    if (g_fl.tex[k] != FLAG_TEMPLATE){ uint32_t av[2] = { o, FLAG_TEMPLATE }; rh_call(c, FN_FE_SETTEX, 0, 0, 2, av); g_fl.tex[k] = FLAG_TEMPLATE; }
-    if (g_fl.alpha[k] != a || !g_fl.shown[k]){ fe_colour_set(c, o, b, g, r, a); g_fl.alpha[k] = a; }
-    uint32_t ap[2] = { gvec(g_gmem + TAG_SCR + 0x20u, x - 320.f, y - 240.f, z), 0 };
+/* image k: texture tex over x0..x1, y0..y1 (HUD units from the top left), its texture's corners u0,v0 (top left) and
+ * u1,v1, colour rgb (0xRRGGBB) at strength a */
+static void ui_img(CPU *c, int k, uint32_t pkg, uint32_t tex, float x0, float y0, float x1, float y1,
+                   float u0, float v0, float u1, float v1, uint32_t rgb, uint8_t a, float z){
+    uint32_t o = flag_obj(c, k, pkg), d = o ? rd32(o + 0x2cu) : 0;
+    if (!o || !ok(d, 0x54)) return;
+    if (g_fl.tex[k] != tex){ uint32_t av[2] = { o, tex }; rh_call(c, FN_FE_SETTEX, 0, 0, 2, av); g_fl.tex[k] = tex; }
+    fe_colour_set(c, o, (int32_t)(rgb & 0xffu), (int32_t)(rgb >> 8 & 0xffu), (int32_t)(rgb >> 16 & 0xffu), a);
+    g_fl.alpha[k] = a;
+    if (MRF32(d + 0x44u) != u0 || MRF32(d + 0x48u) != v0 || MRF32(d + 0x4cu) != u1 || MRF32(d + 0x50u) != v1){
+        MRF32(d + 0x44u) = u0; MRF32(d + 0x48u) = v0; MRF32(d + 0x4cu) = u1; MRF32(d + 0x50u) = v1;
+        MR32(o + 0x1cu) |= 0x400000u;
+    }
+    uint32_t ap[2] = { gvec(g_gmem + TAG_SCR + 0x20u, (x0 + x1) * 0.5f - 320.f, (y0 + y1) * 0.5f - 240.f, z), 0 };
     rh_call(c, FN_FE_POS, o, 0, 2, ap);
-    uint32_t as[2] = { gvec(g_gmem + TAG_SCR + 0x30u, w, h, 1.f), 0 };
+    uint32_t as[2] = { gvec(g_gmem + TAG_SCR + 0x30u, x1 - x0, y1 - y0, 1.f), 0 };
     rh_call(c, FN_FE_SCALE, o, 0, 2, as);
     if (!g_fl.shown[k]) gcall1(c, FN_FE_SHOW, 0, o);
     g_fl.shown[k] = 1;
 }
 #endif
-static void qc_text(CPU *c, int k, uint32_t pkg, const char *tx, uint32_t rgb, float x, float y){
+/* a panel with the pause menu's rounded corners over x, y, w, h: images k .. k+6 (UI_PANEL_N).  white: the white
+ * box (tinted rgb: a highlight), else the black one (rgb white: as the pause menu has it) */
+#define UI_PANEL_N      7
+static void ui_panel(CPU *c, int k, uint32_t pkg, float x, float y, float w, float h, int white, uint32_t rgb, uint8_t a, float z){
+#if FLAGS
+    uint32_t box = white ? UI_BOX_W : UI_BOX, cor = white ? UI_CORNER_W : UI_CORNER;
+    if (!g_ui_box_have) g_ui_box_have = ui_tex_loaded(c, UI_CORNER) && ui_tex_loaded(c, UI_BOX) ? 1 : -1;
+    float r = UI_R < h * 0.5f ? UI_R : h * 0.5f;
+    if (g_ui_box_have < 0){ box = FLAG_TEMPLATE; cor = FLAG_TEMPLATE; if (!white){ rgb = 0x101010u; a = 150; } }
+    ui_img(c, k,     pkg, cor, x,         y,         x + r, y + r,     1.f, 1.f, 0.f, 0.f, rgb, a, z);   /* top left: flipped both ways */
+    ui_img(c, k + 1, pkg, cor, x + w - r, y,         x + w, y + r,     0.f, 1.f, 1.f, 0.f, rgb, a, z);   /* top right: upside down */
+    ui_img(c, k + 2, pkg, cor, x,         y + h - r, x + r, y + h,     1.f, 0.f, 0.f, 1.f, rgb, a, z);   /* bottom left: mirrored */
+    ui_img(c, k + 3, pkg, cor, x + w - r, y + h - r, x + w, y + h,     0.f, 0.f, 1.f, 1.f, rgb, a, z);   /* bottom right: as it is */
+    ui_img(c, k + 4, pkg, box, x + r,     y,         x + w - r, y + h, 0.f, 0.f, 1.f, 1.f, rgb, a, z);   /* the middle, top to bottom */
+    ui_img(c, k + 5, pkg, box, x,         y + r,     x + r, y + h - r, 0.f, 0.f, 1.f, 1.f, rgb, a, z);   /* the left and right edges */
+    ui_img(c, k + 6, pkg, box, x + w - r, y + r,     x + w, y + h - r, 0.f, 0.f, 1.f, 1.f, rgb, a, z);
+#else
+    (void)c; (void)k; (void)pkg; (void)x; (void)y; (void)w; (void)h; (void)white; (void)rgb; (void)a; (void)z;
+#endif
+}
+/* a plain rectangle (a rule, a value's box): image k */
+static void ui_rect(CPU *c, int k, uint32_t pkg, uint32_t tex, float x, float y, float w, float h, uint32_t rgb, uint8_t a, float z){
+#if FLAGS
+    if (!g_ui_box_have) g_ui_box_have = ui_tex_loaded(c, UI_CORNER) && ui_tex_loaded(c, UI_BOX) ? 1 : -1;
+    if (g_ui_box_have < 0){ if (tex == UI_BOX_K){ rgb = 0x080808u; a = 230; } tex = FLAG_TEMPLATE; }
+    ui_img(c, k, pkg, tex, x, y, x + w, y + h, 0.f, 0.f, 1.f, 1.f, rgb, a, z);
+#else
+    (void)c; (void)k; (void)pkg; (void)tex; (void)x; (void)y; (void)w; (void)h; (void)rgb; (void)a; (void)z;
+#endif
+}
+/* glyph g (GL_*) as image k, its middle at x, y, s tall; 1 when drawn (0: GlobalB has it not, say its name) */
+static int ui_glyph(CPU *c, int k, uint32_t pkg, int g, float x, float y, float s){
+#if FLAGS
+    if (!ui_glyph_ok(c, g)){ flag_hide(c, k); return 0; }
+    ui_img(c, k, pkg, bhash(GL_NAMES[g]), x - s * 0.5f, y - s * 0.5f, x + s * 0.5f, y + s * 0.5f, 0.f, 0.f, 1.f, 1.f, 0xffffffu, 255, 0.4f);
+    return 1;
+#else
+    (void)c; (void)k; (void)pkg; (void)g; (void)x; (void)y; (void)s; return 0;
+#endif
+}
+static void ui_hide_imgs(CPU *c, int k, int n){
+#if FLAGS
+    for (int i = 0; i < n; i++) flag_hide(c, k + i);
+#else
+    (void)c; (void)k; (void)n;
+#endif
+}
+/* text k: tx in colour rgb (0 white) at scale sc, from x (align 0: its left; 1: its middle; 2: its right), its
+ * middle at y */
+static void ui_text(CPU *c, int k, uint32_t pkg, const char *tx, uint32_t rgb, float x, float y, float sc, int align){
     uint32_t obj = tag_obj(c, k, pkg);
     if (!obj) return;
     tag_text_rgb(c, k, obj, tx, rgb);
     if ((MR32(obj + 0x6cu) & 0xfu) != 4u){ MR32(obj + 0x6cu) = (MR32(obj + 0x6cu) & ~0xfu) | 4u; MR32(obj + 0x1cu) |= 0x400002u; }   /* from its left */
+    float w = tag_width(tx) * sc;
+    if (align == 1) x -= w * 0.5f; else if (align == 2) x -= w;
     uint32_t ap[2] = { gvec(g_gmem + TAG_SCR + 0x20u, x - 320.f, y - 240.f, 0.4f), 0 };
     rh_call(c, FN_FE_POS, obj, 0, 2, ap);
-    uint32_t as[2] = { gvec(g_gmem + TAG_SCR + 0x30u, QC_SC, QC_SC, 1.f), 0 };
+    uint32_t as[2] = { gvec(g_gmem + TAG_SCR + 0x30u, sc, sc, 1.f), 0 };
     rh_call(c, FN_FE_SCALE, obj, 0, 2, as);
-    gcall1(c, FN_FE_SHOW, 0, obj);
+    if (!g_tag.shown[k]) gcall1(c, FN_FE_SHOW, 0, obj);
     g_tag.shown[k] = 1;
 }
+/* a line that says "press Enter to <do>": the glyph for it (Cross) and the line as "<Do>", or "<Do> - <the rest>"
+ * when something comes before it; -1 and the line as it is when it says no button */
+static int ui_prompt(const char *in, char *out, int n){
+    const char *p = strstr(in, "ress Enter to ");
+    if (!p || p == in || (p[-1] != 'P' && p[-1] != 'p')){ snprintf(out, (size_t)n, "%s", in); return -1; }
+    const char *pre_end = p - 1;                                   /* the 'P' or 'p' */
+    const char *rest = p + 14;
+    while (pre_end > in && (pre_end[-1] == ' ' || pre_end[-1] == ':' || pre_end[-1] == '.' || pre_end[-1] == ',')) pre_end--;
+    int k = snprintf(out, (size_t)n, "%s", rest);
+    if (k > 0 && out[0] >= 'a' && out[0] <= 'z') out[0] = (char)(out[0] - 32);
+    if (pre_end > in && k < n) snprintf(out + k, (size_t)(n - k), " - %.*s", (int)(pre_end - in), in);
+    return GL_CROSS;
+}
+#if SAYS && defined(ROAM_SAY_TAGS)
+/* Quick chat's choices while its button is held (the Vita: roam_host_chat_menu): a panel on the right of the screen
+ * in the pause menu's look (ui_panel), its title over a lit rule and a row a choice, the button's glyph and the
+ * phrase, and a hint under them.  1 when drawn */
+int roam_host_chat_menu(const char **keys, const char **texts, int max);
+#define QC_X            448.f         /* the panel: its left, HUD units (640 x 480) */
+#define QC_W            180.f
+#define QC_TOP          150.f
+#define QC_HEAD         24.f          /* the title's band */
+#define QC_LINE         17.f          /* a row */
+#define QC_SC           0.78f         /* the rows' text */
+#define QC_GL           13.f          /* a glyph's size */
+static int g_qc_drawn;
+static void qc_hide(CPU *c){
+    for (int i = 0; i < TAG_QCN; i++) tag_hide(c, TAG_QC0 + i);
+    ui_hide_imgs(c, FL_QC, FL_QCN);
+    g_qc_drawn = 0;
+}
 static int qc_panel(CPU *c, uint32_t pkg){
-    const char *keys[TAG_QCN - 1], *texts[TAG_QCN - 1];
-    int n = roam_host_chat_menu(keys, texts, TAG_QCN - 1);
+    const char *keys[TAG_QCN - 2], *texts[TAG_QCN - 2];
+    int n = roam_host_chat_menu(keys, texts, TAG_QCN - 2);
     if (n <= 0){ if (g_qc_drawn) qc_hide(c); return 0; }
     if (!tag_obj(c, TAG_QC0, pkg)) return 0;
-    float h = QC_LINE * (float)(n + 1) + 10.f, cy = QC_TOP + h * 0.5f;
-#if FLAGS
-    qc_image(c, FL_BOX, pkg, QC_X + QC_W * 0.5f, cy, QC_W, h, 0x20, 0x10, 0x08, 190, 0.45f);        /* dark, a little blue */
-    qc_image(c, FL_BOX + 1, pkg, QC_X + 1.5f, cy, 3.f, h, 0xff, 0xc8, 0x46, 255, 0.42f);            /* the lit edge */
-#endif
-    qc_text(c, TAG_QC0, pkg, "QUICK CHAT", 0x46c8ffu, QC_X + 10.f, QC_TOP + 5.f + QC_LINE * 0.5f);
+    float h = QC_HEAD + QC_LINE * (float)n + 22.f;
+    ui_panel(c, FL_QC, pkg, QC_X, QC_TOP, QC_W, h, 0, 0xffffffu, 255, UI_Z);
+    ui_rect(c, FL_QC + UI_PANEL_N, pkg, UI_BOX_W, QC_X + 8.f, QC_TOP + QC_HEAD - 2.f, QC_W - 16.f, 1.5f, UI_LIME, 255, 0.41f);
+    ui_text(c, TAG_QC0, pkg, "QUICK CHAT", UI_LIME, QC_X + 10.f, QC_TOP + QC_HEAD * 0.5f - 1.f, 0.95f, 0);
     for (int i = 0; i < n; i++){
-        char tx[TAG_DUEL_MAX]; snprintf(tx, sizeof tx, "%s  %s", keys[i], texts[i]);
-        qc_text(c, TAG_QC0 + 1 + i, pkg, tx, 0, QC_X + 10.f, QC_TOP + 5.f + QC_LINE * ((float)i + 1.5f));
+        float y = QC_TOP + QC_HEAD + 4.f + QC_LINE * ((float)i + 0.5f);
+        int g = ui_glyph_of(keys[i]);
+        char tx[TAG_DUEL_MAX];
+        if (ui_glyph(c, FL_QC + UI_PANEL_N + 1 + i, pkg, g, QC_X + 10.f + QC_GL * 0.5f, y, QC_GL)) snprintf(tx, sizeof tx, "%s", texts[i]);
+        else snprintf(tx, sizeof tx, "%s  %s", keys[i], texts[i]);
+        ui_text(c, TAG_QC0 + 1 + i, pkg, tx, UI_TEXT, QC_X + 16.f + QC_GL, y, QC_SC, 0);
     }
-    for (int i = n + 1; i < TAG_QCN; i++) tag_hide(c, TAG_QC0 + i);
+    for (int i = n; i < TAG_QCN - 2; i++){ tag_hide(c, TAG_QC0 + 1 + i); ui_hide_imgs(c, FL_QC + UI_PANEL_N + 1 + i, 1); }
+    ui_text(c, TAG_QC0 + TAG_QCN - 1, pkg, "Let go to close", UI_LIME, QC_X + 10.f, QC_TOP + h - 10.f, 0.62f, 0);
     g_qc_drawn = 1;
     return 1;
 }
@@ -5833,21 +5957,24 @@ static void du_hud(CPU *c, int64_t host){
     /* the host's line when there is none of ours: the phrase just said (roam_vita.cpp) */
     if (!tx[0] && g_in_roam && hud_on_top(pkg)){ extern int roam_host_hud_line(char *tx, int n); roam_host_hud_line(tx, (int)sizeof tx); }
 #endif
-    if (!tx[0]){ tag_hide(c, TAG_DUEL); return; }
+    if (!tx[0]){ if (g_tag.shown[TAG_DUEL]) tag_hide(c, TAG_DUEL); ui_hide_imgs(c, FL_TOP, FL_TOPN); return; }
     uint32_t obj = tag_obj(c, TAG_DUEL, pkg);
     if (!obj) return;
-    tag_text(c, TAG_DUEL, obj, tx);
-    /* above the top of the HUD's middle (the prologue's arrow), in front
-     * (the names over cars come with their depth, about 0.99; 1 is not drawn) */
-    uint32_t ap[2] = { gvec(g_gmem + TAG_SCR + 0x20u, 0.f, -165.f, 0.5f), 0 };
-    rh_call(c, FN_FE_POS, obj, 0, 2, ap);
-    /* a long line (a race lobby's) smaller, so that it fits the screen */
-    int len = (int)strlen(tx);
-    float sc = len > 66 ? 66.f / (float)len : 1.f;
-    uint32_t as[2] = { gvec(g_gmem + TAG_SCR + 0x30u, sc, sc, 1.f), 0 };
-    rh_call(c, FN_FE_SCALE, obj, 0, 2, as);
-    gcall1(c, FN_FE_SHOW, 0, obj);
-    g_tag.shown[TAG_DUEL] = 1;
+    /* in a panel at the top in the pause menu's look (ui_panel), a lit rule under it, a button's glyph first where
+     * the line says one ("press Enter to ...": Cross) */
+    char line[TAG_DUEL_MAX];
+    int g = ui_prompt(tx, line, (int)sizeof line);
+    int len = (int)strlen(line);
+    float sc = len > 60 ? 60.f / (float)len : 0.9f;                /* a long line (a race lobby's) smaller, to fit */
+    float tw = tag_width(line) * sc, gs = 15.f, pad = 10.f;
+    int glyph = g >= 0 && ui_glyph_ok(c, g);
+    if (g >= 0 && !glyph){ char t[TAG_DUEL_MAX]; snprintf(t, sizeof t, "%s  %s", GL_SAY[g], line); snprintf(line, sizeof line, "%s", t); tw = tag_width(line) * sc; }
+    float w = tw + pad * 2.f + (glyph ? gs + 6.f : 0.f), x = 320.f - w * 0.5f, y = 62.f, h = 24.f;
+    ui_panel(c, FL_TOP, pkg, x, y, w, h, 0, 0xffffffu, 255, UI_Z);
+    ui_rect(c, FL_TOP + UI_PANEL_N, pkg, UI_BOX_W, x + UI_R, y + h - 1.5f, w - 2.f * UI_R, 1.5f, UI_LIME, 255, 0.41f);
+    if (glyph) ui_glyph(c, FL_TOP + UI_PANEL_N + 1, pkg, g, x + pad + gs * 0.5f, y + h * 0.5f, gs);
+    else ui_hide_imgs(c, FL_TOP + UI_PANEL_N + 1, 1);
+    ui_text(c, TAG_DUEL, pkg, line, 0xffffffu, x + pad + (glyph ? gs + 6.f : 0.f), y + h * 0.5f, sc, 0);
 }
 
 /* ---- multiplayer races from free roam: the race spots ------------------------------------------- */
@@ -7243,17 +7370,20 @@ static void js_race(MpJs *j, uint32_t r){
 
 #ifdef ROAM_LOBBY_PANEL
 /* The race lobby's panel in the game, for a platform with no page around it (the Vita): while we host a lobby or are
- * in one, a box on the left as quick chat's on the right (qc_panel's look): the race, the players (the host first)
- * and what Enter does; mp_line's top line gives way to it.  Its lines in the HUD's font (copies of ONLINE_PLAYER_1),
- * the box the HUD's plain white image (FLAG_TEMPLATE) */
-#define LB_X            12.f          /* the box: its left, HUD units (640 x 480) */
-#define LB_W            196.f
-#define LB_TOP          96.f
+ * in one, a panel on the left in the pause menu's look (ui_panel), as Vita Settings' lists: the race's kind over a
+ * lit rule (the players' count at its right), the race, a row a player (the host first, ours picked out as Settings'
+ * highlighted row) with a value box (Host, You, Ready; open places dim), what is going on, and the button bar
+ * (Cross: start, for the host).  mp_line's top line gives way to it */
+#define LB_X            12.f          /* the panel: its left, HUD units (640 x 480) */
+#define LB_W            236.f
+#define LB_TOP          70.f
+#define LB_HEAD         24.f
+#define LB_ROW          18.f
+#define LB_VW           70.f          /* a value's box */
+#define LB_ROWS         6
 static void lb_hide(CPU *c){
     for (int i = 0; i < TAG_LBN; i++) tag_hide(c, TAG_LB0 + i);
-#if FLAGS
-    flag_hide(c, FL_LB); flag_hide(c, FL_LB + 1);
-#endif
+    ui_hide_imgs(c, FL_LB, FL_LBN);
     g_lb_drawn = 0;
 }
 static int lb_panel(CPU *c, uint32_t pkg, int64_t host){
@@ -7262,57 +7392,81 @@ static int lb_panel(CPU *c, uint32_t pkg, int64_t host){
     static uint32_t cr; static char tn[64];
     const MpLobby *l = &g_mp.l;
     if (l->race != cr){ cr = l->race; tn[0] = 0; if (l->race) track_name(MR16(l->race + 0x18u), MR8(l->race + 0x1au) & 1, tn, sizeof tn); }
-    char line[TAG_LBN][TAG_DUEL_MAX]; uint32_t rgb[TAG_LBN]; int n = 0;
     const char *kind = race_kind(l->race);
-    snprintf(line[n], sizeof line[n], "%s LOBBY", kind);
-    for (char *q = line[n]; *q; q++) if (*q >= 'a' && *q <= 'z') *q -= 32;
-    rgb[n++] = 0x46c8ffu;
+    char title[TAG_DUEL_MAX], count[32], race[TAG_DUEL_MAX];
+    snprintf(title, sizeof title, "%s LOBBY", kind);
+    for (char *q = title; *q; q++) if (*q >= 'a' && *q <= 'z') *q -= 32;
+    snprintf(count, sizeof count, "%d of %d", l->n, l->max);
     {
-        char t[TAG_DUEL_MAX]; int k = snprintf(t, sizeof t, "%s", tn[0] ? tn : kind);
+        int k = snprintf(race, sizeof race, "%s", tn[0] ? tn : kind);
         int laps = l->race ? MR8(l->race + 0x1bu) : 0; uint8_t ty = l->race ? MR8(l->race + 0xfu) : 0;
-        if (l->race && MR8(l->race + 0x34u) != 2u && (ty == 0 || ty == 2 || ty == 5) && laps > 1 && k < (int)sizeof t)
-            k += snprintf(t + k, sizeof t - (size_t)k, "  -  %d laps", laps);
+        if (l->race && MR8(l->race + 0x34u) != 2u && (ty == 0 || ty == 2 || ty == 5) && laps > 1 && k < (int)sizeof race)
+            k += snprintf(race + k, sizeof race - (size_t)k, "  -  %d laps", laps);
         int sg = l->race ? MR8(l->race + 0x37u) : 0;
-        if (sg >= 1 && sg <= 9 && k < (int)sizeof t) snprintf(t + k, sizeof t - (size_t)k, "  -  stage %d", sg);
-        snprintf(line[n], sizeof line[n], "%s", t); rgb[n++] = 0xa9c3d8u;
+        if (sg >= 1 && sg <= 9 && k < (int)sizeof race) snprintf(race + k, sizeof race - (size_t)k, "  -  stage %d", sg);
     }
-    int np = l->n < RC_LOBBY_MAX ? l->n : RC_LOBBY_MAX, shown = 0;
-    for (int i = 0; i < np && n < TAG_LBN - 2; i++, shown++){
+    /* the rows: the players, then the open places */
+    char nm[LB_ROWS][TAG_DUEL_MAX], val[LB_ROWS][16]; uint32_t nrgb[LB_ROWS], vrgb[LB_ROWS]; int me_row = -1, rows = 0;
+    int np = l->n < RC_LOBBY_MAX ? l->n : RC_LOBBY_MAX;
+    for (int i = 0; i < np && rows < LB_ROWS; i++, rows++){
         int me = l->ids[i] == g_s.conf.self_id;
-        snprintf(line[n], sizeof line[n], "%d  %s%s%s", i + 1, mp_name(l->ids[i]), i == 0 ? "  (host)" : "", me ? "  - you" : "");
-        rgb[n++] = i == 0 ? 0xffd24au : me ? 0x3cc0ffu : 0;          /* (the host gold, us light blue) */
+        snprintf(nm[rows], sizeof nm[rows], "%d   %s", i + 1, mp_name(l->ids[i]));
+        snprintf(val[rows], sizeof val[rows], "%s", i == 0 ? (me ? "Host - You" : "Host") : me ? "You" : "Ready");
+        nrgb[rows] = me ? 0xffffffu : UI_TEXT; vrgb[rows] = i == 0 ? UI_GOLD : UI_LIME;
+        if (me) me_row = rows;
     }
-    for (int i = shown; i < l->max && n < TAG_LBN - 2; i++){ snprintf(line[n], sizeof line[n], "%d  open", i + 1); rgb[n++] = 0x5d7085u; }
-    char nm[24]; snprintf(nm, sizeof nm, "%s", mp_name(l->host));
-    const char *a = "", *b = "";
-    char ta[TAG_DUEL_MAX], tb[TAG_DUEL_MAX]; ta[0] = tb[0] = 0;
+    for (int i = rows; i < l->max && rows < LB_ROWS; i++, rows++){
+        snprintf(nm[rows], sizeof nm[rows], "%d   open", i + 1); snprintf(val[rows], sizeof val[rows], "-");
+        nrgb[rows] = UI_DIM; vrgb[rows] = UI_DIM;
+    }
+    /* what is going on, and the button bar */
+    char hn[24]; snprintf(hn, sizeof hn, "%s", mp_name(l->host));
+    char ta[TAG_DUEL_MAX] = "", tb[TAG_DUEL_MAX] = "", btn[32] = "";
     switch (g_mp.st){
     case MP_HOST:
-        if (l->away_s){ snprintf(ta, sizeof ta, "You seem away: it closes in %d s", l->away_s); b = "unless you press a key"; }
-        else if (l->n < 2){ a = "Waiting for players"; b = "Drive away to call it off"; }
-        else { snprintf(ta, sizeof ta, "Press Enter to start (%d of %d)", l->n, l->max); b = "Drive away to call it off"; }
+        if (l->away_s){ snprintf(ta, sizeof ta, "You seem away: it closes in %d s", l->away_s); snprintf(tb, sizeof tb, "unless you press a button"); }
+        else if (l->n < 2){ snprintf(ta, sizeof ta, "Waiting for players"); snprintf(tb, sizeof tb, "Drive away to call it off"); }
+        else { snprintf(btn, sizeof btn, "Start race"); snprintf(ta, sizeof ta, "Drive away to call it off"); }
         break;
-    case MP_ASKED: snprintf(ta, sizeof ta, "Joining %s's race...", nm); break;
+    case MP_ASKED: snprintf(ta, sizeof ta, "Joining %s's race...", hn); break;
     case MP_IN:
-        if (l->away_s){ snprintf(ta, sizeof ta, "%s seems away", nm); snprintf(tb, sizeof tb, "the lobby closes in %d s", l->away_s); }
-        else { snprintf(ta, sizeof ta, "Waiting for %s to start (%d of %d)", nm, l->n, l->max);
-               b = g_mp.far ? "" : "Drive away to leave"; }
+        if (l->away_s){ snprintf(ta, sizeof ta, "%s seems away", hn); snprintf(tb, sizeof tb, "the lobby closes in %d s", l->away_s); }
+        else { snprintf(ta, sizeof ta, "Waiting for %s to start", hn); if (!g_mp.far) snprintf(tb, sizeof tb, "Drive away to leave"); }
         break;
     case MP_COUNT: {
         int64_t s = (g_mp.start_at - host + 999999) / 1000000;
         snprintf(ta, sizeof ta, "Starting the race... %d", (int)(s < 0 ? 0 : s)); break; }
     }
-    if (!ta[0]) snprintf(ta, sizeof ta, "%s", a);
-    if (!tb[0]) snprintf(tb, sizeof tb, "%s", b);
-    if (ta[0]){ snprintf(line[n], sizeof line[n], "%s", ta); rgb[n++] = 0; }
-    if (tb[0]){ snprintf(line[n], sizeof line[n], "%s", tb); rgb[n++] = 0xa9c3d8u; }
-    float h = QC_LINE * (float)n + 12.f, cy = LB_TOP + h * 0.5f;
-#if FLAGS
-    qc_image(c, FL_LB, pkg, LB_X + LB_W * 0.5f, cy, LB_W, h, 0x20, 0x10, 0x08, 190, 0.45f);
-    qc_image(c, FL_LB + 1, pkg, LB_X + 1.5f, cy, 3.f, h, 0xff, 0xc8, 0x46, 255, 0.42f);
-#endif
-    for (int i = 0; i < n; i++) qc_text(c, TAG_LB0 + i, pkg, line[i], rgb[i], LB_X + 10.f, LB_TOP + 6.f + QC_LINE * ((float)i + 0.5f));
-    for (int i = n; i < TAG_LBN; i++) tag_hide(c, TAG_LB0 + i);
+    float y = LB_TOP, rows_top = LB_TOP + LB_HEAD + 16.f;
+    float foot = rows_top + LB_ROW * (float)rows + 4.f;
+    float h = foot - LB_TOP + (ta[0] ? 14.f : 0.f) + (tb[0] ? 12.f : 0.f) + (btn[0] ? 22.f : 0.f) + 8.f;
+    ui_panel(c, FL_LB, pkg, LB_X, y, LB_W, h, 0, 0xffffffu, 255, UI_Z);
+    ui_rect(c, FL_LB + 7, pkg, UI_BOX_W, LB_X + 8.f, y + LB_HEAD - 2.f, LB_W - 16.f, 1.5f, UI_LIME, 255, 0.41f);
+    ui_text(c, TAG_LB0, pkg, title, UI_LIME, LB_X + 10.f, y + LB_HEAD * 0.5f - 1.f, 0.95f, 0);
+    ui_text(c, TAG_LB0 + 1, pkg, count, UI_TEXT, LB_X + LB_W - 10.f, y + LB_HEAD * 0.5f - 1.f, 0.62f, 2);
+    ui_text(c, TAG_LB0 + 2, pkg, race, 0xa9c3d8u, LB_X + 10.f, y + LB_HEAD + 8.f, 0.62f, 0);
+    if (me_row >= 0){
+        float ry = rows_top + LB_ROW * (float)me_row;
+        ui_panel(c, FL_LB + 8, pkg, LB_X + 5.f, ry, LB_W - 10.f, LB_ROW - 1.f, 1, 0x50583cu, 255, 0.415f);
+    }
+    else ui_hide_imgs(c, FL_LB + 8, UI_PANEL_N);
+    for (int i = 0; i < LB_ROWS; i++){
+        if (i >= rows){ tag_hide(c, TAG_LB0 + 3 + i); tag_hide(c, TAG_LB0 + 9 + i); ui_hide_imgs(c, FL_LB + 15 + i, 1); continue; }
+        float ry = rows_top + LB_ROW * ((float)i + 0.5f);
+        ui_text(c, TAG_LB0 + 3 + i, pkg, nm[i], nrgb[i], LB_X + 12.f, ry, 0.78f, 0);
+        ui_rect(c, FL_LB + 15 + i, pkg, UI_BOX_K, LB_X + LB_W - 12.f - LB_VW, ry - 6.5f, LB_VW, 13.f, 0xffffffu, 255, 0.41f);
+        ui_text(c, TAG_LB0 + 9 + i, pkg, val[i], vrgb[i], LB_X + LB_W - 12.f - LB_VW * 0.5f, ry, 0.66f, 1);
+    }
+    float fy = foot + 6.f;
+    if (ta[0]){ ui_text(c, TAG_LB0 + 15, pkg, ta, UI_TEXT, LB_X + 10.f, fy, 0.7f, 0); fy += 14.f; } else tag_hide(c, TAG_LB0 + 15);
+    if (tb[0]){ ui_text(c, TAG_LB0 + 16, pkg, tb, 0xa9c3d8u, LB_X + 10.f, fy - 2.f, 0.62f, 0); fy += 12.f; } else tag_hide(c, TAG_LB0 + 16);
+    if (btn[0]){
+        float bx = LB_X + LB_W - 12.f - tag_width(btn) * 0.8f;
+        if (ui_glyph(c, FL_LB + 21, pkg, GL_CROSS, bx - 11.f, fy + 6.f, 14.f))
+            ui_text(c, TAG_LB0 + 17, pkg, btn, 0xffffffu, bx, fy + 6.f, 0.8f, 0);
+        else { char t[48]; snprintf(t, sizeof t, "X  %s", btn); ui_text(c, TAG_LB0 + 17, pkg, t, 0xffffffu, LB_X + LB_W - 12.f, fy + 6.f, 0.8f, 2); }
+    }
+    else { tag_hide(c, TAG_LB0 + 17); ui_hide_imgs(c, FL_LB + 21, 1); }
     if (!g_lb_drawn) rlog("[roam] f=%ld race lobby %08x: its panel shows (%d of %d players)\n", rh_frame(), l->id, l->n, l->max);
     g_lb_drawn = 1;
     return 1;
