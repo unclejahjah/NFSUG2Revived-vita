@@ -185,9 +185,6 @@ const Item FriendsPage[] = {
       "The quick chat phrase in slot 5 (see Quick chat button for its button)." },
     { "Phrase 6", Ini, "Say6", Choice, OPTIONS(Phrases), "1", 0, nullptr,
       "The quick chat phrase in slot 6 (see Quick chat button for its button)." },
-    { "Blocked players", Ini, "Blocked", Text, nullptr, 0, "", 255, "None",
-      "Names as they show over cars, joined by commas (up to 32). You and they never see each other in free roam: "
-      "no car, name, quick chat, outrun or race lobby. Takes effect the next time you go online." },
     { "Crews", Ini, "Crew", Text, nullptr, 0, "", 120, "None",
       "Up to 4 crews, joined by commas. Players who share one see each other's names and map arrows in its colour." },
     { "Crew colours", Ini, "CrewColours", Text, nullptr, 0, "", 40, "Cyan, magenta, violet, red",
@@ -203,24 +200,12 @@ const Item FreeRoam[] = {
       "Any other flag by its two-letter country code (de, jp, br), or gb-eng style for a nation." },
     { "Show flags", Ini, "ShowFlags", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "Show the flags before the names over the cars on your screen. The others still see yours." },
-    { "Player messages", Ini, "Messages", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
-      "A line at the top of the screen when a player joins free roam, leaves, goes into a race or opens a race "
-      "nearby. Never while you race." },
     { "World", Ini, "Room", Choice, OPTIONS(Worlds), "", 0, nullptr,
       "Free roam shows only the players in the same world. World 4 has ghost cars off for everyone in it." },
     { "Own world", Ini, "Room", Text, nullptr, 0, "", 32, "Main world",
       "A world of your own by its name: only the players who type the same name see each other." },
     { "Ghost mode", Ini, "Collide", Choice, OPTIONS(Collide), "0", 0, nullptr,
       "Ghost cars: drive through other players. Solid cars: they can shove yours. Ghost everything: traffic too." },
-    { "Horn", Ini, "Horn", Choice, OPTIONS(Horns), "dual", 0, nullptr,
-      "Your horn in free roam: the players near you hear it from your car. Off: you have none, theirs still sound." },
-    { "Horn button", Cfg, "horn_button", Choice, OPTIONS(HornButtons), "rear_l3", 0, nullptr,
-      "Hold it to honk in free roam. In free roam it is the horn's only, not the game's." },
-    { "Other players' car sounds", Ini, "CarSounds", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
-      "Hear the other players' engines, nitrous and hydraulics from their cars, with the game's own sounds." },
-    { "Outruns with players", Ini, "Outruns", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
-      "Stay close to another player for a few seconds and the outrun icon comes up: Engage challenges them to the "
-      "game's own outrun. Off: nobody can challenge you, and you challenge nobody." },
     { "Group size", Ini, "MaxPlayers", Choice, OPTIONS(MaxPlayers), "8", 0, nullptr,
       "Players in your group, you included. More players cost frames on the Vita." },
     { "Players' cars shown", Ini, "MaxCars", Choice, OPTIONS(MaxCars), "2", 0, nullptr,
@@ -231,6 +216,54 @@ const Item FreeRoam[] = {
       "Other cars are drawn this far in the past, smoothed. Less is closer to live, more is smoother." },
     { "Prediction", Ini, "Extrap", Choice, OPTIONS(Extrap), "", 0, nullptr,
       "How far ahead a car is predicted when its updates are late." },
+};
+
+const Item RoamExtras[] = {
+    { "Player messages", Ini, "Messages", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "A line at the top of the screen when a player joins free roam, leaves, goes into a race or opens a race "
+      "nearby. Never while you race." },
+    { "Outruns with players", Ini, "Outruns", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "Stay close to another player for a few seconds and the outrun icon comes up: Engage challenges them to the "
+      "game's own outrun. Off: nobody can challenge you, and you challenge nobody." },
+    { "Blocked players", Ini, "Blocked", Text, nullptr, 0, "", 255, "None",
+      "Names as they show over cars, joined by commas (up to 32). You and they never see each other in free roam: "
+      "no car, name, quick chat, outrun or race lobby. Takes effect the next time you go online." },
+    { "Horn", Ini, "Horn", Choice, OPTIONS(Horns), "dual", 0, nullptr,
+      "Your horn in free roam: the players near you hear it from your car. Off: you have none, theirs still sound." },
+    { "Horn button", Cfg, "horn_button", Choice, OPTIONS(HornButtons), "rear_l3", 0, nullptr,
+      "Hold it to honk in free roam. In free roam it is the horn's only, not the game's." },
+    { "Other players' car sounds", Ini, "CarSounds", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "Hear the other players' engines, nitrous and hydraulics from their cars, with the game's own sounds." },
+    { "Show-off", Ini, "ShowOff", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "With the car standing, Select + L opens the hood, then the trunk, the doors, all, and closes them. Players "
+      "near you see them open, and you see theirs." },
+};
+
+// Your car's stance, as nfsu2.xyz's Stance mod sets it (src/lib/winapi/revived/roam/stance_vita.c): for whichever car
+// you drive out in the world, seen by the players near you; theirs show on their cars. Only the look changes.
+const Option Cambers[] = { { "0", "0 degrees" }, { "1", "1 degree" }, { "2", "2 degrees" }, { "3", "3 degrees" },
+                           { "4", "4 degrees" }, { "5", "5 degrees" }, { "6", "6 degrees" }, { "8", "8 degrees" },
+                           { "10", "10 degrees" }, { "12", "12 degrees" }, { "15", "15 degrees" } };
+const Option Offsets[] = { { "-40", "-40 mm (in)" }, { "-20", "-20 mm (in)" }, { "-10", "-10 mm (in)" }, { "0", "0 mm" },
+                           { "10", "+10 mm" }, { "20", "+20 mm" }, { "30", "+30 mm" }, { "40", "+40 mm" },
+                           { "50", "+50 mm" }, { "60", "+60 mm" }, { "80", "+80 mm" } };
+const Option TireWidths[] = { { "80", "80 %" }, { "90", "90 %" }, { "100", "100 % (the car's own)" }, { "110", "110 %" },
+                              { "120", "120 %" }, { "130", "130 %" } };
+
+const Item StancePage[] = {
+    { "Stance", Ini, "Stance", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Your car's wheels drawn with the camber, offset and tire width below, in free roam and races. The car drives "
+      "as before. Players near you see it too." },
+    { "Front camber", Ini, "FrontCamber", Choice, OPTIONS(Cambers), "0", 0, nullptr,
+      "How far the front wheels' tops lean in." },
+    { "Rear camber", Ini, "RearCamber", Choice, OPTIONS(Cambers), "0", 0, nullptr,
+      "How far the rear wheels' tops lean in." },
+    { "Front offset", Ini, "FrontOffset", Choice, OPTIONS(Offsets), "0", 0, nullptr,
+      "How far the front wheels stand out from the body (in, below 0)." },
+    { "Rear offset", Ini, "RearOffset", Choice, OPTIONS(Offsets), "0", 0, nullptr,
+      "How far the rear wheels stand out from the body (in, below 0)." },
+    { "Tire width", Ini, "TireWidth", Choice, OPTIONS(TireWidths), "100", 0, nullptr,
+      "The tires' width, of the car's own." },
 };
 
 const Item Display[] = {
@@ -325,6 +358,8 @@ struct Page
 const Page Pages[] = {
     { "Multiplayer", OPTIONS(Multiplayer) },
     { "Free Roam", OPTIONS(FreeRoam) },
+    { "Free Roam extras", OPTIONS(RoamExtras) },
+    { "Stance", OPTIONS(StancePage) },
     { "Display", OPTIONS(Display) },
     { "Sound", OPTIONS(Sound) },
     { "Controller", OPTIONS(Controller) },
@@ -389,6 +424,16 @@ const char IniTemplate[] =
     "; horn_button honks), and the other players' engines, nitrous and hydraulics heard (1) or not (0)\n"
     "Horn = dual\n"
     "CarSounds = 1\n"
+    "; the show-off: Select + L opens the hood, the trunk, the doors (1 on, 0 off)\n"
+    "ShowOff = 1\n"
+    "; your car's stance (1 on): camber front and rear (degrees, 0-15), offset front and rear (mm, -40-80), tire\n"
+    "; width (per cent of the car's own, 80-130)\n"
+    "Stance = 0\n"
+    "FrontCamber = 0\n"
+    "RearCamber = 0\n"
+    "FrontOffset = 0\n"
+    "RearOffset = 0\n"
+    "TireWidth = 100\n"
     "\n"
     "; outruns with other players: stay near one and press Engage to challenge them (1 on, 0 off)\n"
     "Outruns = 1\n"

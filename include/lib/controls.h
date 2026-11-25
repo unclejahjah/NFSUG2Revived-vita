@@ -172,6 +172,8 @@ uint64_t quickChatHeldSince();
 // Free roam's horn (horn_button: rear_l3 by default, rear_r3, dpad_left, dpad_right or off): held now, while free
 // roam's world runs (it is taken from the game only then, and not while quick chat's button is held).
 bool hornHeld();
+// Free roam's show-off (Select + L): the presses since the last call.
+int takeShowoffPresses();
 // Free roam's world runs (driving, not paused) says so each frame, with pf::ticksUs(): only then is the horn taken.
 void setHornLive(uint64_t nowUs);
 

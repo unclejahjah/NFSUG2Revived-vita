@@ -82,6 +82,9 @@ NATIVE_OVERRIDES = [
     # Free roam's multiplayer races (src/ug2/mprace_hooks.cpp): UI_Pause's message handler (the race's Quit) and
     # EngageRaceDialog's (the race card's Solo or Multiplayer question)
     0x4c2170, 0x499c00,
+    # Free roam's show-off and stance (src/ug2/showoff_hooks.cpp; the car's drawing 0x620AE0 is a placeholder above):
+    # the car's lights, the part animation banks thrown away, and EAGL's animation heap (made, an object by size, by kind)
+    0x615a10, 0x438140, 0x6e2310, 0x6e2290, 0x6e2240,
     # Menu up/down ignore the right stick (src/ug2/native/sub_571d50.cpp)
     0x571d50,
     # Medium graphics features: flares, shadow hull, headlight pass, particles

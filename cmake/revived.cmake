@@ -61,10 +61,14 @@ function(nfsu_revived_libraries out_var)
   # horns between players and friends' engines, nitrous and hydraulics, mixed over the game's sound (nfsu2-web's
   # horn.c and carsfx.c, with the Vita's host: roam_vita.cpp, src/lib/audio.cpp)
   set(sound_sources ${dir}/roam/horn.c ${dir}/roam/carsfx.c)
+  # ...and the show-off (the hood, the trunk, the doors) and stance (nfsu2-web's showoff.c and stance.c's drawing; the
+  # natives into the game's car drawing: src/ug2/showoff_hooks.cpp)
+  set(showoff_sources ${dir}/roam/showoff.c ${dir}/roam/stance_vita.c)
   add_library(nfsu_revived STATIC
     ${c_sources}
     ${roam_sources}
     ${sound_sources}
+    ${showoff_sources}
     ${dir}/roam/roam_vita.cpp
     ${dir}/revived_bridge.cpp
     ${dir}/revived_link.cpp
@@ -77,7 +81,8 @@ function(nfsu_revived_libraries out_var)
   target_link_libraries(nfsu_revived PRIVATE nfsu_mbedtls)
   # nfsu2-web's own code as it is (its warnings are its own); the browser backend of its virtual LAN
   set_source_files_properties(${c_sources} PROPERTIES COMPILE_OPTIONS "-w" COMPILE_DEFINITIONS NFSU2_VLAN_BACKEND)
-  set_source_files_properties(${roam_sources} PROPERTIES COMPILE_OPTIONS "-w" COMPILE_DEFINITIONS "ROAM_HOST_WIN;ROAM_GROUP_CAP;ROAM_FLAGS;ROAM_SAYS;ROAM_SAY_TAGS;ROAM_DUELS;ROAM_VITA_SOUNDS;ROAM_LOBBY_PANEL;ROAM_MPRACES;ROAM_MPRACE_HOST_CHECK;ROAM_MPRACE_PLAYER_SAVES;ROAM_MPRACE_NO_CREDIT;ROAM_PROBE;HEAVY_PER_FRAME=1")
+  set_source_files_properties(${roam_sources} PROPERTIES COMPILE_OPTIONS "-w" COMPILE_DEFINITIONS "ROAM_HOST_WIN;ROAM_GROUP_CAP;ROAM_FLAGS;ROAM_SAYS;ROAM_SAY_TAGS;ROAM_DUELS;ROAM_VITA_SOUNDS;ROAM_VITA_SHOWOFF;ROAM_LOBBY_PANEL;ROAM_MPRACES;ROAM_MPRACE_HOST_CHECK;ROAM_MPRACE_PLAYER_SAVES;ROAM_MPRACE_NO_CREDIT;ROAM_PROBE;HEAVY_PER_FRAME=1")
   set_source_files_properties(${sound_sources} PROPERTIES COMPILE_OPTIONS "-w" COMPILE_DEFINITIONS "HORN_VITA;CARSFX_VITA")
+  set_source_files_properties(${showoff_sources} PROPERTIES COMPILE_OPTIONS "-w" COMPILE_DEFINITIONS "SHOWOFF_VITA")
   set(${out_var} nfsu_revived nfsu_mbedtls PARENT_SCOPE)
 endfunction()

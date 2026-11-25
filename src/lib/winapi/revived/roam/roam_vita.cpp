@@ -50,6 +50,7 @@ void mprace_frame(struct CPU* c);
 int mprace_owns_input(void);
 void mprace_player_cancel(void);
 void mp_vita_port_frame(void);
+void showoff_frame(struct CPU* c);   // showoff.c: the hood, the trunk and the doors (Select + L)
 void roam_vita_tap(unsigned dik);
 int roam_vita_can_host(void);
 int roam_host_hud_line(char* tx, int n);
@@ -106,6 +107,8 @@ const struct { const char *name, *key, *def; } Opts[] = {
     // the others' still heard), and the other players' engines, nitrous and hydraulics heard from their cars
     { "NFSU2_ROAM_HORN",        "Horn",        "dual" },
     { "NFSU2_ROAM_CARSFX",      "CarSounds",   "1" },
+    // the show-off (showoff.c: Select + L opens the hood, the trunk, the doors; friends' open on their cars too)
+    { "NFSU2_ROAM_SHOWOFF",     "ShowOff",     "1" },
     // the lines nfsu2.xyz shows over the game (a player joined free roam, left, went into a race): the HUD's top line
     { "NFSU2_ROAM_NOTICES",     "Messages",    "1" },
     { "NFSU2_ROAM_SAY1",        "Say1",        "0"  },   // Hey!
@@ -568,6 +571,23 @@ extern "C" int roam_host_blocked(char names[][25], int max)
     return n;
 }
 
+// one key of the .ini's [FreeRoam] as the file has it now (stance_vita.c: Vita Settings may change it while playing)
+int roam_host_ini_value(const char* key, char* out, int n)
+{
+    if (!out || n <= 0)
+        return 0;
+    const std::string v = iniValue(key);
+    snprintf(out, size_t(n), "%s", v.c_str());
+    return 1;
+}
+
+// showoff.c: Select + L presses since the last frame
+int roam_host_showoff_presses(void)
+{
+    const int n = win32::controls::takeShowoffPresses();
+    return optOn(roam_opt("NFSU2_ROAM_SHOWOFF")) ? n : 0;
+}
+
 // the HUD's top line when nothing else has one (roam_game.c du_hud): the next notice
 extern "C" int roam_host_notice_line(char* tx, int n)
 {
@@ -862,6 +882,7 @@ void frame(win32::WinApplication* app, x86::CPU& cpu)
     s_cpu = &cpu;
     ++s_frame;
     roam_game_frame(nullptr);
+    showoff_frame(nullptr);   // (its guest calls go through roam_win_call on this frame's CPU too)
     // the trip of a multiplayer race (out of free roam, the game's LAN race, back): its CPU is only passed along,
     // its guest calls go through roam_win_call on this frame's
     static CPU* const s_tripCpu = reinterpret_cast<CPU*>(s_tripRegs);

@@ -81,8 +81,16 @@ uint64_t    roam_win_ns(void);
 #endif
 /* no show-off here: the companion opens no parts and shows friends' cars closed (showoff.c needs the port's
  * overrides of the cars' drawing) */
+#ifdef ROAM_VITA_SHOWOFF
+/* the Vita port: showoff.c (Select + L opens the hood, the trunk, the doors) and friends' cars open as theirs are */
+uint8_t showoff_mine(void);
+void showoff_car(CPU *c, int k, uint32_t car, uint8_t open);
+#define rh_showoff_mine() showoff_mine()
+#define rh_showoff_car(c, k, car, open) showoff_car((c), (k), (car), (open))
+#else
 #define rh_showoff_mine() ((uint8_t)0)
 #define rh_showoff_car(c, k, car, open) ((void)(c), (void)(k), (void)(car), (void)(open))
+#endif
 /* no light key here either: the companion's lights are the game's, and friends' cars show theirs */
 #define rh_lights_mine() 0
 #define rh_lights_car(k, car, st) ((void)(k), (void)(car), (void)(st))
@@ -97,9 +105,19 @@ uint64_t    roam_win_ns(void);
 #define rh_plate_mine()  ""
 #define rh_plate_car(k, car, text) ((void)(k), (void)(car), (void)(text))
 #define rh_plates_forget() ((void)0)
+#ifdef ROAM_VITA_SHOWOFF
+/* the Vita port: stance_vita.c (yours from the .ini's Stance rows, friends' from their car records) */
+int  stance_wire_mine(int16_t v[5]);
+void stance_wire_car(int k, uint32_t car, int has, const int16_t v[5]);
+void stance_forget(void);
+#define rh_stance_mine(v) stance_wire_mine(v)
+#define rh_stance_car(k, car, has, v) stance_wire_car((k), (car), (has), (v))
+#define rh_stance_forget() stance_forget()
+#else
 #define rh_stance_mine(v) ((void)(v), 0)
 #define rh_stance_car(k, car, has, v) ((void)(k), (void)(car), (void)(has), (void)(v))
 #define rh_stance_forget() ((void)0)
+#endif
 /* the game's "No Profile" in English only (the port also knows the other
  * languages' names from the game's text, language.c) */
 #define rh_no_profile(name) (!strcasecmp((name), "No Profile"))

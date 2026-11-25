@@ -98,6 +98,9 @@ static const Chord s_chords[] =
     { Circle,    0, -1, false, false, 4 },
     { Square,    0, -1, false, false, 5 },
     { R,         0, -1, false, false, 6 },  // add the player nose to nose as a friend
+    // free roam's show-off: each press opens the next of the hood, the trunk, the doors, all, then closes them
+    // (src/lib/winapi/revived/roam/showoff.c, the car standing)
+    { L,         0, -1, false, false, -1 },
 };
 
 // How long a Select tap holds its button, enough for one game frame at 10 fps.
@@ -193,6 +196,13 @@ static int hornButton()
         s_generation.store(generation, std::memory_order_release);
     }
     return s_button.load(std::memory_order_relaxed);
+}
+
+static std::atomic<int> s_showoffPresses{0};
+
+int takeShowoffPresses()
+{
+    return s_showoffPresses.exchange(0, std::memory_order_relaxed);
 }
 
 static std::atomic<bool> s_hornHeld{false};
@@ -638,6 +648,8 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
             state.openSettings = true;
         if (chord->say >= 0)
             state.sayChord = chord->say;
+        if (chord->input == L)
+            s_showoffPresses.fetch_add(1, std::memory_order_relaxed);
     }
     if ((released & bit(Select)) && !m_selectUsed)
         m_selectPulseEndUs = nowUs + s_tapUs;
