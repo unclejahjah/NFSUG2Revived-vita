@@ -396,7 +396,7 @@ static int env_int(const char *k, int def, int lo, int hi){
     return (int)x;
 }
 static struct {
-    int on, test, collide, max_cars, rate, delay_ms, extrap_ms, carpool_kb, labels, flags_shown, spawn_m;
+    int on, test, collide, max_cars, rate, delay_ms, extrap_ms, carpool_kb, labels, flags_shown, rings, spawn_m;
     int ghost_all;                            /* NFSU2_ROAM_COLLIDE=none (Ghost mode: Everything): friends' cars are ghosts
                                                  (collide 0), and the game's traffic and tuners pass through the player's car
                                                  too (ghost_pair) */
@@ -2917,7 +2917,11 @@ static uint32_t flag_texture(CPU *c, int i){
  * off the screen and not in a group, its turn, pivot and texture corners as a flag needs them */
 #define FL_BOX          TAG_N         /* two more images: quick chat's box and its edge (qc_panel) */
 #define FL_LB           (TAG_N + 2)   /* and two: the race lobby's panel and its edge (lb_panel) */
-#define FL_ALL          (TAG_N + 4)
+#define FL_RING         (TAG_N + 4)   /* and the rings on the ground at multiplayer-only race spots: RING_N of RING_SEG
+                                         segments each (mp_rings) */
+#define RING_N          2
+#define RING_SEG        32
+#define FL_ALL          (FL_RING + RING_N * RING_SEG)
 typedef struct { uint32_t hud, like, obj[FL_ALL]; uint8_t looked[FL_ALL], shown[FL_ALL], alpha[FL_ALL]; uint32_t tex[FL_ALL]; int said;
                  uint32_t probe, probe_hash; } FlagSet;   /* (probe: the first image made, its hash: tags_live) */
 static FlagSet g_fls[2], *g_flp = &g_fls[0];
@@ -7907,6 +7911,170 @@ static void mp_labels(CPU *c){
 }
 #endif
 
+/* ---- multiplayer races from free roam: rings on the ground at the spots ------------------------ */
+/* Where a race of the career has no marker of the game's any more (won, or
+ * not open in the player's career: a multiplayer-only spot, MPS_ONLY), a ring
+ * on the ground round its start shows where a race with other players can
+ * still be opened or joined: blue while nobody hosts one there, gold (and
+ * slowly pulsing) while a lobby is open there.  The RING_N nearest within
+ * RING_SEE_M, each RING_SEG thin images (the HUD's plain white, FLAG_TEMPLATE,
+ * as quick chat's box) from one point of the circle to the next as the view
+ * shows them, turned along the chord (the image's turn, a quaternion about the
+ * screen's z), thicker the nearer, faded out towards RING_SEE_M.  They are the
+ * HUD's, so drawn over the world: not past a dialog or a screen over the HUD,
+ * not on a race trip.  The .ini's RaceRings turns them off */
+#if FLAGS
+#define RING_SEE_M      120.f         /* the rings from this far */
+#define RING_FULL_M     60.f          /* ...at full strength to here */
+#define RING_R_MIN      3.f           /* a ring's radius: half the trigger's box's shorter side, within these (m) */
+#define RING_R_MAX      8.f
+#define RING_LIFT_M     0.3f          /* above the start's height (its trigger's marker), off the road */
+#define RING_RGB_FREE   0x3c96ffu     /* nobody hosting there: blue */
+#define RING_RGB_LOBBY  MP_RGB_LOBBY  /* a lobby open there: gold, as its words over the start */
+#define RING_LOBBY_M    25.f          /* a lobby this near a spot's middle (or of its race) is that spot's */
+static int g_ring_drawn;
+static uint32_t g_ring_rgb[RING_N * RING_SEG];   /* each segment's colour as last set */
+static float g_ring_cs[RING_SEG + 1][2];   /* the unit circle, RING_SEG steps (made once: no libm here) */
+static void ring_hide(CPU *c){
+    for (int i = 0; i < RING_N * RING_SEG; i++) flag_hide(c, FL_RING + i);
+    g_ring_drawn = 0;
+}
+static void ring_circle(void){
+    if (g_ring_cs[0][0] == 1.f) return;
+    /* the step's cos and sin by their series, then turned step by step (32 steps: off by 1e-6) */
+    float a = 2.f * 3.14159265f / (float)RING_SEG, a2 = a * a;
+    float ca = 1.f - a2 / 2.f + a2 * a2 / 24.f - a2 * a2 * a2 / 720.f, sa = a - a * a2 / 6.f + a * a2 * a2 / 120.f - a * a2 * a2 * a2 / 5040.f;
+    float x = 1.f, y = 0.f;
+    for (int i = 0; i <= RING_SEG; i++){
+        g_ring_cs[i][0] = x; g_ring_cs[i][1] = y;
+        float nx = x * ca - y * sa, ny = x * sa + y * ca; x = nx; y = ny;
+    }
+    g_ring_cs[RING_SEG][0] = 1.f; g_ring_cs[RING_SEG][1] = 0.f;
+}
+/* a spot's lobby: ours or one heard of, open, at its middle (or of its race near it) */
+static int ring_lobby(const MpSpot *sp, float x, float y){
+    for (int i = -1; i < g_mp.nseen; i++){
+        const MpLobby *l = i < 0 ? &g_mp.l : &g_mp.seen[i];
+        if (!l->race || (i < 0 && g_mp.st == MP_IDLE) || l->state != RC_LS_OPEN) continue;
+        float dx = l->x - x, dy = l->y - y, d2 = dx * dx + dy * dy;
+        if (d2 < RING_LOBBY_M * RING_LOBBY_M || (l->race == sp->race && d2 < 4.f * RING_LOBBY_M * RING_LOBBY_M)) return 1;
+    }
+    return 0;
+}
+/* ring image k: from screen point a to b (HUD units, 640 x 480), thickness th, at depth z */
+static void ring_seg(CPU *c, uint32_t pkg, int k, const float *a, const float *b, float th, uint32_t rgb, uint8_t al, float z){
+    uint32_t o = flag_obj(c, k, pkg), d = o ? rd32(o + 0x2cu) : 0;
+    if (!o || !ok(d, 0x54)){ flag_hide(c, k); return; }
+    float dx = b[0] - a[0], dy = b[1] - a[1], len = rc_sqrtf(dx * dx + dy * dy);
+    if (len < 0.05f){ flag_hide(c, k); return; }
+    float ux = dx / len, uy = dy / len;
+    if (ux < 0.f){ ux = -ux; uy = -uy; }                       /* (a chord either way is the same segment) */
+    if (g_fl.tex[k] != FLAG_TEMPLATE){ uint32_t av[2] = { o, FLAG_TEMPLATE }; rh_call(c, FN_FE_SETTEX, 0, 0, 2, av); g_fl.tex[k] = FLAG_TEMPLATE; }
+    uint32_t *was = &g_ring_rgb[k - FL_RING];
+    if (g_fl.alpha[k] != al || !g_fl.shown[k] || *was != rgb){
+        fe_colour_set(c, o, (int32_t)(rgb & 0xffu), (int32_t)(rgb >> 8 & 0xffu), (int32_t)(rgb >> 16 & 0xffu), al);
+        g_fl.alpha[k] = al; *was = rgb;
+    }
+    /* its turn: theta about the screen's z (y down), the half angle's cos and sin from the chord's direction */
+    float ch = rc_sqrtf((1.f + ux) * 0.5f), sh = rc_sqrtf((1.f - ux) * 0.5f);
+    if (uy < 0.f) sh = -sh;
+    MRF32(d + 0x28u) = 0.f; MRF32(d + 0x2cu) = 0.f; MRF32(d + 0x30u) = sh; MRF32(d + 0x34u) = ch;
+    MR32(o + 0x1cu) |= 0x400000u;
+    uint32_t ap[2] = { gvec(g_gmem + TAG_SCR + 0x20u, (a[0] + b[0]) * 0.5f - 320.f, (a[1] + b[1]) * 0.5f - 240.f, z), 0 };
+    rh_call(c, FN_FE_POS, o, 0, 2, ap);
+    uint32_t as[2] = { gvec(g_gmem + TAG_SCR + 0x30u, len + th * 0.5f, th, 1.f), 0 };   /* (a little over: no gaps at the joints) */
+    rh_call(c, FN_FE_SCALE, o, 0, 2, as);
+    if (!g_fl.shown[k]) gcall1(c, FN_FE_SHOW, 0, o);
+    g_fl.shown[k] = 1;
+}
+static void mp_rings(CPU *c, int64_t host){
+    uint32_t pl = rd32(G_PLAYER1), hud = pl && ok(pl, PL_HUD + 4u) ? rd32(pl + PL_HUD) : 0;
+    uint32_t pkg = hud && ok(hud, 0x14) ? rd32(hud + 0x10u) : 0;
+    if (!hud || hud != g_tag.hud || !ok(pkg, 0x20) || !g_gmem) return;
+    if (g_fl.hud != hud) return;                                 /* (the flags' set is this HUD's: tags_update made it so) */
+    uint32_t cam = rd32(G_VIEW1 + 0x40u), me = player_car();
+    int on = g_mp_on && O.rings && g_in_roam && ok(cam, 0x60) && me && hud_on_top(pkg) && !rd32(0x00838974u /* a dialog up */)
+             && g_mp.st != MP_TRIP && !coop_player();
+    if (!on){ if (g_ring_drawn) ring_hide(c); return; }
+    ring_circle();
+    /* the nearest multiplayer-only spots */
+    float mx = MRF32(me + 0x60u), my = MRF32(me + 0x64u);
+    int pick[RING_N], np = 0; float pd[RING_N];
+    for (int i = 0; i < g_spot.n; i++){
+        const MpSpot *sp = &g_spot.s[i];
+        if (sp->kind != MPS_ONLY) continue;
+        float x = (sp->box[0] + sp->box[2]) / 2, y = (sp->box[1] + sp->box[3]) / 2, dx = x - mx, dy = y - my, d2 = dx * dx + dy * dy;
+        if (d2 > RING_SEE_M * RING_SEE_M) continue;
+        int j = np < RING_N ? np++ : RING_N;
+        if (j == RING_N){ if (d2 >= pd[RING_N - 1]) continue; j = RING_N - 1; }
+        for (; j > 0 && pd[j - 1] > d2; j--){ pick[j] = pick[j - 1]; pd[j] = pd[j - 1]; }
+        pick[j] = i; pd[j] = d2;
+    }
+    float E[3], F[3];
+    view_eye(cam, E, F);
+    float w = (float)(int32_t)MR32(G_VIEW_W), h = (float)(int32_t)MR32(G_VIEW_H);
+    int drawn = 0;
+    for (int q = 0; q < RING_N; q++){
+        int base = FL_RING + q * RING_SEG;
+        if (q >= np || !(w > 0.f) || !(h > 0.f)){ for (int k = 0; k < RING_SEG; k++) flag_hide(c, base + k); continue; }
+        const MpSpot *sp = &g_spot.s[pick[q]];
+        float cx = (sp->box[0] + sp->box[2]) / 2, cy = (sp->box[1] + sp->box[3]) / 2;
+        float bw = sp->box[2] - sp->box[0], bh = sp->box[3] - sp->box[1], r = (bw < bh ? bw : bh) * 0.5f;
+        if (!(r >= RING_R_MIN)) r = RING_R_MIN;
+        if (r > RING_R_MAX) r = RING_R_MAX;
+        float z = MRF32(sp->trig + 0x14u);
+        if (!(__builtin_isfinite(z) && z > -500.f && z < 2000.f)) z = race_z(sp->race);
+        z += RING_LIFT_M;
+        int gold = ring_lobby(sp, cx, cy);
+        float d = rc_sqrtf(pd[q]);
+        float fa = d <= RING_FULL_M ? 1.f : 1.f - (d - RING_FULL_M) / (RING_SEE_M - RING_FULL_M);
+        if (gold){                                                 /* a slow pulse: 0.7 .. 1 over 1.2 s (a triangle) */
+            float ph = (float)(host % 1200000) / 600000.f;           /* 0 .. 2 */
+            fa *= 0.7f + 0.3f * (ph < 1.f ? ph : 2.f - ph);
+        }
+        uint8_t al = (uint8_t)(fa * (gold ? 235.f : 200.f));
+        uint32_t rgb = gold ? RING_RGB_LOBBY : RING_RGB_FREE;
+        {   static uint32_t said_race[RING_N]; static uint8_t said_gold[RING_N];
+            if (said_race[q] != sp->race || said_gold[q] != (uint8_t)gold){
+                char nm[32]; race_name(sp->race, nm, sizeof nm);
+                rlog("[roam] f=%ld race ring %d: %s at %.0f %.0f z %.1f, radius %.1f m, %.0f m away, %s\n", rh_frame(), q + 1, nm,
+                     (double)cx, (double)cy, (double)z, (double)r, (double)d, gold ? "gold (a lobby open)" : "blue (nobody hosting)");
+                said_race[q] = sp->race; said_gold[q] = (uint8_t)gold;
+            }
+        }
+        /* the circle's points on the screen (ok: in front of the eye and the view) */
+        float P[RING_SEG + 1][3]; uint8_t okp[RING_SEG + 1];
+        for (int k = 0; k <= RING_SEG; k++){
+            if (k == RING_SEG){ memcpy(P[k], P[0], sizeof P[k]); okp[k] = okp[0]; break; }
+            float px = cx + r * g_ring_cs[k][0], py = cy + r * g_ring_cs[k][1];
+            float v[3] = { px - E[0], py - E[1], z - E[2] };
+            okp[k] = 0;
+            if (v[0] * F[0] + v[1] * F[1] + v[2] * F[2] < 0.5f) continue;
+            uint32_t in = gvec(g_gmem + TAG_SCR, px, py, z), out = g_gmem + TAG_SCR + 0x10u, av[2] = { out, in };
+            rh_call(c, FN_VIEW_SCREEN, G_VIEW1, 0, 2, av);
+            float sx = MRF32(out), sy = MRF32(out + 4u), sz = MRF32(out + 8u);
+            if (!(sz > 0.f) || !(sx > -w) || !(sx < 2.f * w) || !(sy > -h) || !(sy < 2.f * h)) continue;
+            P[k][0] = sx / w * 640.f; P[k][1] = sy / h * 480.f; P[k][2] = sz;
+            rh_hud_marker(&P[k][0], &P[k][1]);
+            okp[k] = 1;
+        }
+        /* thickness: about 0.35 m as the view shows it at the ring's distance from the eye */
+        float ex = cx - E[0], ey = cy - E[1], ez = z - E[2], de = rc_sqrtf(ex * ex + ey * ey + ez * ez);
+        float th = de > 0.1f ? 200.f / de : 8.f;
+        if (th < 1.5f) th = 1.5f;
+        if (th > 8.f) th = 8.f;
+        for (int k = 0; k < RING_SEG; k++){
+            if (!okp[k] || !okp[k + 1]){ flag_hide(c, base + k); continue; }
+            float sz = (P[k][2] + P[k + 1][2]) * 0.5f;
+            if (sz >= 0.9999f) sz = 0.9999f;
+            ring_seg(c, pkg, base + k, P[k], P[k + 1], th, rgb, al, sz);
+            drawn = 1;
+        }
+    }
+    g_ring_drawn = drawn || g_ring_drawn;
+}
+#endif
+
 /* ---- multiplayer races from free roam: lobbies on the world map ------------------------------- */
 /* A lobby gets the game's own icon of its race's type on the world map (M):
  * a marker on the map's list (WorldMap +4, as wm_mark adds the cars') of the
@@ -8978,6 +9146,7 @@ static void init_once(CPU *c){
 #endif
     O.labels = env_int("NFSU2_ROAM_LABELS", 1, 0, 1);
     O.flags_shown = env_int("NFSU2_ROAM_SHOW_FLAGS", 1, 0, 1);   /* the flags before the names drawn here (1) or not */
+    O.rings = env_int("NFSU2_ROAM_RACE_RINGS", 1, 0, 1);         /* rings on the ground at multiplayer-only race spots */
     O.spawn_m = env_int("NFSU2_ROAM_SPAWN_M", SPAWN_M, 0, 1000);
     O.hit_share = env_int("NFSU2_ROAM_HIT_SHARE", -1, -1, 100);
     O.test_mass = env_int("NFSU2_ROAM_TEST_MASS", 0, 0, 20000);
@@ -10487,6 +10656,9 @@ void roam_game_hud(CPU *c){
 #endif
 #if MPRACES
     if (g_mp_on) mp_labels(c);
+#if FLAGS
+    mp_rings(c, roam_plat_now_us());
+#endif
 #endif
     g_cost_hud += rh_ns() - t0;
 }

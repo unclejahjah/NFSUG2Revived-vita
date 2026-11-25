@@ -94,6 +94,9 @@ const struct { const char *name, *key, *def; } Opts[] = {
     // the cfg's quick_chat_button says which buttons they are (controls::quickChatSlots)
     // multiplayer races from free roam (roam_game.c mp_*): lobbies at the race markers, joined with the race's button
     { "NFSU2_ROAM_MPRACES",     "Races",       "1" },
+    // a ring on the ground at each race spot with no marker of the game's (won, or not open in the career): blue, gold
+    // while a lobby is open there
+    { "NFSU2_ROAM_RACE_RINGS",  "RaceRings",   "1" },
     { "NFSU2_ROAM_SAY",         "QuickChat",   "1" },
     { "NFSU2_ROAM_SAY1",        "Say1",        "0"  },   // Hey!
     { "NFSU2_ROAM_SAY2",        "Say2",        "2"  },   // Thanks!
