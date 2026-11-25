@@ -8238,6 +8238,38 @@ static void mp_rings(CPU *c, int64_t host){
 }
 #endif
 
+/* ---- multiplayer races from free roam: the game's own prompt at a multiplayer-only spot -------- */
+/* At a career race's marker the game puts its race type's icon in the
+ * HUD's icon box on the left (Player 0x5EAFB0 -> HUD 0x4CA020: the icon
+ * list's show, 0x4C9170, of 0x4ABF70's icon for the race), as the outrun's
+ * (icon 9, FN_HUD_OUTRUN); it takes it off on the way out (0x4DB820 ->
+ * 0x4DAB80).  At a multiplayer-only spot (a ring's) the same icon is put up
+ * while the player is in the spot's box, idle (no lobby of ours: the lobby's
+ * panel says what Enter does then), and taken off when they leave it */
+#define FN_ICON_SHOW    0x004c9170u   /* thiscall icons (HUD +0x58) (icon, 0), callee pops */
+#define FN_ICON_HIDE    0x004dab80u   /* thiscall icons (icon), callee pops */
+#define FN_RACE_ICON    0x004abf70u   /* thiscall race () -> its icon: 1-5 by type, 7 URL, 8 SUV */
+static struct { uint32_t hud, race, icon; } g_mpi;
+static void mp_prompt(CPU *c){
+    uint32_t pl = rd32(G_PLAYER1), hud = pl && ok(pl, PL_HUD + 4u) ? rd32(pl + PL_HUD) : 0;
+    uint32_t pkg = hud && ok(hud, 0x14) ? rd32(hud + 0x10u) : 0, il = hud && ok(hud, 0x5c) ? rd32(hud + 0x58u) : 0;
+    if (hud != g_mpi.hud){ g_mpi.hud = hud; g_mpi.race = 0; g_mpi.icon = 0; }     /* a new HUD: nothing of ours on it */
+    if (!hud || !ok(il, 0x60u + 8u * 0x14u)) return;
+    const MpSpot *sp = g_mp_on && g_in_roam && ok(pkg, 0x20) && g_mp.st == MP_IDLE && !rd32(pl + PL_MARKER) ? mp_spot_here() : 0;
+    uint32_t race = sp && sp->kind == MPS_ONLY && ok(sp->race, RACE_SZ) ? sp->race : 0;
+    if (race == g_mpi.race) return;
+    if (g_mpi.icon){ gcall1(c, FN_ICON_HIDE, il, g_mpi.icon); g_mpi.icon = 0; }
+    g_mpi.race = race;
+    if (!race) return;
+    uint32_t icon = gcall0(c, FN_RACE_ICON, race) & 0xffu;
+    if (icon < 1u || icon > 8u) return;
+    uint32_t a[2] = { icon, 0 };
+    rh_call(c, FN_ICON_SHOW, il, 0, 2, a);
+    g_mpi.icon = icon;
+    char nm[32]; race_name(race, nm, sizeof nm);
+    rlog("[roam] f=%ld race prompt: the game's icon %u for %s (multiplayer only) in the left box\n", rh_frame(), icon, nm);
+}
+
 /* ---- multiplayer races from free roam: lobbies on the world map ------------------------------- */
 /* A lobby gets the game's own icon of its race's type on the world map (M):
  * a marker on the map's list (WorldMap +4, as wm_mark adds the cars') of the
@@ -10822,6 +10854,7 @@ void roam_game_hud(CPU *c){
 #if FLAGS
     mp_rings(c, roam_plat_now_us());
 #endif
+    mp_prompt(c);
 #endif
     g_cost_hud += rh_ns() - t0;
 }
