@@ -5884,7 +5884,10 @@ static void ui_text(CPU *c, int k, uint32_t pkg, const char *tx, uint32_t rgb, f
     if (!g_tag.shown[k]) gcall1(c, FN_FE_SHOW, 0, obj);
     g_tag.shown[k] = 1;
 }
-/* a line that says "press Enter to <do>": the glyph for it (Cross) and the line as "<Do>", or "<Do> - <the rest>"
+/* a line that says "press Enter to <do>": the glyph for it and the line as "<Do>", or "<Do> - <the rest>".  Enter in
+ * free roam is the game's Engage (ACT_ENGAGE), which the Vita's pad has on the D-pad's Up (pad_defaults.cpp) */
+#define UI_ENGAGE_GL    GL_UP
+/* (as above:)
  * when something comes before it; -1 and the line as it is when it says no button */
 static int ui_prompt(const char *in, char *out, int n){
     const char *p = strstr(in, "ress Enter to ");
@@ -5895,7 +5898,7 @@ static int ui_prompt(const char *in, char *out, int n){
     int k = snprintf(out, (size_t)n, "%s", rest);
     if (k > 0 && out[0] >= 'a' && out[0] <= 'z') out[0] = (char)(out[0] - 32);
     if (pre_end > in && k < n) snprintf(out + k, (size_t)(n - k), " - %.*s", (int)(pre_end - in), in);
-    return GL_CROSS;
+    return UI_ENGAGE_GL;
 }
 #if SAYS && defined(ROAM_SAY_TAGS)
 /* Quick chat's choices while its button is held (the Vita: roam_host_chat_menu): a panel on the right of the screen
@@ -5940,6 +5943,33 @@ static int qc_panel(CPU *c, uint32_t pkg){
 }
 int roam_game_chat_panel_drawn(void){ return g_qc_drawn; }
 #endif
+/* The HUD's own key icon for Engage: the PC's HUD shows GlobalB's PC_ENTER_ICON by the D-pad widget when a race, shop
+ * or outrun can be engaged; ps_glyphs.py makes that picture Cross (the menus' Enter), but Engage is the D-pad's Up on
+ * the Vita, so the HUD's copies of it get VITA_GLYPH_UP.  Looked for when the HUD is new and every 30 frames after (an
+ * object the HUD makes later) */
+#define PC_ENTER_ICON   0x7f8282d7u
+static uint32_t g_hk_hud; static long g_hk_frame; static int g_hk_said;
+static int hk_walk(CPU *c, uint32_t first, uint32_t to, int depth){
+    int n = 0, k = 0;
+    for (uint32_t o = rd32(first); ok(o, 0x5c) && k < FE_WALK; o = rd32(o + 4u), k++){
+        uint32_t t = rd32(o + 0x18u);
+        if (t == 5u){ if (depth < 8) n += hk_walk(c, o + 0x64u, to, depth + 1); continue; }
+        if (t != 1u || gcall1(c, FN_FE_TEX, 0, o) != PC_ENTER_ICON) continue;
+        uint32_t av[2] = { o, to }; rh_call(c, FN_FE_SETTEX, 0, 0, 2, av);
+        n++;
+    }
+    return n;
+}
+static void hud_key_glyphs(CPU *c, uint32_t hud, uint32_t pkg){
+    long f = rh_frame();
+    if (hud == g_hk_hud && f - g_hk_frame < 30 && f >= g_hk_frame) return;
+    g_hk_hud = hud; g_hk_frame = f;
+    if (!ui_glyph_ok(c, UI_ENGAGE_GL)) return;
+    uint32_t pk = gcall1(c, FN_FE_PACKAGE, 0, pkg);
+    if (!ok(pk, 0x54)) return;
+    int n = hk_walk(c, pk + 0x4cu, bhash(GL_NAMES[UI_ENGAGE_GL]), 0);
+    if (n && g_hk_said < 8){ g_hk_said++; rlog("[roam] f=%ld ui: the HUD's Enter key icon (%d) shows the D-pad's Up\n", f, n); }
+}
 /* the line of text, top centre, after the HUD's update (roam_game_hud) */
 #if MPRACES
 static int mp_line(int64_t host, char *tx, int n);
@@ -5954,6 +5984,7 @@ static void du_hud(CPU *c, int64_t host){
     uint32_t pl = rd32(G_PLAYER1), hud = pl && ok(pl, PL_HUD + 4u) ? rd32(pl + PL_HUD) : 0;
     uint32_t pkg = hud && ok(hud, 0x14) ? rd32(hud + 0x10u) : 0;
     if (!hud || hud != g_tag.hud || !ok(pkg, 0x20) || !g_gmem) return;
+    hud_key_glyphs(c, hud, pkg);
     char tx[TAG_DUEL_MAX] = {0};
 #if MPRACES
     if (g_in_roam && hud_on_top(pkg) && !rd32(0x00838974u /* a dialog up */)) g_mp_hud_at = host;
@@ -7514,9 +7545,9 @@ static int lb_panel(CPU *c, uint32_t pkg, int64_t host){
     if (tb[0]){ ui_text(c, TAG_LB0 + 16, pkg, tb, 0xa9c3d8u, LB_X + 10.f, fy - 2.f, 0.62f, 0); fy += 12.f; } else tag_hide(c, TAG_LB0 + 16);
     if (btn[0]){
         float bx = LB_X + LB_W - 12.f - tag_width(btn) * 0.8f;
-        if (ui_glyph(c, FL_LB + 21, pkg, GL_CROSS, bx - 11.f, fy + 6.f, 14.f))
+        if (ui_glyph(c, FL_LB + 21, pkg, UI_ENGAGE_GL, bx - 11.f, fy + 6.f, 14.f))
             ui_text(c, TAG_LB0 + 17, pkg, btn, 0xffffffu, bx, fy + 6.f, 0.8f, 0);
-        else { char t[48]; snprintf(t, sizeof t, "X  %s", btn); ui_text(c, TAG_LB0 + 17, pkg, t, 0xffffffu, LB_X + LB_W - 12.f, fy + 6.f, 0.8f, 2); }
+        else { char t[48]; snprintf(t, sizeof t, "%s  %s", GL_SAY[UI_ENGAGE_GL], btn); ui_text(c, TAG_LB0 + 17, pkg, t, 0xffffffu, LB_X + LB_W - 12.f, fy + 6.f, 0.8f, 2); }
     }
     else { tag_hide(c, TAG_LB0 + 17); ui_hide_imgs(c, FL_LB + 21, 1); }
     if (!g_lb_drawn) rlog("[roam] f=%ld race lobby %08x: its panel shows (%d of %d players)\n", rh_frame(), l->id, l->n, l->max);
