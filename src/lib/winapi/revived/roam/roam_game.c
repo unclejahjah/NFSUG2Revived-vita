@@ -469,6 +469,7 @@ typedef struct {
     uint32_t ride_new, ride_orig, rec;        /* guest buffers */
     uint32_t h_cur, h_new;                    /* CarLoader handles (on the car / loading) */
     int      want_load;                       /* its ride built, the loader asked the next frame (load_ask) */
+    int      want_begin;                      /* a car of our own just made: its friend's ride built the next frame */
     uint16_t want_parts, want_skin;           /* ...for its log line */
     uint32_t h_orig;                          /* a car of our own: its first ride (an opponent's copy) */
     int      have_orig, activated;
@@ -1650,7 +1651,7 @@ static void release(CPU *c, int k, const char *why){
     else rlog("[roam] f=%ld slot %d: %s's car removed (%s)\n", rh_frame(), k, s->name, why);
     g_releases++;
     if (s->h_new){ unload_later(s->h_new); s->h_new = 0; s->pending_cfg = 0; }
-    s->want_load = 0;
+    s->want_load = 0; s->want_begin = 0;
     /* not made yet: forget it.  A car made whose first look cannot load now
      * (begin_load right after finish_create: a friend's shop parts waiting
      * for part_packs) goes on below: it stays ours, parked on its first ride
@@ -9133,7 +9134,11 @@ static void init_once(CPU *c){
  * another, each a block from the server, leave a slow line mostly idle, and 4 at once got 90 % of a meet's cars in
  * the first time on 20 Mbit/s with an empty cache after 28 s, not 34; with the data in, 4 at once made a meet of 31
  * car types slower to show (each load 2 to 3 times as long): 2 then, and always on a phone or a tablet) */
+#ifdef ROAM_LOADS_AHEAD
+#define LOADS_AHEAD     ROAM_LOADS_AHEAD   /* (the Vita: one, so the streamer waits for one car's reads at the most) */
+#else
 #define LOADS_AHEAD     (O.max_cars >= 32 && __builtin_popcount(g_slow_loads) >= 2 ? 4 : 2)
+#endif
 #define STREAM_HOLD_US  5000000
 static struct { int64_t t0, us, max; int n, gone; } g_shold;    /* cars held for the streamer: since, in all, the longest, times, let go */
 static int loads_in_loader(CPU *c){
@@ -9159,7 +9164,20 @@ static int load_may_start(CPU *c){
     if (rd32(G_TRACKSTREAMER + 0x168u)){
         if (!g_shold.t0){ g_shold.t0 = now; g_shold.n++; }
         if (now - g_shold.t0 < STREAM_HOLD_US) return 0;
+#ifdef ROAM_STREAM_REARM
+        /* one car's step goes, and only with the loader empty; then the hold starts again: a streamer that stays busy
+         * (driving on across the city) let every car waiting go at once after 5 s before, each car's reads queued
+         * with the sections' and the world stopped for them (the Vita, 2026-11-23: one frame of 3.3 s as a friend's
+         * car came in while STREAML4RA.BUN streamed) */
+        if (loads_in_loader(c)) return 0;
         g_shold.gone++;
+        stream_hold_end(now);
+        g_shold.t0 = now; g_shold.n++;
+        rlog("[roam] f=%ld the city's sections still loading after %.0f s: one friend's car step goes\n", rh_frame(), STREAM_HOLD_US / 1e6);
+        return 1;
+#else
+        g_shold.gone++;
+#endif
     }
     stream_hold_end(now);
     return loads_in_loader(c) < LOADS_AHEAD;
@@ -9306,7 +9324,7 @@ static void load_service(CPU *c){
 
 static int loads_waiting(void){
     int n = 0;
-    for (int k = 0; k < NSLOT; k++) n += (g_sl[k].st == SL_CREATING) + (g_sl[k].h_new != 0 || g_sl[k].want_load);
+    for (int k = 0; k < NSLOT; k++) n += (g_sl[k].st == SL_CREATING) + (g_sl[k].h_new != 0 || g_sl[k].want_load || g_sl[k].want_begin);
     return n;
 }
 /* What costs a frame time: a car of our own made (its paint textures, its
@@ -10309,9 +10327,22 @@ void roam_game_frame(CPU *c){
                 if (r > 0) g_heavy++;
                 if (r < 0){ release(c, k, "could not create a car"); continue; }
                 if (r > 0){
+#ifdef ROAM_SPREAD_CREATE
+                    /* the friend's ride is built the next frame: CreateCar and building the ride in one frame were
+                     * one long stall a car of our own (the Vita, 2026-11-23) */
+                    s->st = SL_LOADING; s->want_begin = 1;
+#else
                     if (v->cfg_len > 0 && begin_load(c, k, v->cfg, v->cfg_len, v->cfg_gen)) s->st = SL_LOADING;
                     else release(c, k, "the car could not be loaded now");
+#endif
                 }
+                continue;
+            }
+            if (s->st == SL_LOADING && s->want_begin){
+                if (g_heavy >= HEAVY_PER_FRAME || !load_may_start(c)) continue;
+                s->want_begin = 0;
+                if (v->cfg_len > 0 && begin_load(c, k, v->cfg, v->cfg_len, v->cfg_gen)) g_heavy++;
+                else release(c, k, "the car could not be loaded now");
                 continue;
             }
             if (s->st == SL_LOADING){
