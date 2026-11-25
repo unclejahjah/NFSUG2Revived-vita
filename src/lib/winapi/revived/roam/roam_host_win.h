@@ -52,6 +52,21 @@ uint64_t    roam_win_ns(void);
 #define rh_hud_marker(x, y) ((void)(x), (void)(y))   /* the HUD as the game shows it */
 #define RH_FE_NODES      512             /* the game's own level sorter (0x536520's 0x1000 bytes): nothing patched here */
 #define rh_ns()          roam_win_ns()
+#ifdef ROAM_VITA_SOUNDS
+/* the Vita port: horns (horn.c, horn_button) and friends' engines, nitrous and hydraulics (carsfx.c, the game's own
+ * samples), both mixed over the game's sound by src/lib/audio.cpp (roam_vita_audio_mix) */
+#include "horn.h"
+#include "carsfx.h"
+#define rh_horn_held(stick) horn_held(stick)
+#define rh_horn_mine()   horn_mine()
+#define rh_horn_name(k)  horn_name(k)
+#define rh_horn_begin(pos, fwd, vel)   horn_begin((pos), (fwd), (vel))
+#define rh_horn_sound(who, name, kind, p, v) horn_sound((who), (name), (kind), (p), (v))
+#define rh_horn_end()    horn_end()
+#define rh_carsfx_begin(pos, fwd, vel)    carsfx_begin((pos), (fwd), (vel))
+#define rh_carsfx_car(who, name, p, v, st) carsfx_car((who), (name), (p), (v), (st))
+#define rh_carsfx_end()  carsfx_end()
+#else
 /* no horn here: the companion neither sounds one nor plays friends', nor
  * their nitrous and hydraulics (carsfx.c) */
 #define rh_horn_held(stick) ((void)(stick), 0)
@@ -63,6 +78,7 @@ uint64_t    roam_win_ns(void);
 #define rh_carsfx_begin(pos, fwd, vel)    ((void)(pos), (void)(fwd), (void)(vel))
 #define rh_carsfx_car(who, name, p, v, st) ((void)(who), (void)(name), (void)(p), (void)(v), (void)(st))
 #define rh_carsfx_end()  ((void)0)
+#endif
 /* no show-off here: the companion opens no parts and shows friends' cars closed (showoff.c needs the port's
  * overrides of the cars' drawing) */
 #define rh_showoff_mine() ((uint8_t)0)

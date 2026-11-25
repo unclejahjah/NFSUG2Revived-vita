@@ -12,6 +12,10 @@
 #include <cstring>
 #include <string>
 
+// free roam's sounds (src/lib/winapi/revived/roam/roam_vita.cpp): added to each block of the mix; weak, for builds
+// without free roam
+extern "C" void roam_vita_audio_mix(int32_t* acc, unsigned frames, unsigned rate) __attribute__((weak));
+
 namespace win32
 {
 
@@ -315,6 +319,9 @@ void AudioDevice::run()
                     it = m_playingBuffers.erase(it);
             }
         }
+        // free roam's horns and the other players' engines, nitrous and hydraulics over the game's sound
+        if (roam_vita_audio_mix)
+            roam_vita_audio_mix(reinterpret_cast<int32_t*>(m_accumulator), m_grain, m_rate);
         for (x86::reg32 i = 0; i < samples; ++i)
         {
             x86::sreg32 v = m_accumulator[i];

@@ -13,6 +13,11 @@
 #include <lib/guestmodule.h>
 #include <lib/file.h>
 #include <lib/controls.h>
+extern "C"
+{
+#include "horn.h"     // (C headers of nfsu2-web's, without their own extern "C")
+#include "carsfx.h"
+}
 #include <lib/gamepad.h>
 #include <platform/time.h>
 #include <lib/winapp.h>
@@ -97,6 +102,10 @@ const struct { const char *name, *key, *def; } Opts[] = {
     { "NFSU2_ROAM_DUELS",       "Outruns",     "1" },
     { "NFSU2_ROAM_MPRACES",     "Races",       "1" },
     { "NFSU2_ROAM_SAY",         "QuickChat",   "1" },
+    // horns between players: yours (dual, single, truck, train, klaxon, cucaracha, clown, trombone, sputter; off: none,
+    // the others' still heard), and the other players' engines, nitrous and hydraulics heard from their cars
+    { "NFSU2_ROAM_HORN",        "Horn",        "dual" },
+    { "NFSU2_ROAM_CARSFX",      "CarSounds",   "1" },
     // the lines nfsu2.xyz shows over the game (a player joined free roam, left, went into a race): the HUD's top line
     { "NFSU2_ROAM_NOTICES",     "Messages",    "1" },
     { "NFSU2_ROAM_SAY1",        "Say1",        "0"  },   // Hey!
@@ -673,6 +682,64 @@ int roam_win_committed(uint32_t a)
     return a >= 0x10000 && win32::MemMap::isGuestRange(a, 1);
 }
 
+// ---- sounds: horns between players (horn.c) and friends' engines, nitrous and hydraulics (carsfx.c) ----------------
+// free roam has started here (its first frame read the .ini and found it on): only then is there anything to mix
+static volatile int s_soundsLive = 0;
+
+// the horn: horn_button held in free roam proper (controls.cpp), Horn not off
+int roam_host_horn_held(void)
+{
+    // (asked each frame free roam's world runs, and only then: the button is the horn's while it is)
+    const char* kind = roam_opt("NFSU2_ROAM_HORN");
+    if (kind && !strcasecmp(kind, "off"))
+        return 0;
+    win32::controls::setHornLive(pf::ticksUs());
+    return win32::controls::hornHeld() ? 1 : 0;
+}
+
+// the game's Master Volume (its Audio options: G_VOLUMES +0, a float 0 .. 1), which every horn follows
+float horn_game_master(void)
+{
+    const uint32_t a = 0x0083aa28u;
+    if (!nfsu2_guest_base || !roam_win_committed(a) || !roam_win_committed(a + 3u))
+        return 1.0f;
+    float v;
+    memcpy(&v, nfsu2_guest_base + a, sizeof(v));
+    return v >= 0.0f && v <= 1.0f ? v : 1.0f;
+}
+
+// a game file by its Windows path in the game's folder ("SOUND\\ENGINE\\X.GIN"); the Vita's card is not case sensitive
+int roam_vita_game_path(const char* win, char* out, size_t outsz)
+{
+    const int n = snprintf(out, outsz, "%s/%s", GameFolder, win ? win : "");
+    if (n <= 0 || size_t(n) >= outsz)
+        return 0;
+    for (char* c = out; *c; ++c)
+        if (*c == '\\')
+            *c = '/';
+    return 1;
+}
+
+// src/lib/audio.cpp, on the output thread: the horns and friends' car sounds added to each block of the mix
+// (interleaved stereo at 16-bit scale), as nfsu2-web's mixers add them (audio_web.c)
+void roam_vita_audio_mix(int32_t* acc, unsigned frames, unsigned rate)
+{
+    if (!s_soundsLive || !acc || !frames || !rate)
+        return;
+    static float mix[2 * 1024];
+    while (frames)
+    {
+        const unsigned n = frames < 1024 ? frames : 1024;
+        memset(mix, 0, 2 * n * sizeof(mix[0]));
+        horn_mix(mix, n, rate);
+        carsfx_mix(mix, n, rate);
+        for (unsigned i = 0; i < 2 * n; ++i)
+            acc[i] += int32_t(mix[i] * 32767.0f);
+        acc += 2 * n;
+        frames -= n;
+    }
+}
+
 // A game function with ecx, edx and n stack arguments, as frontend.cpp's callGuest: the CPU is restored afterwards.
 uint32_t roam_win_call(uint32_t fn, uint32_t ecx, uint32_t edx, int n, const uint32_t* args)
 {
@@ -782,6 +849,7 @@ void frame(win32::WinApplication* app, x86::CPU& cpu)
         if (!nfsu2_guest_base)
             nfsu2_guest_base = win32::g_guestBase;
         revived_link_ensure();
+        s_soundsLive = 1;   // horns and friends' car sounds from here on (roam_vita_audio_mix)
         // the names over the cars also need the game's own player-names option (0x8500C9, roam_game.c G_SHOW_NAMES)
         if (optOn(roam_opt("NFSU2_ROAM_LABELS")))
             rc::st8(0x008500C9, 1);

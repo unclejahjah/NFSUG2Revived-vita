@@ -178,6 +178,36 @@ int quickChatButton()
     return s_button.load(std::memory_order_relaxed);
 }
 
+// horn_button: rear_l3 (the default: the rear touch pad's lower left, none of the game's controls until bound),
+// rear_r3, dpad_left, dpad_right or off
+static int hornButton()
+{
+    static std::atomic<unsigned> s_generation{~0u};
+    static std::atomic<int> s_button{RearL3};
+    const unsigned generation = pf::Config::generation();
+    if (s_generation.load(std::memory_order_acquire) != generation)
+    {
+        static const char* const Names[] = { "rear_l3", "rear_r3", "dpad_left", "dpad_right", "off" };
+        static const int Buttons[] = { RearL3, RearR3, DpadLeft, DpadRight, -1 };
+        s_button.store(Buttons[pf::Config::getChoice("horn_button", Names, 5, 0)], std::memory_order_relaxed);
+        s_generation.store(generation, std::memory_order_release);
+    }
+    return s_button.load(std::memory_order_relaxed);
+}
+
+static std::atomic<bool> s_hornHeld{false};
+static std::atomic<uint64_t> s_hornLiveUs{0};
+
+void setHornLive(uint64_t nowUs)
+{
+    s_hornLiveUs.store(nowUs, std::memory_order_relaxed);
+}
+
+bool hornHeld()
+{
+    return s_hornHeld.load(std::memory_order_relaxed);
+}
+
 void quickChatSlots(Input slots[7])
 {
     const int button = quickChatButton();
@@ -649,7 +679,13 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
         s_chatHeldSince.store(0, std::memory_order_relaxed);
     else if (!s_chatHeldSince.load(std::memory_order_relaxed))
         s_chatHeldSince.store(nowUs ? nowUs : 1, std::memory_order_relaxed);
-    const uint32_t normal = (inputs & ~m_chorded & ~chatHidden & ~m_chatSwallow) | chatPulse;
+    // the horn: its button held in free roam proper (not while quick chat's is: Left and Right pick phrases then)
+    const uint64_t hornAt = s_hornLiveUs.load(std::memory_order_relaxed);
+    const int hornBtn = hornAt && nowUs - hornAt < 250000 && !chatHeld ? hornButton() : -1;
+    const bool horn = hornBtn >= 0 && hornBtn != chatButton && (inputs & bit(Input(hornBtn))) && !(m_chorded & bit(Input(hornBtn)));
+    s_hornHeld.store(horn, std::memory_order_relaxed);
+    const uint32_t hornHidden = horn ? bit(Input(hornBtn)) : 0;
+    const uint32_t normal = (inputs & ~m_chorded & ~chatHidden & ~m_chatSwallow & ~hornHidden) | chatPulse;
     // steering=digital: the left stick is left, centre or right, and its X axis ramps to full lock and back as a
     // keyboard's steering does (the D-pad is not involved).
     const bool digital = digitalSteering();

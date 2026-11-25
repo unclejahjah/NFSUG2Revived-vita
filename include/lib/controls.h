@@ -169,6 +169,11 @@ void setCameraStickLive(uint64_t nowUs);
 void quickChatSlots(Input slots[7]);
 // Since when the quick chat button has been held in free roam (pf::ticksUs), 0 when it is not held now.
 uint64_t quickChatHeldSince();
+// Free roam's horn (horn_button: rear_l3 by default, rear_r3, dpad_left, dpad_right or off): held now, while free
+// roam's world runs (it is taken from the game only then, and not while quick chat's button is held).
+bool hornHeld();
+// Free roam's world runs (driving, not paused) says so each frame, with pf::ticksUs(): only then is the horn taken.
+void setHornLive(uint64_t nowUs);
 
 // Radial dead zone and response curve of one stick (x, y in -1..1). deadZone and saturation are DirectInput
 // property values (0..10000 of full deflection); the larger dead zone and the smaller saturation of these and the

@@ -148,6 +148,15 @@ const Option Flags[] = { { "", "None" }, { "gb", "United Kingdom" }, { "gb-eng",
                          { "jp", "Japan" }, { "kr", "South Korea" }, { "cn", "China" }, { "in", "India" },
                          { "ph", "Philippines" }, { "id", "Indonesia" }, { "za", "South Africa" } };
 
+// Your horn in free roam (nfsu2.xyz's synthesised ones, src/lib/winapi/revived/roam/horn.c); off: none of yours
+const Option Horns[] = { { "dual", "Dual tone" }, { "single", "Single tone" }, { "truck", "Truck air horn" },
+                         { "train", "Train horn" }, { "klaxon", "Klaxon" }, { "cucaracha", "La Cucaracha" },
+                         { "clown", "Clown horn" }, { "trombone", "Sad trombone" }, { "sputter", "Dying horn" },
+                         { "off", "Off" } };
+
+const Option HornButtons[] = { { "rear_l3", "Rear touch, lower left" }, { "rear_r3", "Rear touch, lower right" },
+                               { "dpad_left", "D-pad Left" }, { "dpad_right", "D-pad Right" }, { "off", "Off" } };
+
 const Option ChatButtons[] = { { "dpad_down", "Hold D-pad Down" }, { "dpad_up", "Hold D-pad Up" },
                                { "triangle", "Hold Triangle" }, { "select", "Select chords" } };
 
@@ -203,6 +212,12 @@ const Item FreeRoam[] = {
       "A world of your own by its name: only the players who type the same name see each other." },
     { "Ghost mode", Ini, "Collide", Choice, OPTIONS(Collide), "0", 0, nullptr,
       "Ghost cars: drive through other players. Solid cars: they can shove yours. Ghost everything: traffic too." },
+    { "Horn", Ini, "Horn", Choice, OPTIONS(Horns), "dual", 0, nullptr,
+      "Your horn in free roam: the players near you hear it from your car. Off: you have none, theirs still sound." },
+    { "Horn button", Cfg, "horn_button", Choice, OPTIONS(HornButtons), "rear_l3", 0, nullptr,
+      "Hold it to honk in free roam. In free roam it is the horn's only, not the game's." },
+    { "Other players' car sounds", Ini, "CarSounds", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "Hear the other players' engines, nitrous and hydraulics from their cars, with the game's own sounds." },
     { "Outruns with players", Ini, "Outruns", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "Stay close to another player for a few seconds and the outrun icon comes up: Engage challenges them to the "
       "game's own outrun. Off: nobody can challenge you, and you challenge nobody." },
@@ -369,6 +384,11 @@ const char IniTemplate[] =
     "\n"
     "; 1 = friends' cars are solid; 0 = ghost cars you drive through; none = traffic is a ghost too\n"
     "Collide = 0\n"
+    "\n"
+    "; your horn (dual, single, truck, train, klaxon, cucaracha, clown, trombone, sputter or off; the cfg's\n"
+    "; horn_button honks), and the other players' engines, nitrous and hydraulics heard (1) or not (0)\n"
+    "Horn = dual\n"
+    "CarSounds = 1\n"
     "\n"
     "; outruns with other players: stay near one and press Engage to challenge them (1 on, 0 off)\n"
     "Outruns = 1\n"
