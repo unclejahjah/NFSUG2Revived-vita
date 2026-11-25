@@ -5772,8 +5772,15 @@ __attribute__((unused)) static int ui_glyph_of(const char *key){
  * u1,v1, colour rgb (0xRRGGBB) at strength a */
 static void ui_img(CPU *c, int k, uint32_t pkg, uint32_t tex, float x0, float y0, float x1, float y1,
                    float u0, float v0, float u1, float v1, uint32_t rgb, uint8_t a, float z){
+    if (!(x1 - x0 > 0.05f) || !(y1 - y0 > 0.05f)){ flag_hide(c, k); return; }   /* (a piece with no room: hidden, not left where it was) */
     uint32_t o = flag_obj(c, k, pkg), d = o ? rd32(o + 0x2cu) : 0;
     if (!o || !ok(d, 0x54)) return;
+    /* no pivot and no turn, whatever had them (a ring's segments turn theirs) */
+    if (MRF32(d + 0x10u) != 0.f || MRF32(d + 0x14u) != 0.f || MRF32(d + 0x28u) != 0.f || MRF32(d + 0x2cu) != 0.f || MRF32(d + 0x30u) != 0.f || MRF32(d + 0x34u) != 1.f){
+        MRF32(d + 0x10u) = 0.f; MRF32(d + 0x14u) = 0.f; MRF32(d + 0x18u) = 0.f;
+        MRF32(d + 0x28u) = 0.f; MRF32(d + 0x2cu) = 0.f; MRF32(d + 0x30u) = 0.f; MRF32(d + 0x34u) = 1.f;
+        MR32(o + 0x1cu) |= 0x400000u;
+    }
     if (g_fl.tex[k] != tex){ uint32_t av[2] = { o, tex }; rh_call(c, FN_FE_SETTEX, 0, 0, 2, av); g_fl.tex[k] = tex; }
     fe_colour_set(c, o, (int32_t)(rgb & 0xffu), (int32_t)(rgb >> 8 & 0xffu), (int32_t)(rgb >> 16 & 0xffu), a);
     g_fl.alpha[k] = a;
@@ -6003,6 +6010,21 @@ static void du_hud(CPU *c, int64_t host){
     if (glyph) ui_glyph(c, FL_TOP + UI_PANEL_N + 1, pkg, g, x + pad + gs * 0.5f, y + h * 0.5f, gs);
     else ui_hide_imgs(c, FL_TOP + UI_PANEL_N + 1, 1);
     ui_text(c, TAG_DUEL, pkg, line, 0xffffffu, x + pad + (glyph ? gs + 6.f : 0.f), y + h * 0.5f, sc, 0);
+#if FLAGS
+    /* once a line: where its pieces are (the Vita showed a stray dark bar the panel's height away from it, 11-25) */
+    static char said[TAG_DUEL_MAX];
+    if (strcmp(said, line)){
+        snprintf(said, sizeof said, "%s", line);
+        char ps[400]; int at = 0;
+        for (int i = 0; i < FL_TOPN && at < (int)sizeof ps - 40; i++){
+            uint32_t o = g_fl.obj[FL_TOP + i], d = o ? rd32(o + 0x2cu) : 0;
+            if (!g_fl.shown[FL_TOP + i] || !ok(d, 0x54)) continue;
+            at += snprintf(ps + at, sizeof ps - (size_t)at, " %d:%.0f,%.0f %.0fx%.0f", i, MRF32(d + 0x1cu) + 320.f, MRF32(d + 0x20u) + 240.f, MRF32(d + 0x38u), MRF32(d + 0x3cu));
+        }
+        rlog("[roam] f=%ld ui: top line panel x %.0f w %.0f (corners %s, outline %s, glyph %d):%s\n", rh_frame(), x, w,
+             g_ui_box_have > 0 ? "the game's" : "square", ui_tex_loaded(c, UI_HL_CORNER) ? "the game's" : "none", glyph, ps);
+    }
+#endif
 }
 
 /* ---- multiplayer races from free roam: the race spots ------------------------------------------- */
