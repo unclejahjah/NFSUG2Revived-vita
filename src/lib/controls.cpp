@@ -98,6 +98,9 @@ static const Chord s_chords[] =
     { Circle,    0, -1, false, false, 4 },
     { Square,    0, -1, false, false, 5 },
     { R,         0, -1, false, false, 6 },  // add the player nose to nose as a friend
+    // free roam's show-off: each press opens the next of the hood, the trunk, the doors, all, then closes them
+    // (src/lib/winapi/revived/roam/showoff.c, the car standing)
+    { L,         0, -1, false, false, -1 },
 };
 
 // How long a Select tap holds its button, enough for one game frame at 10 fps.
@@ -176,6 +179,72 @@ int quickChatButton()
         s_generation.store(generation, std::memory_order_release);
     }
     return s_button.load(std::memory_order_relaxed);
+}
+
+// horn_button: rear_l3 (the default: the rear touch pad's lower left, none of the game's controls until bound),
+// rear_r3, dpad_left, dpad_right or off
+static int hornButton()
+{
+    static std::atomic<unsigned> s_generation{~0u};
+    static std::atomic<int> s_button{RearL3};
+    const unsigned generation = pf::Config::generation();
+    if (s_generation.load(std::memory_order_acquire) != generation)
+    {
+        static const char* const Names[] = { "rear_l3", "rear_r3", "dpad_left", "dpad_right", "off" };
+        static const int Buttons[] = { RearL3, RearR3, DpadLeft, DpadRight, -1 };
+        s_button.store(Buttons[pf::Config::getChoice("horn_button", Names, 5, 0)], std::memory_order_relaxed);
+        s_generation.store(generation, std::memory_order_release);
+    }
+    return s_button.load(std::memory_order_relaxed);
+}
+
+// drift_button: rear_r3 (the default: the rear touch pad's lower right), rear_l3, dpad_left, dpad_right or off
+static int driftButton()
+{
+    static std::atomic<unsigned> s_generation{~0u};
+    static std::atomic<int> s_button{RearR3};
+    const unsigned generation = pf::Config::generation();
+    if (s_generation.load(std::memory_order_acquire) != generation)
+    {
+        static const char* const Names[] = { "rear_r3", "rear_l3", "dpad_left", "dpad_right", "off" };
+        static const int Buttons[] = { RearR3, RearL3, DpadLeft, DpadRight, -1 };
+        s_button.store(Buttons[pf::Config::getChoice("drift_button", Names, 5, 0)], std::memory_order_relaxed);
+        s_generation.store(generation, std::memory_order_release);
+    }
+    return s_button.load(std::memory_order_relaxed);
+}
+
+static std::atomic<int> s_driftPresses{0};
+static std::atomic<uint64_t> s_driftLiveUs{0};
+
+void setDriftLive(uint64_t nowUs)
+{
+    s_driftLiveUs.store(nowUs, std::memory_order_relaxed);
+}
+
+int takeDriftPresses()
+{
+    return s_driftPresses.exchange(0, std::memory_order_relaxed);
+}
+
+static std::atomic<int> s_showoffPresses{0};
+
+int takeShowoffPresses()
+{
+    return s_showoffPresses.exchange(0, std::memory_order_relaxed);
+}
+
+static std::atomic<bool> s_hornHeld{false};
+static std::atomic<uint64_t> s_hornLiveUs{0};
+
+void setHornLive(uint64_t nowUs)
+{
+    s_hornLiveUs.store(nowUs, std::memory_order_relaxed);
+}
+
+bool hornHeld()
+{
+    return s_hornHeld.load(std::memory_order_relaxed);
 }
 
 void quickChatSlots(Input slots[7])
@@ -608,6 +677,8 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
             state.openSettings = true;
         if (chord->say >= 0)
             state.sayChord = chord->say;
+        if (chord->input == L)
+            s_showoffPresses.fetch_add(1, std::memory_order_relaxed);
     }
     if ((released & bit(Select)) && !m_selectUsed)
         m_selectPulseEndUs = nowUs + s_tapUs;
@@ -649,7 +720,24 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
         s_chatHeldSince.store(0, std::memory_order_relaxed);
     else if (!s_chatHeldSince.load(std::memory_order_relaxed))
         s_chatHeldSince.store(nowUs ? nowUs : 1, std::memory_order_relaxed);
-    const uint32_t normal = (inputs & ~m_chorded & ~chatHidden & ~m_chatSwallow) | chatPulse;
+    // the horn: its button held in free roam proper (not while quick chat's is: Left and Right pick phrases then)
+    const uint64_t hornAt = s_hornLiveUs.load(std::memory_order_relaxed);
+    const int hornBtn = hornAt && nowUs - hornAt < 250000 && !chatHeld ? hornButton() : -1;
+    const bool horn = hornBtn >= 0 && hornBtn != chatButton && (inputs & bit(Input(hornBtn))) && !(m_chorded & bit(Input(hornBtn)));
+    s_hornHeld.store(horn, std::memory_order_relaxed);
+    const uint32_t hornHidden = horn ? bit(Input(hornBtn)) : 0;
+    // drift mode's button, in free roam's world (not on the horn's or quick chat's): a press switches it, and the
+    // button is not the game's meanwhile
+    const uint64_t driftAt = s_driftLiveUs.load(std::memory_order_relaxed);
+    const int driftBtn = driftAt && nowUs - driftAt < 250000 && !chatHeld ? driftButton() : -1;
+    uint32_t driftHidden = 0;
+    if (driftBtn >= 0 && driftBtn != chatButton && driftBtn != hornBtn && !(m_chorded & bit(Input(driftBtn))))
+    {
+        driftHidden = bit(Input(driftBtn));
+        if (pressed & driftHidden)
+            s_driftPresses.fetch_add(1, std::memory_order_relaxed);
+    }
+    const uint32_t normal = (inputs & ~m_chorded & ~chatHidden & ~m_chatSwallow & ~hornHidden & ~driftHidden) | chatPulse;
     // steering=digital: the left stick is left, centre or right, and its X axis ramps to full lock and back as a
     // keyboard's steering does (the D-pad is not involved).
     const bool digital = digitalSteering();

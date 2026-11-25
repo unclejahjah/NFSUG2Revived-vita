@@ -115,6 +115,9 @@ const Item Mods[] = {
       "Meet other players in the city (NFSU2 Revived's free-roam mod, scripts/NFSU2FreeRoam.ini)." },
     { "EU Car Content", Extra, "UnlockRegionalCars", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
       "Drive the Peugeot 106 and Vauxhall Corsa in the US game (NFSU2 Extra Options). Needs their car folders." },
+    { "Stance", Ini, "Stance", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Camber, offset and tire width for your car (Stance Mod by Archie, as on nfsu2.xyz). Set them on the Stance "
+      "page. Only the look changes; players near you in free roam see it." },
 };
 
 const Item Multiplayer[] = {
@@ -147,6 +150,18 @@ const Option Flags[] = { { "", "None" }, { "gb", "United Kingdom" }, { "gb-eng",
                          { "tr", "Turkey" }, { "br", "Brazil" }, { "mx", "Mexico" }, { "ar", "Argentina" },
                          { "jp", "Japan" }, { "kr", "South Korea" }, { "cn", "China" }, { "in", "India" },
                          { "ph", "Philippines" }, { "id", "Indonesia" }, { "za", "South Africa" } };
+
+// Your horn in free roam (nfsu2.xyz's synthesised ones, src/lib/winapi/revived/roam/horn.c); off: none of yours
+const Option Horns[] = { { "dual", "Dual tone" }, { "single", "Single tone" }, { "truck", "Truck air horn" },
+                         { "train", "Train horn" }, { "klaxon", "Klaxon" }, { "cucaracha", "La Cucaracha" },
+                         { "clown", "Clown horn" }, { "trombone", "Sad trombone" }, { "sputter", "Dying horn" },
+                         { "off", "Off" } };
+
+const Option HornButtons[] = { { "rear_l3", "Rear touch, lower left" }, { "rear_r3", "Rear touch, lower right" },
+                               { "dpad_left", "D-pad Left" }, { "dpad_right", "D-pad Right" }, { "off", "Off" } };
+
+const Option DriftButtons[] = { { "rear_r3", "Rear touch, lower right" }, { "rear_l3", "Rear touch, lower left" },
+                                { "dpad_left", "D-pad Left" }, { "dpad_right", "D-pad Right" }, { "off", "Off" } };
 
 const Option ChatButtons[] = { { "dpad_down", "Hold D-pad Down" }, { "dpad_up", "Hold D-pad Up" },
                                { "triangle", "Hold Triangle" }, { "select", "Select chords" } };
@@ -209,6 +224,58 @@ const Item FreeRoam[] = {
       "Other cars are drawn this far in the past, smoothed. Less is closer to live, more is smoother." },
     { "Prediction", Ini, "Extrap", Choice, OPTIONS(Extrap), "", 0, nullptr,
       "How far ahead a car is predicted when its updates are late." },
+};
+
+const Item RoamExtras[] = {
+    { "Player messages", Ini, "Messages", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "A line at the top of the screen when a player joins free roam, leaves, goes into a race or opens a race "
+      "nearby. Never while you race." },
+    { "Outruns with players", Ini, "Outruns", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "Stay close to another player for a few seconds and the outrun icon comes up: Engage challenges them to the "
+      "game's own outrun, or to a drift battle when your drift mode is on. Off: nobody can challenge you, and you "
+      "challenge nobody." },
+    { "Blocked players", Ini, "Blocked", Text, nullptr, 0, "", 255, "None",
+      "Names as they show over cars, joined by commas (up to 32). You and they never see each other in free roam: "
+      "no car, name, quick chat, outrun or race lobby. Takes effect the next time you go online." },
+    { "Horn", Ini, "Horn", Choice, OPTIONS(Horns), "dual", 0, nullptr,
+      "Your horn in free roam: the players near you hear it from your car. Off: you have none, theirs still sound." },
+    { "Horn button", Cfg, "horn_button", Choice, OPTIONS(HornButtons), "rear_l3", 0, nullptr,
+      "Hold it to honk in free roam. In free roam it is the horn's only, not the game's." },
+    { "Drift button", Cfg, "drift_button", Choice, OPTIONS(DriftButtons), "rear_r3", 0, nullptr,
+      "Press it in free roam to switch drift mode on or off: the drift events' handling, camera and points while you "
+      "drive around. With it on, a challenge is a drift battle: most points in 90 seconds wins $100." },
+    { "Other players' car sounds", Ini, "CarSounds", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "Hear the other players' engines, nitrous and hydraulics from their cars, with the game's own sounds." },
+    { "Show-off", Ini, "ShowOff", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "With the car standing, Select + L opens the hood, then the trunk, the doors, all, and closes them. Players "
+      "near you see them open, and you see theirs." },
+};
+
+// Your car's stance, as nfsu2.xyz's Stance mod sets it (src/lib/winapi/revived/roam/stance_vita.c): for whichever car
+// you drive out in the world, seen by the players near you; theirs show on their cars. Only the look changes.
+const Option Cambers[] = { { "0", "0 degrees" }, { "1", "1 degree" }, { "2", "2 degrees" }, { "3", "3 degrees" },
+                           { "4", "4 degrees" }, { "5", "5 degrees" }, { "6", "6 degrees" }, { "8", "8 degrees" },
+                           { "10", "10 degrees" }, { "12", "12 degrees" }, { "15", "15 degrees" } };
+const Option Offsets[] = { { "-40", "-40 mm (in)" }, { "-20", "-20 mm (in)" }, { "-10", "-10 mm (in)" }, { "0", "0 mm" },
+                           { "10", "+10 mm" }, { "20", "+20 mm" }, { "30", "+30 mm" }, { "40", "+40 mm" },
+                           { "50", "+50 mm" }, { "60", "+60 mm" }, { "80", "+80 mm" } };
+const Option TireWidths[] = { { "80", "80 %" }, { "90", "90 %" }, { "100", "100 % (the car's own)" }, { "110", "110 %" },
+                              { "120", "120 %" }, { "130", "130 %" } };
+
+const Item StancePage[] = {
+    { "Stance", Ini, "Stance", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Your car's wheels drawn with the camber, offset and tire width below, in free roam and races. The car drives "
+      "as before. Players near you see it too." },
+    { "Front camber", Ini, "FrontCamber", Choice, OPTIONS(Cambers), "0", 0, nullptr,
+      "How far the front wheels' tops lean in." },
+    { "Rear camber", Ini, "RearCamber", Choice, OPTIONS(Cambers), "0", 0, nullptr,
+      "How far the rear wheels' tops lean in." },
+    { "Front offset", Ini, "FrontOffset", Choice, OPTIONS(Offsets), "0", 0, nullptr,
+      "How far the front wheels stand out from the body (in, below 0)." },
+    { "Rear offset", Ini, "RearOffset", Choice, OPTIONS(Offsets), "0", 0, nullptr,
+      "How far the rear wheels stand out from the body (in, below 0)." },
+    { "Tire width", Ini, "TireWidth", Choice, OPTIONS(TireWidths), "100", 0, nullptr,
+      "The tires' width, of the car's own." },
 };
 
 const Item Display[] = {
@@ -303,6 +370,8 @@ struct Page
 const Page Pages[] = {
     { "Multiplayer", OPTIONS(Multiplayer) },
     { "Free Roam", OPTIONS(FreeRoam) },
+    { "Free Roam extras", OPTIONS(RoamExtras) },
+    { "Stance", OPTIONS(StancePage) },
     { "Display", OPTIONS(Display) },
     { "Sound", OPTIONS(Sound) },
     { "Controller", OPTIONS(Controller) },
@@ -347,6 +416,8 @@ const char IniTemplate[] =
     "ShowFlags = 1\n"
     "; a ring on the ground at race spots with no career marker: blue, gold with a lobby open (1) or none (0)\n"
     "RaceRings = 1\n"
+    "; a line at the top of the screen when a player joins free roam, leaves or goes into a race (1 on, 0 off)\n"
+    "Messages = 1\n"
     "\n"
     "; quick chat (1 on, 0 off) and the phrase numbers of slots 1-6 (the cfg's quick_chat_button picks them)\n"
     "QuickChat = 1\n"
@@ -357,8 +428,29 @@ const char IniTemplate[] =
     "Say5 = 14\n"
     "Say6 = 1\n"
     "\n"
+    "; players you never see in free roam, nor they you: names as over cars, joined by commas (up to 32)\n"
+    "Blocked =\n"
+    "\n"
     "; 1 = friends' cars are solid; 0 = ghost cars you drive through; none = traffic is a ghost too\n"
     "Collide = 0\n"
+    "\n"
+    "; your horn (dual, single, truck, train, klaxon, cucaracha, clown, trombone, sputter or off; the cfg's\n"
+    "; horn_button honks), and the other players' engines, nitrous and hydraulics heard (1) or not (0)\n"
+    "Horn = dual\n"
+    "CarSounds = 1\n"
+    "; the show-off: Select + L opens the hood, the trunk, the doors (1 on, 0 off)\n"
+    "ShowOff = 1\n"
+    "; your car's stance (1 on): camber front and rear (degrees, 0-15), offset front and rear (mm, -40-80), tire\n"
+    "; width (per cent of the car's own, 80-130)\n"
+    "Stance = 0\n"
+    "FrontCamber = 0\n"
+    "RearCamber = 0\n"
+    "FrontOffset = 0\n"
+    "RearOffset = 0\n"
+    "TireWidth = 100\n"
+    "\n"
+    "; outruns with other players: stay near one and press Engage to challenge them (1 on, 0 off)\n"
+    "Outruns = 1\n"
     "\n"
     "; group size, you included (2..33), and friends' cars shown at once (0..5)\n"
     "MaxPlayers = 8\n"

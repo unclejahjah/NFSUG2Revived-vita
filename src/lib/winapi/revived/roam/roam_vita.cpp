@@ -13,6 +13,11 @@
 #include <lib/guestmodule.h>
 #include <lib/file.h>
 #include <lib/controls.h>
+extern "C"
+{
+#include "horn.h"     // (C headers of nfsu2-web's, without their own extern "C")
+#include "carsfx.h"
+}
 #include <lib/gamepad.h>
 #include <platform/time.h>
 #include <lib/winapp.h>
@@ -45,6 +50,8 @@ void mprace_frame(struct CPU* c);
 int mprace_owns_input(void);
 void mprace_player_cancel(void);
 void mp_vita_port_frame(void);
+void showoff_frame(struct CPU* c);   // showoff.c: the hood, the trunk and the doors (Select + L)
+void drift_frame(struct CPU* c);     // drift.c: drift mode (drift_button) and drift battles
 void roam_vita_tap(unsigned dik);
 int roam_vita_can_host(void);
 int roam_host_hud_line(char* tx, int n);
@@ -93,11 +100,21 @@ const struct { const char *name, *key, *def; } Opts[] = {
     // quick chat (settings.ini quick_chat): on or off, and the phrases of its six slots by their numbers (phrases.h);
     // the cfg's quick_chat_button says which buttons they are (controls::quickChatSlots)
     // multiplayer races from free roam (roam_game.c mp_*): lobbies at the race markers, joined with the race's button
+    // outruns between players (roam_game.c du_*): stay near another player and press Engage to challenge them
+    { "NFSU2_ROAM_DUELS",       "Outruns",     "1" },
     { "NFSU2_ROAM_MPRACES",     "Races",       "1" },
     // a ring on the ground at each race spot with no marker of the game's (won, or not open in the career): blue, gold
     // while a lobby is open there
     { "NFSU2_ROAM_RACE_RINGS",  "RaceRings",   "1" },
     { "NFSU2_ROAM_SAY",         "QuickChat",   "1" },
+    // horns between players: yours (dual, single, truck, train, klaxon, cucaracha, clown, trombone, sputter; off: none,
+    // the others' still heard), and the other players' engines, nitrous and hydraulics heard from their cars
+    { "NFSU2_ROAM_HORN",        "Horn",        "dual" },
+    { "NFSU2_ROAM_CARSFX",      "CarSounds",   "1" },
+    // the show-off (showoff.c: Select + L opens the hood, the trunk, the doors; friends' open on their cars too)
+    { "NFSU2_ROAM_SHOWOFF",     "ShowOff",     "1" },
+    // the lines nfsu2.xyz shows over the game (a player joined free roam, left, went into a race): the HUD's top line
+    { "NFSU2_ROAM_NOTICES",     "Messages",    "1" },
     { "NFSU2_ROAM_SAY1",        "Say1",        "0"  },   // Hey!
     { "NFSU2_ROAM_SAY2",        "Say2",        "2"  },   // Thanks!
     { "NFSU2_ROAM_SAY3",        "Say3",        "12" },   // Race?
@@ -163,6 +180,45 @@ void loadIni()
                 s_values[i] = value;
     }
     fclose(f);
+}
+
+// one key of [FreeRoam], read from the file now: for the link's thread, which may connect before free roam's first
+// frame reads the .ini (the LAN menu), and never touches s_values
+std::string iniValue(const char* want)
+{
+    std::string out;
+    FILE* f = fopen(IniPath, "r");
+    if (!f)
+        return out;
+    char line[1024];
+    bool inSection = false;
+    while (fgets(line, sizeof(line), f))
+    {
+        std::string l = line;
+        size_t a = 0;
+        while (a < l.size() && (l[a] == ' ' || l[a] == '\t'))
+            ++a;
+        if (a >= l.size() || l[a] == ';' || l[a] == '#')
+            continue;
+        if (l[a] == '[')
+        {
+            const size_t e = l.find(']', a);
+            inSection = e != std::string::npos && !strcasecmp(l.substr(a + 1, e - a - 1).c_str(), "FreeRoam");
+            continue;
+        }
+        const size_t eq = l.find('=');
+        if (!inSection || eq == std::string::npos)
+            continue;
+        std::string key = l.substr(a, eq - a), value = l.substr(eq + 1);
+        while (!key.empty() && (key.back() == ' ' || key.back() == '\t'))
+            key.pop_back();
+        if (strcasecmp(key.c_str(), want))
+            continue;
+        trim(value);
+        out = value;
+    }
+    fclose(f);
+    return out;
 }
 
 FILE* s_log = nullptr;
@@ -394,6 +450,72 @@ int roam_host_chat_menu(const char** keys, const char** texts, int max)
     return n;
 }
 
+// ---- notices: the page's lines over the game (a player joined free roam, left, went into a race; a lobby nearby)
+// nfsu2.xyz's page shows them in a log on the left; here each takes the HUD's top line for NoticeUs, one after the
+// other, when quick chat and the races and outruns have nothing to say there. They come from the link's thread.
+static const uint64_t NoticeUs = 4000000;
+static const int NoticeMax = 6;
+static pthread_mutex_t s_noticeLock = PTHREAD_MUTEX_INITIALIZER;
+static const uint64_t NoticeStaleUs = 15000000;   // one that waited longer (menus, a shop) is old news
+static char s_notices[NoticeMax][96];
+static uint64_t s_noticeAt[NoticeMax];
+static int s_noticeHead = 0, s_noticeCount = 0;
+static uint64_t s_noticeSince = 0;   // when the line on screen now came up (0: none yet)
+
+extern "C" void roam_host_notice(const char* text)
+{
+    if (!text || !*text || !optOn(roam_opt("NFSU2_ROAM_NOTICES")))
+        return;
+    char line[96];
+    if (text[0] == '\x1e')
+    {
+        // a hint by its id, worded as the page words it
+        if (strcmp(text + 1, "ghost"))
+            return;
+        snprintf(line, sizeof(line), "New players drive out of here: Ghost mode (Vita Settings) lets you pass through");
+    }
+    else
+        snprintf(line, sizeof(line), "%s", text);
+    pthread_mutex_lock(&s_noticeLock);
+    if (s_noticeCount == NoticeMax)   // the oldest waiting goes
+    {
+        s_noticeHead = (s_noticeHead + 1) % NoticeMax;
+        --s_noticeCount;
+    }
+    const int at = (s_noticeHead + s_noticeCount) % NoticeMax;
+    snprintf(s_notices[at], sizeof(s_notices[0]), "%s", line);
+    s_noticeAt[at] = pf::ticksUs();
+    if (!s_noticeCount)
+        s_noticeSince = 0;
+    ++s_noticeCount;
+    pthread_mutex_unlock(&s_noticeLock);
+}
+
+static int noticeLine(char* tx, int n, uint64_t now)
+{
+    pthread_mutex_lock(&s_noticeLock);
+    while (s_noticeCount && s_noticeSince && now - s_noticeSince >= NoticeUs)
+    {
+        s_noticeHead = (s_noticeHead + 1) % NoticeMax;
+        s_noticeSince = --s_noticeCount ? now : 0;
+    }
+    while (s_noticeCount && !s_noticeSince && now - s_noticeAt[s_noticeHead] >= NoticeStaleUs)
+    {
+        s_noticeHead = (s_noticeHead + 1) % NoticeMax;
+        --s_noticeCount;
+    }
+    int shown = 0;
+    if (s_noticeCount)
+    {
+        if (!s_noticeSince)
+            s_noticeSince = now;
+        snprintf(tx, size_t(n), "%s", s_notices[s_noticeHead]);
+        shown = 1;
+    }
+    pthread_mutex_unlock(&s_noticeLock);
+    return shown;
+}
+
 int roam_host_hud_line(char* tx, int n)
 {
     if (!optOn(roam_opt("NFSU2_ROAM_SAY")))
@@ -424,6 +546,75 @@ int roam_host_hud_line(char* tx, int n)
         }
     }
     return 0;
+}
+
+// the players this one blocks (.ini Blocked: names as they show over cars, joined by commas, up to 32), for the
+// switch's hello (revived_link.cpp): the server's free-roam hub then links none of them with us, so neither sees the
+// other's car, name, quick chat, outrun or race lobby. Taken at each connection.
+extern "C" int roam_host_blocked(char names[][25], int max)
+{
+    const std::string list = iniValue("Blocked");
+    int n = 0;
+    size_t at = 0;
+    while (at <= list.size() && n < max)
+    {
+        size_t end = list.find(',', at);
+        if (end == std::string::npos)
+            end = list.size();
+        std::string name;
+        for (size_t i = at; i < end; ++i)
+            if (list[i] >= ' ' && list[i] <= '~')
+                name += list[i];
+        trim(name);
+        if (name.size() > 24)
+            name.resize(24);
+        if (!name.empty())
+            snprintf(names[n++], 25, "%s", name.c_str());
+        at = end + 1;
+    }
+    return n;
+}
+
+// one key of the .ini's [FreeRoam] as the file has it now (stance_vita.c: Vita Settings may change it while playing)
+int roam_host_ini_value(const char* key, char* out, int n)
+{
+    if (!out || n <= 0)
+        return 0;
+    const std::string v = iniValue(key);
+    snprintf(out, size_t(n), "%s", v.c_str());
+    return 1;
+}
+
+// showoff.c: Select + L presses since the last frame
+int roam_host_showoff_presses(void)
+{
+    const int n = win32::controls::takeShowoffPresses();
+    return optOn(roam_opt("NFSU2_ROAM_SHOWOFF")) ? n : 0;
+}
+
+// drift.c: the drift button's presses since the last frame, taken in the world only (G_FLOW 6: elsewhere the button
+// stays the game's)
+int roam_win_committed(uint32_t a);
+int roam_host_drift_presses(void)
+{
+    const uint32_t flow = 0x008654a4u;
+    if (nfsu2_guest_base && roam_win_committed(flow) && *reinterpret_cast<uint32_t*>(nfsu2_guest_base + flow) == 6u)
+        win32::controls::setDriftLive(pf::ticksUs());
+    return win32::controls::takeDriftPresses();
+}
+
+// The game's thread, as free roam's frame runs on it (showoff_hooks.cpp: drift mode's music natives change the
+// switch only there)
+static int s_gameThread = 0;
+extern "C" int roam_vita_on_game_thread(void)
+{
+    return s_gameThread && pf::Thread::currentId() == s_gameThread;
+}
+
+// the HUD's top line when nothing else has one (roam_game.c du_hud): the next notice
+extern "C" int roam_host_notice_line(char* tx, int n)
+{
+    return noticeLine(tx, n, pf::ticksUs());
 }
 
 int roam_host_say_pick(void)
@@ -532,6 +723,64 @@ int roam_host_tag_note(uint32_t id, char* out, int n)
 int roam_win_committed(uint32_t a)
 {
     return a >= 0x10000 && win32::MemMap::isGuestRange(a, 1);
+}
+
+// ---- sounds: horns between players (horn.c) and friends' engines, nitrous and hydraulics (carsfx.c) ----------------
+// free roam has started here (its first frame read the .ini and found it on): only then is there anything to mix
+static volatile int s_soundsLive = 0;
+
+// the horn: horn_button held in free roam proper (controls.cpp), Horn not off
+int roam_host_horn_held(void)
+{
+    // (asked each frame free roam's world runs, and only then: the button is the horn's while it is)
+    const char* kind = roam_opt("NFSU2_ROAM_HORN");
+    if (kind && !strcasecmp(kind, "off"))
+        return 0;
+    win32::controls::setHornLive(pf::ticksUs());
+    return win32::controls::hornHeld() ? 1 : 0;
+}
+
+// the game's Master Volume (its Audio options: G_VOLUMES +0, a float 0 .. 1), which every horn follows
+float horn_game_master(void)
+{
+    const uint32_t a = 0x0083aa28u;
+    if (!nfsu2_guest_base || !roam_win_committed(a) || !roam_win_committed(a + 3u))
+        return 1.0f;
+    float v;
+    memcpy(&v, nfsu2_guest_base + a, sizeof(v));
+    return v >= 0.0f && v <= 1.0f ? v : 1.0f;
+}
+
+// a game file by its Windows path in the game's folder ("SOUND\\ENGINE\\X.GIN"); the Vita's card is not case sensitive
+int roam_vita_game_path(const char* win, char* out, size_t outsz)
+{
+    const int n = snprintf(out, outsz, "%s/%s", GameFolder, win ? win : "");
+    if (n <= 0 || size_t(n) >= outsz)
+        return 0;
+    for (char* c = out; *c; ++c)
+        if (*c == '\\')
+            *c = '/';
+    return 1;
+}
+
+// src/lib/audio.cpp, on the output thread: the horns and friends' car sounds added to each block of the mix
+// (interleaved stereo at 16-bit scale), as nfsu2-web's mixers add them (audio_web.c)
+void roam_vita_audio_mix(int32_t* acc, unsigned frames, unsigned rate)
+{
+    if (!s_soundsLive || !acc || !frames || !rate)
+        return;
+    static float mix[2 * 1024];
+    while (frames)
+    {
+        const unsigned n = frames < 1024 ? frames : 1024;
+        memset(mix, 0, 2 * n * sizeof(mix[0]));
+        horn_mix(mix, n, rate);
+        carsfx_mix(mix, n, rate);
+        for (unsigned i = 0; i < 2 * n; ++i)
+            acc[i] += int32_t(mix[i] * 32767.0f);
+        acc += 2 * n;
+        frames -= n;
+    }
 }
 
 // A game function with ecx, edx and n stack arguments, as frontend.cpp's callGuest: the CPU is restored afterwards.
@@ -643,6 +892,7 @@ void frame(win32::WinApplication* app, x86::CPU& cpu)
         if (!nfsu2_guest_base)
             nfsu2_guest_base = win32::g_guestBase;
         revived_link_ensure();
+        s_soundsLive = 1;   // horns and friends' car sounds from here on (roam_vita_audio_mix)
         // the names over the cars also need the game's own player-names option (0x8500C9, roam_game.c G_SHOW_NAMES)
         if (optOn(roam_opt("NFSU2_ROAM_LABELS")))
             rc::st8(0x008500C9, 1);
@@ -655,6 +905,9 @@ void frame(win32::WinApplication* app, x86::CPU& cpu)
     s_cpu = &cpu;
     ++s_frame;
     roam_game_frame(nullptr);
+    showoff_frame(nullptr);   // (its guest calls go through roam_win_call on this frame's CPU too)
+    s_gameThread = pf::Thread::currentId();
+    drift_frame(nullptr);
     // the trip of a multiplayer race (out of free roam, the game's LAN race, back): its CPU is only passed along,
     // its guest calls go through roam_win_call on this frame's
     static CPU* const s_tripCpu = reinterpret_cast<CPU*>(s_tripRegs);
