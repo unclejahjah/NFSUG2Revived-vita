@@ -3,6 +3,7 @@
 #include "cfgui.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 namespace ug2 { namespace cfgui {
@@ -70,7 +71,7 @@ Configurator::Configurator(const std::string& cfgText, const std::vector<ModView
         for (int i = 0; i < count; ++i)
         {
             const Setting& s = table[i];
-            if (int(s.group) != g || !pf::settingReadInThisBuild(s))
+            if (int(s.group) != g || !pf::settingReadInThisBuild(s) || (s.flags & pf::SettingInGame))
                 continue;
             if (!heading)
             {
@@ -377,6 +378,12 @@ void Configurator::changeValue(int direction, int steps)
     if (m_tab == Tab::Mods)
     {
         Mod& mod = m_mods[modAt(index)];
+        if (!mod.current && m_files && mod.view.id >= 0 && mod.view.downloadSpace &&
+            !m_files->requirementsMet(mod.view.id))
+        {
+            m_download = modAt(index);
+            m_askDownload = true;
+        }
         mod.current = !mod.current;
         return;
     }
@@ -584,6 +591,84 @@ Outcome Configurator::update(const Input& input, uint64_t nowUs)
     }
     case Screen::Launch:
         return Outcome::Running;
+    case Screen::ConfirmDownload:
+    {
+        const int tap = tapped(input, choiceRect);
+        if ((pressed & BtnCircle) || tap == 0)
+        {
+            endDownload(false);
+            enter(Screen::Manager);
+        }
+        else if ((pressed & BtnCross) || tap == 1)
+        {
+            m_progress = ModFiles::Progress();
+            m_stopping = false;
+            m_complete = false;
+            if (m_files->start(m_mods[m_download].view.id, &m_error))
+                enter(Screen::Downloading);
+            else
+            {
+                endDownload(false);
+                enter(Screen::DownloadError);
+            }
+        }
+        return Outcome::Running;
+    }
+    case Screen::Downloading:
+    case Screen::ConfirmStop:
+    {
+        if (m_complete)
+        {
+            if (pressed || released)
+                enter(Screen::Manager);
+            return Outcome::Running;
+        }
+        m_progress = m_files->progress();
+        const ModFiles::Phase phase = m_progress.phase;
+        if (phase == ModFiles::Phase::Done && m_files->requirementsMet(m_mods[m_download].view.id))
+        {
+            m_files->finish();
+            endDownload(true);
+            m_complete = true;
+            m_progress.fraction = 1.0f;
+            if (m_screen == Screen::ConfirmStop)
+                enter(Screen::Downloading);
+            return Outcome::Running;
+        }
+        if (phase == ModFiles::Phase::Done || phase == ModFiles::Phase::Failed || phase == ModFiles::Phase::Cancelled)
+        {
+            m_files->finish();
+            const bool met = phase == ModFiles::Phase::Done && m_files->requirementsMet(m_mods[m_download].view.id);
+            if (phase == ModFiles::Phase::Done && !met)
+                m_error = "The files are installed but the mod's requirements are still not met.";
+            else if (phase == ModFiles::Phase::Failed)
+                m_error = m_progress.error;
+            endDownload(met);
+            enter(phase == ModFiles::Phase::Cancelled || met ? Screen::Manager : Screen::DownloadError);
+            return Outcome::Running;
+        }
+        const int tap = m_screen == Screen::ConfirmStop ? tapped(input, choiceRect) : -1;
+        if (m_screen == Screen::Downloading)
+        {
+            if ((pressed & BtnCircle) && !m_stopping)
+                enter(Screen::ConfirmStop);
+        }
+        else if ((pressed & BtnCircle) || tap == 0)
+            enter(Screen::Downloading);
+        else if ((pressed & BtnCross) || tap == 1)
+        {
+            m_files->cancel();
+            m_stopping = true;
+            enter(Screen::Downloading);
+        }
+        return Outcome::Running;
+    }
+    case Screen::DownloadError:
+    {
+        if ((pressed & (BtnCross | BtnCircle)) || tapped(input, okRect) >= 0)
+            enter(Screen::Manager);
+        return Outcome::Running;
+    }
     }
 
     const int tap = tapped(input, buttonRect);
@@ -647,8 +732,78 @@ Outcome Configurator::update(const Input& input, uint64_t nowUs)
     }
     if (pressed & BtnSquare)
         resetValue();
+    if (m_askDownload)
+    {
+        m_askDownload = false;
+        enter(Screen::ConfirmDownload);
+        return Outcome::Running;
+    }
     stick(input, nowUs);
     return Outcome::Running;
+}
+
+void Configurator::endDownload(bool installed)
+{
+    m_mods[m_download].current = installed;
+    if (!installed)
+        return;
+    for (Mod& mod : m_mods)
+    {
+        if (mod.view.downloadName == m_mods[m_download].view.downloadName && mod.view.id >= 0 &&
+            m_files->requirementsMet(mod.view.id))
+            mod.view.requirements.clear();
+    }
+}
+
+namespace
+{
+
+std::string megabytes(uint64_t bytes, bool roundUp)
+{
+    const uint64_t mb = 1000000;
+    if (roundUp)
+        return std::to_string((bytes + mb - 1) / mb) + " MB";
+    char text[32];
+    snprintf(text, sizeof(text), "%.1f MB", double(bytes) / double(mb));
+    return text;
+}
+
+}
+
+std::string Configurator::popupText() const
+{
+    switch (m_screen)
+    {
+    case Screen::ConfirmDownload:
+    {
+        const ModView& view = m_mods[m_download].view;
+        return "This mod requires files for " + view.downloadName + " to be downloaded from the internet. Total free "
+               "space required: " + megabytes(view.downloadSpace, true) + ". Begin download?";
+    }
+    case Screen::ConfirmStop:
+        return "Stop the download? The files fetched so far will be removed.";
+    case Screen::DownloadError:
+        return m_error;
+    default:
+        return std::string();
+    }
+}
+
+std::string Configurator::progressText() const
+{
+    if (m_complete)
+        return "Install complete";
+    if (m_stopping)
+        return "Cancelling...";
+    switch (m_progress.phase)
+    {
+    case ModFiles::Phase::Download:
+        return megabytes(m_progress.downloaded, false) + " / " + megabytes(m_progress.total, false);
+    case ModFiles::Phase::Unpack:
+        return "Unpacking...";
+    default:
+        return "Installing...";
+    }
 }
 
 }}

@@ -18,12 +18,15 @@ public:
     static bool getBool(const char* key, bool defaultValue);
     static int  getInt(const char* key, int defaultValue);
     static const char* getString(const char* key, const char* defaultValue);
+    // The value of a retired key, as the loaded file had it (first line wins), or null; for a one-time migration.
+    static const char* getRetired(const char* key);
+    // In memory, as if the file had it (an empty value removes the key); save() writes keys set since into the file.
+    // Game thread; readers that cache a value compare generation().
+    static void set(const char* key, const char* value);
+    static bool save();
     // Index of the value in names[0..count) (any case); defaultIndex if the key is missing or the value is not one
     // of the names (logged).
     static int  getChoice(const char* key, const char* const* names, int count, int defaultIndex);
-    // A new value for a known key, as if the file had it (the options menu's settings that apply at once); an empty
-    // value removes it. Game thread; readers that cache a value compare generation().
-    static void set(const char* key, const char* value);
     static unsigned generation();
 };
 

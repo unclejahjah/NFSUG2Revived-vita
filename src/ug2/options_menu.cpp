@@ -58,8 +58,7 @@ struct Item
 const Option OnOff[] = { { "on", "On" }, { "off", "Off" } };
 const Option IniOnOff[] = { { "1", "On" }, { "0", "Off" } };
 const Option Network[] = { { "revived", "On" }, { "direct", "Local Wi-Fi only" }, { "off", "Off" } };
-const Option Movies[] = { { "native", "Vita decoder" }, { "vp6", "Vita, else VP6" }, { "vp6only", "VP6 only" },
-                          { "game", "The game's own" } };
+const Option Movies[] = { { "vp6preferred", "Converted, else VP6" }, { "vp6only", "VP6 only" } };
 const Option Core3Tasks[] = { { "helpers", "Helper threads" }, { "jobs", "Job workers" } };
 const Option TextureCache[] = { { "0", "0 MB" }, { "12", "12 MB" }, { "24", "24 MB" }, { "32", "32 MB" },
                                 { "48", "48 MB" }, { "64", "64 MB" } };
@@ -76,11 +75,8 @@ const Option Delay[] = { { "", "Default (100 ms)" }, { "0", "0 ms" }, { "50", "5
                          { "150", "150 ms" }, { "200", "200 ms" }, { "300", "300 ms" } };
 const Option Extrap[] = { { "", "Default (250 ms)" }, { "0", "0 ms" }, { "100", "100 ms" }, { "250", "250 ms" },
                           { "500", "500 ms" }, { "1000", "1000 ms" } };
-const Option StickDeadZone[] = { { "0", "0%" }, { "5", "5%" }, { "10", "10%" }, { "15", "15%" }, { "20", "20%" },
-                                 { "25", "25%" }, { "30", "30%" } };
-const Option CameraSpeed[] = { { "1", "1" }, { "2", "2" }, { "3", "3" }, { "4", "4" }, { "5", "5" },
-                               { "6", "6" }, { "7", "7" }, { "8", "8" }, { "9", "9" }, { "10", "10" } };
-const Option StickResponse[] = { { "standard", "Standard" }, { "linear", "Linear" }, { "precise", "Precise" } };
+const Option FreeLookSpeed[] = { { "90", "Slow" }, { "135", "Steady" }, { "180", "Normal" }, { "270", "Quick" },
+                                 { "360", "Fast" }, { "540", "Fastest" }, { "0", "Instant" } };
 const Option Steering[] = { { "analog", "Analog" }, { "digital", "Digital" } };
 const Option SkipIntro[] = { { "off", "Off" }, { "logos", "Logos" }, { "opening", "Logos and opening" } };
 const Option FrameRate[] = { { "30", "30 fps" }, { "0", "Unlocked" } };
@@ -157,11 +153,13 @@ const Option Horns[] = { { "dual", "Dual tone" }, { "single", "Single tone" }, {
                          { "clown", "Clown horn" }, { "trombone", "Sad trombone" }, { "sputter", "Dying horn" },
                          { "off", "Off" } };
 
-const Option HornButtons[] = { { "rear_l3", "Rear touch, lower left" }, { "rear_r3", "Rear touch, lower right" },
-                               { "dpad_left", "D-pad Left" }, { "dpad_right", "D-pad Right" }, { "off", "Off" } };
+const Option HornButtons[] = { { "dpad_left", "Hold D-pad Left" }, { "dpad_right", "Hold D-pad Right" },
+                               { "rear_l3", "Rear touch, lower left" }, { "rear_r3", "Rear touch, lower right" },
+                               { "off", "Off" } };
 
-const Option DriftButtons[] = { { "rear_r3", "Rear touch, lower right" }, { "rear_l3", "Rear touch, lower left" },
-                                { "dpad_left", "D-pad Left" }, { "dpad_right", "D-pad Right" }, { "off", "Off" } };
+const Option DriftButtons[] = { { "dpad_right", "Hold D-pad Right" }, { "dpad_left", "Hold D-pad Left" },
+                                { "rear_r3", "Rear touch, lower right" }, { "rear_l3", "Rear touch, lower left" },
+                                { "off", "Off" } };
 
 const Option ChatButtons[] = { { "dpad_down", "Hold D-pad Down" }, { "dpad_up", "Hold D-pad Up" },
                                { "triangle", "Hold Triangle" }, { "select", "Select chords" } };
@@ -239,11 +237,11 @@ const Item RoamExtras[] = {
       "no car, name, quick chat, outrun or race lobby. Takes effect the next time you go online." },
     { "Horn", Ini, "Horn", Choice, OPTIONS(Horns), "dual", 0, nullptr,
       "Your horn in free roam: the players near you hear it from your car. Off: you have none, theirs still sound." },
-    { "Horn button", Cfg, "horn_button", Choice, OPTIONS(HornButtons), "rear_l3", 0, nullptr,
-      "Hold it to honk in free roam. In free roam it is the horn's only, not the game's." },
-    { "Drift button", Cfg, "drift_button", Choice, OPTIONS(DriftButtons), "rear_r3", 0, nullptr,
-      "Press it in free roam to switch drift mode on or off: the drift events' handling, camera and points while you "
-      "drive around. With it on, a challenge is a drift battle: most points in 90 seconds wins $100." },
+    { "Horn button", Cfg, "horn_button", Choice, OPTIONS(HornButtons), "dpad_left", 0, nullptr,
+      "Hold it to honk in free roam. A short D-pad press is still the game's (World Map)." },
+    { "Drift button", Cfg, "drift_button", Choice, OPTIONS(DriftButtons), "dpad_right", 0, nullptr,
+      "Hold it in free roam to switch drift mode on or off (a short D-pad press is still Read SMS): the drift "
+      "events' handling, camera and points while you drive around. With it on, a challenge is a drift battle: most points in 90 seconds wins $100." },
     { "Other players' car sounds", Ini, "CarSounds", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "Hear the other players' engines, nitrous and hydraulics from their cars, with the game's own sounds." },
     { "Show-off", Ini, "ShowOff", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
@@ -279,8 +277,6 @@ const Item StancePage[] = {
 };
 
 const Item Display[] = {
-    { "Widescreen", Cfg, "widescreen", Choice, OPTIONS(OnOff), "on", 0, nullptr,
-      "On fills the 16:9 screen with the HUD at the edges; off is the original 4:3 picture with black bars." },
     { "Graphics preset", Cfg, "gfx_preset", Choice, OPTIONS(Preset), "vita", 0, nullptr,
       "Vita is what the port is tuned for; Max turns everything on and is much slower. The game's Display menu "
       "changes the individual options." },
@@ -288,8 +284,8 @@ const Item Display[] = {
       "Scenery narrower than this on screen uses its simpler model. More gives speed and more pop-in." },
     { "Small scenery", Cfg, "dev_world_min_pixels", Choice, OPTIONS(MinPixels), "0", 0, nullptr,
       "Scenery smaller than this on screen is not drawn. More gives speed and more pop-in." },
-    { "Movies", Cfg, "movies", Choice, OPTIONS(Movies), "native", 0, nullptr,
-      "How the game's movies play. The Vita decoder plays the converted .mp4 files; VP6 plays the originals." },
+    { "Movies", Cfg, "movies", Choice, OPTIONS(Movies), "vp6preferred", 0, nullptr,
+      "How the game's movies play: the converted .mp4 files where they are there, else the original VP6 ones." },
     { "Optimised particles", Cfg, "optimised_particles", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "Cheaper tyre smoke and other particles, close to the original picture. Off is exactly as the original." },
 };
@@ -310,26 +306,18 @@ const Item Sound[] = {
 const Item Controller[] = {
     { "Rear touch pad", Cfg, "rear_touch", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "The rear touch pad works as L2, R2, L3 and R3, unbound until you set them in the game's Controls screen." },
-    { "Touch screen", Cfg, "front_touch", Choice, OPTIONS(OnOff), "on", 0, nullptr,
-      "Touching the screen works as a mouse click in the menus." },
     { "Garage camera stick", Cfg, "garage_stick", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "The right stick turns the car in the garage and the customisation menus." },
     { "Camera stick dead zone", Cfg, "garage_stick_deadzone", Choice, OPTIONS(DeadZone), "30", 0, nullptr,
       "How far the right stick moves before the garage camera turns." },
-    { "Stick dead zone", Cfg, "stick_deadzone", Choice, OPTIONS(StickDeadZone), "15", 0, nullptr,
-      "How far either stick moves before it counts, steering included. Less reacts sooner; more ignores a worn stick." },
-    { "Right stick camera", Cfg, "camera_stick", Choice, OPTIONS(OnOff), "on", 0, nullptr,
-      "While driving, the right stick turns the chase camera round the car and it comes back when released. In the "
-      "hood and bumper views pushing it down looks back. Untouched, the camera is the game's own." },
-    { "Camera stick speed", Cfg, "camera_stick_speed", Choice, OPTIONS(CameraSpeed), "4", 0, nullptr,
-      "How fast the right stick camera swings round to where the stick points, and back when released. "
-      "1 is the slowest, 10 the fastest." },
+    { "Free look ease back", Cfg, "free_look_ease_back", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "Free look (the right stick, where the Control Type leaves it free): let go less than 120 degrees round and the "
+      "camera eases back behind the car; further round it cuts straight back. Stick rows are in Options > Controls." },
+    { "Free look speed", Cfg, "free_look_swing", Choice, OPTIONS(FreeLookSpeed), "180", 0, nullptr,
+      "How fast free look swings round to where the stick points, and back when it eases back." },
     { "Steering", Cfg, "steering", Choice, OPTIONS(Steering), "analog", 0, nullptr,
       "Analog steers as far as the left stick is pushed. Digital: pushed past halfway, the stick turns smoothly to "
       "full lock and back when released, as on a keyboard." },
-    { "Stick response", Cfg, "stick_response", Choice, OPTIONS(StickResponse), "standard", 0, nullptr,
-      "Standard is finer near the centre for small steering corrections; linear follows the stick exactly; "
-      "precise is finer near the centre still." },
 };
 
 const Item Performance[] = {
@@ -983,9 +971,9 @@ void setText(int g, int i, const std::string& text)
 bool applyLive(int g, int i)
 {
     // The settings read where they are used, rather than once at the start.
-    static const char* const Live[] = { "log_info", "garage_stick", "garage_stick_deadzone", "stick_deadzone",
-                                        "stick_response", "steering", "fast_travel",
-                                        "camera_stick", "camera_stick_speed", "quick_chat_button" };
+    static const char* const Live[] = { "log_info", "garage_stick", "garage_stick_deadzone", "steering", "fast_travel",
+                                        "free_look_ease_back", "free_look_swing", "quick_chat_button",
+                                        "horn_button", "drift_button" };
     const Item& it = item(g, i);
     if (it.store != Cfg)
         return false;

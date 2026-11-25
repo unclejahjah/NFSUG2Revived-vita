@@ -63,8 +63,8 @@ const reg32 ChunkHeader = 8;
 const int LateFrames = 0x10;                   // frames behind the clock before the codec skips to a key frame
 const int RingSize = 4;
 
-// ModeVp6: the .mp4 when there is one, else libavcodec's VP6 decoder; ModeVp6Only never uses the .mp4.
-enum Mode { ModeGame, ModeNative, ModeVp6, ModeVp6Only };
+// ModeGame: the game's decoder (host default); ModeVp6: .mp4 if present, else native VP6; ModeVp6Only: native VP6.
+enum Mode { ModeGame, ModeVp6, ModeVp6Only };
 
 struct Session
 {
@@ -116,6 +116,7 @@ std::vector<MemMap*> s_frameBlocks;            // worker frame buffers
 uint8_t* s_linger = nullptr;                   // last frame of an ended movie, freed with its codec
 std::string s_redirectFrom, s_redirectTo;      // movies_redirect=<from>:<to> (dev): the game opens <to>.vp6
 MemMap* s_redirectPath = nullptr;
+std::string s_gameDir;                         // movies_game_dir (dev): the game opens its .vp6 files from this folder
 win32::MethodPtr s_createFile = nullptr;
 win32::MethodPtr s_decode = nullptr;
 win32::MethodPtr s_destroy = nullptr;
@@ -244,6 +245,20 @@ reg32 redirectPath(reg32 path, const char* name)
     return replacedPath(path, name, s_redirectTo);
 }
 
+// movies_game_dir: a guest copy of the path in that folder, or 0.
+reg32 relocatePath(const char* name)
+{
+    if (s_gameDir.empty())
+        return 0;
+    const std::string text = "C:\\" + s_gameDir + "\\" + name + ".vp6";
+    if (!s_redirectPath)
+        s_redirectPath = new MemMap(4096, MemMap::High, pf::perf::AllocOther);
+    const reg32 copy = s_redirectPath->getBlockStart();
+    for (size_t i = 0; i <= text.size(); ++i)
+        rc::st8(copy + reg32(i), uint8_t(text.c_str()[i]));
+    return copy;
+}
+
 void createFileHook(win32::WinApplication* app, x86::CPU& cpu)
 {
     char name[sizeof(s_lastName)];
@@ -255,6 +270,8 @@ void createFileHook(win32::WinApplication* app, x86::CPU& cpu)
             rc::st32(cpu.esp + 4, copy);
             strcpy(name, s_redirectTo.c_str());
         }
+        if (const reg32 copy = relocatePath(name))
+            rc::st32(cpu.esp + 4, copy);
         lockName();
         strcpy(s_lastName, name);
         unlockName();
@@ -442,7 +459,7 @@ void startSession(reg32 codec)
     const int height = int(rc::ld32(codec + CodecHeight));
     if (!stream)
     {
-        if (s_mode >= ModeVp6 && startVp6(codec, name, width, height))
+        if (startVp6(codec, name, width, height))
             return;
         pf::logInfo("movies: %s: no native video, the game decodes it", name);
         return;
@@ -842,14 +859,24 @@ void selfTestVp6(const char* name)
 void configure(win32::WinApplication& app)
 {
 #ifdef __vita__
-    const char* const defaultMode = "native";
+    const Mode defaultMode = ModeVp6;
     const char* const defaultDir = "ux0:data/NeedForSpeedUnderground2/MOVIES";
 #else
-    const char* const defaultMode = "game";
+    const Mode defaultMode = ModeGame;
     const char* const defaultDir = "";
 #endif
-    static const char* const modes[] = { "game", "native", "vp6", "vp6only" };
-    s_mode = Mode(pf::Config::getChoice("movies", modes, 4, strcmp(defaultMode, "native") == 0 ? 1 : 0));
+    static const char* const modes[] = { "vp6preferred", "vp6only" };
+    const std::string choice = pf::Config::getString("movies", "");
+    s_mode = defaultMode;
+    if (strcasecmp(choice.c_str(), "vp6only") == 0)
+        s_mode = ModeVp6Only;
+    else if (strcasecmp(choice.c_str(), "vp6preferred") == 0 || strcasecmp(choice.c_str(), "vp6") == 0)
+        s_mode = ModeVp6;
+    else if (!choice.empty())
+    {
+        s_mode = ModeVp6;
+        pf::logInfo("movies: movies=%s is not one of %s/%s, %s used", choice.c_str(), modes[0], modes[1], modes[0]);
+    }
     static const char* const IntroSkips[] = { "off", "logos", "opening" };
     if (const int skip = pf::Config::getChoice("skip_intro_movies", IntroSkips, 3, 0))
         removeIntroScreens(skip);
@@ -875,12 +902,13 @@ void configure(win32::WinApplication& app)
     }
     if (s_dir.empty())
     {
-        pf::logError("movies: movies=%s needs movies_dir; the game decodes its movies", modes[s_mode]);
+        pf::logError("movies: movies=%s needs movies_dir; the game decodes its movies", modes[s_mode - 1]);
         s_mode = ModeGame;
         return;
     }
 #ifdef DEV_SETTINGS
     s_unlockDecode = pf::Config::getBool("movies_vp6_unlock", false);
+    s_gameDir = pf::Config::getString("movies_game_dir", "");
     const std::string redirect = pf::Config::getString("movies_redirect", "");
     const size_t colon = redirect.find(':');
     if (colon != std::string::npos)
@@ -894,7 +922,7 @@ void configure(win32::WinApplication& app)
         s_createFile = app.replaceMethod(rc::ld32(CreateFileSlot), createFileHook);
     s_decode = app.replaceMethod(CodecDecode, decodeHook);
     s_destroy = app.replaceMethod(CodecDestroy, destroyHook);
-    pf::logInfo("movies: movies=%s, playback from %s (the game's VP6 decoder when no source works)", modes[s_mode],
+    pf::logInfo("movies: movies=%s, playback from %s (the game's VP6 decoder when no source works)", modes[s_mode - 1],
                 s_dir.c_str());
 }
 

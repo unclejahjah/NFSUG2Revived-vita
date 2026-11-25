@@ -5,8 +5,8 @@
 
 namespace ug2 { namespace pad_defaults {
 
-// Before guest code runs: replaces the EMS race and menu defaults.
-void install();
+// Before guest code: EMS race defaults of a Control Type.
+void install(int controlType);
 
 }}
 

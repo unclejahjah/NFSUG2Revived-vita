@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
+#include <utility>
 #include <strings.h>
 #include <vector>
 
@@ -31,6 +33,9 @@ struct Entry
 };
 
 std::vector<Entry> s_entries;
+std::vector<std::pair<std::string, std::string>> s_retiredValues;
+std::vector<std::string> s_pending;     // keys set since the last save, in order
+std::string s_path;
 
 // A secret (revived_passphrase) is never logged.
 bool isSecret(const char* key)
@@ -85,10 +90,23 @@ bool readLine(FILE* file, char* line, int size, bool* tooLong)
 
 }
 
+const char* Config::getRetired(const char* key)
+{
+    for (const auto& old : s_retiredValues)
+    {
+        if (old.first == key)
+            return old.second.c_str();
+    }
+    return nullptr;
+}
+
 // A missing file is created from missingFileText, when given.
 bool Config::load(const char* path, const char* missingFileText)
 {
     s_entries.clear();
+    s_retiredValues.clear();
+    s_pending.clear();
+    s_path = path;
     std::string text;
     if (cfgfile::readText(path, &text) == cfgfile::FileState::Unreadable)
     {
@@ -136,6 +154,15 @@ bool Config::load(const char* path, const char* missingFileText)
                      MaxKey - 1, MaxValue - 1);
             continue;
         }
+        if (settingRetired(key))
+        {
+            bool seen = false;
+            for (const auto& old : s_retiredValues)
+                seen = seen || old.first == key;
+            if (!seen)
+                s_retiredValues.emplace_back(key, value);
+            continue;
+        }
         const bool known = isKnown(key);
         const char* current = canonicalKey(key);
         const bool alias = current != key;
@@ -175,6 +202,75 @@ bool Config::load(const char* path, const char* missingFileText)
     return true;
 }
 
+static unsigned s_generation = 0;
+
+// In memory, as if the file had it (an empty value removes the key); save() writes keys set since into the file.
+// Readers that cache a value compare generation().
+void Config::set(const char* key, const char* value)
+{
+    const char* current = canonicalKey(key);
+    if (strlen(current) >= MaxKey || strlen(value) >= MaxValue)
+    {
+        logError("config: %s not set, key over %d or value over %d characters", key, MaxKey - 1, MaxValue - 1);
+        return;
+    }
+    Entry* entry = nullptr;
+    for (Entry& e : s_entries)
+    {
+        if (strcmp(e.key, current) == 0)
+            entry = &e;
+    }
+    if (!entry && *value)
+    {
+        s_entries.emplace_back();
+        entry = &s_entries.back();
+        strcpy(entry->key, current);
+    }
+    if (entry)
+    {
+        strcpy(entry->value, value);     // empty: find() treats the key as removed
+        entry->fromAlias = false;
+    }
+    ++s_generation;
+    for (const std::string& pending : s_pending)
+    {
+        if (pending == current)
+            return;
+    }
+    s_pending.push_back(current);
+}
+
+bool Config::save()
+{
+    if (s_pending.empty())
+        return true;
+    if (s_path.empty())
+        return false;
+    std::string text;
+    if (cfgfile::readText(s_path.c_str(), &text) == cfgfile::FileState::Unreadable)
+    {
+        logError("config: %s is unreadable, nothing saved", s_path.c_str());
+        return false;
+    }
+    std::vector<cfgfile::Change> changes;
+    for (const std::string& key : s_pending)
+    {
+        cfgfile::Change change;
+        change.key = key;
+        change.value = find(key.c_str());
+        const Setting* setting = findSetting(key.c_str());
+        change.atDefault = setting && !(setting->flags & SettingAuto) && change.value == defaultText(*setting);
+        changes.push_back(change);
+    }
+    if (!cfgfile::writeFile(s_path.c_str(), cfgfile::apply(text, changes)))
+    {
+        logError("config: cannot write %s", s_path.c_str());
+        return false;
+    }
+    s_pending.clear();
+    return true;
+}
+
 bool Config::tryGetBool(const char* key, bool* value)
 {
     const char* text = find(key);
@@ -207,31 +303,6 @@ int Config::getInt(const char* key, int defaultValue)
 {
     int value = defaultValue;
     return tryGetInt(key, &value) ? value : defaultValue;
-}
-
-static unsigned s_generation = 0;
-
-void Config::set(const char* wanted, const char* value)
-{
-    const char* key = canonicalKey(wanted);
-    if (strlen(key) >= MaxKey || strlen(value) >= MaxValue)
-        return;
-    Entry* existing = nullptr;
-    for (Entry& entry : s_entries)
-    {
-        if (strcmp(entry.key, key) == 0)
-            existing = &entry;
-    }
-    if (!existing && *value)
-    {
-        s_entries.emplace_back();
-        existing = &s_entries.back();
-        strcpy(existing->key, key);
-        existing->fromAlias = false;
-    }
-    if (existing)
-        strcpy(existing->value, value);     // empty: find() treats the key as removed
-    ++s_generation;
 }
 
 unsigned Config::generation()

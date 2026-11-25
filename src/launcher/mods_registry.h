@@ -5,6 +5,7 @@
 // in the mod's own settings file shared with the PC game; the cfg never controls the same feature.
 
 #include "mods_require.h"
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,27 @@ struct IniKey
     bool supported;
 };
 
+// One file the mod needs: where it is in the archive and where it goes in the game folder.
+struct FileLocation
+{
+    std::string from;           // path in the archive, '/' separated
+    std::string to;             // relative to the game folder, as in the PC game's layout
+    uint64_t bytes;
+};
+
+// Where a mod's files can be fetched from; launcher only, the game never downloads.
+struct Download
+{
+    std::string url;            // direct HTTPS link to the archive (zip, 7z or rar)
+    uint64_t archiveBytes = 0;
+    std::string archiveSha256;  // lower-case hex
+    std::vector<FileLocation> files;
+
+    uint64_t installedBytes() const;
+    // Archive plus installed bytes: the archive stays until installed.
+    uint64_t spaceNeeded() const { return archiveBytes + installedBytes(); }
+};
+
 // A PC mod, a group of the Mods tab: every key of its ini, in the ini's order.
 struct Source
 {
@@ -29,23 +51,34 @@ struct Source
     const char* author;
     const char* iniPath;        // relative to the game folder
     std::vector<IniKey> keys;
+    Download download;          // empty url: the files cannot be downloaded
+
+    // Empty when the mod has no download.
+    const std::string& downloadUrl() const { return download.url; }
+    const std::vector<FileLocation>& fileLocations() const { return download.files; }
+    bool downloadable() const { return !download.url.empty() && !download.files.empty(); }
 };
 
 enum SourceId { ExtraOptions, SourceCount };
 
-// A supported key: its name, section, key and requirements are the shared setting's (mods_require.h).
+// A supported key: its name, section, key and requirements are the shared setting's (mods_require.h), or for a
+// launcher-only entry its own.
 struct Mod
 {
     SourceId source;
-    modreq::SettingId setting;
+    modreq::SettingId setting;  // SettingCount with own
     const char* description;    // quoted from the mod's own readme
     const char* comment;        // our wording, for a line we write
     std::vector<const char*> overlaps;  // cfg keys that would control the same feature; none may exist
+    const modreq::Setting* own = nullptr;   // a setting the game never sees
+    const char* note = nullptr;             // our line after the description
 };
 
 const Mod& get(Id id);
-inline const modreq::Setting& def(const Mod& mod) { return modreq::setting(mod.setting); }
+inline const modreq::Setting& def(const Mod& mod) { return mod.own ? *mod.own : modreq::setting(mod.setting); }
 const Source& source(SourceId id);
+// Replaces a source's download; the host tests register fake ones.
+void setDownload(SourceId id, const Download& download);
 std::string heading(const Source& source);   // "{mod} {version} by {author}"
 std::string fileName(const Source& source);  // the ini's name, e.g. NFSU2ExtraOptionsSettings.ini
 // The first cfg key controlling the same feature, or null.
@@ -61,6 +94,8 @@ bool get(const std::string& file, const char* section, const char* key, std::str
 std::string pathIn(const std::string& folder, const char* relative);
 bool fileExists(const std::string& file);
 bool isOn(const std::string& value);    // an Extra Options number, as it reads one
+// The mod's own default for the key, when the ini lacks it.
+bool onByDefault(const Mod& mod);
 
 struct State
 {

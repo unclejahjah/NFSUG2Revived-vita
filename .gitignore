@@ -52,7 +52,8 @@ Thumbs.db
 __pycache__/
 
 # Agent worktrees
-.claude/
+.claude/*
+!.claude/skills/
 
 # Game folder remembered by tools/build.py
 /build-game-dir.txt

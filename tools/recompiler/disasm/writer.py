@@ -93,6 +93,10 @@ class Writer:
                       '#include <native.h>\n\nnamespace %s\n{\n\n' % (start, start + BUCKET - 1, self.name))
             for name in referenced:
                 out.write('void %s%s;\n' % (name, PARAMETERS))
+            for flag in sorted(set(f for _, f in emit.MOD_SWITCHES.values() if 'if (%s)' % f in text)):
+                space, _, variable = flag.rpartition('::')
+                out.write('namespace %s { extern bool %s; }\n' % (space, variable) if space
+                          else 'extern bool %s;\n' % variable)
             out.write('\n')
             out.write(text)
             out.write('}\n')

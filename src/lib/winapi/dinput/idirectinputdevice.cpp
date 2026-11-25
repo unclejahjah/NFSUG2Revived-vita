@@ -245,7 +245,7 @@ HRESULT IDirectInputDevice::GetCapabilities(WinApplication* app, x86::CPU& cpu,
     caps.dwDevType = deviceType();
     caps.dwAxes = input->getAxesCount();
     caps.dwButtons = input->getButtonCount();
-    caps.dwPOVs = 0;    // the EMS adapter reports the d-pad as buttons 12-15
+    caps.dwPOVs = controls::HatCount;    // the d-pad is buttons 12-15; the hats carry the stick flicks
     memcpy(lpDIDevCaps, &caps, caps.dwSize);
     return DI_OK;
 }
@@ -449,8 +449,8 @@ HRESULT IDirectInputDevice::GetDeviceState(WinApplication* app, x86::CPU& cpu,
             return DIERR_INVALIDPARAM;
         x86::reg32 buttons;
         x86::sreg32 axes[controls::AxisCount];
-        int hat;
-        gamepad->getState(&buttons, axes, &hat);
+        int hat[controls::HatCount];
+        gamepad->getState(&buttons, axes, hat);
         memset(lpvData, 0, cbData);
         DIJOYSTATE* state = reinterpret_cast<DIJOYSTATE*>(lpvData);
         state->lX = axes[controls::AxisX];
@@ -463,7 +463,8 @@ HRESULT IDirectInputDevice::GetDeviceState(WinApplication* app, x86::CPU& cpu,
         state->rglSlider[1] = axes[controls::AxisSlider1];
         for (DWORD& pov : state->rgdwPOV)
             pov = 0xffffffff;
-        state->rgdwPOV[0] = hat < 0 ? 0xffffffff : DWORD(hat);
+        for (int h = 0; h < controls::HatCount; ++h)
+            state->rgdwPOV[h] = hat[h] < 0 ? 0xffffffff : DWORD(hat[h]);
         for (x86::reg32 button = 0; button < controls::joystickButtonCount(); ++button)
             state->rgbButtons[button] = (buttons & (x86::reg32(1) << button)) ? 0x80 : 0x00;
         return DI_OK;

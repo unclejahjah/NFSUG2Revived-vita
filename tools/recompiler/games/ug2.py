@@ -46,11 +46,20 @@ NATIVE_OVERRIDES = [
     # Fast travel (src/ug2/fasttravel.cpp), as NFSU2FastTravel on PC
     0x558790,   # dialog (cdecl; ..., yes, no, back, buttons, text): the World Map's GPS question gets the fast-travel No
     0x4e08e0,   # GameWorldMapScreen::NotificationMessage (thiscall; hash, object, p3, p4): No moves the car
-    # Right stick camera (src/ug2/camera_stick.cpp)
-    0x453570,   # CubicCameraMover::Update (thiscall): the stick's orbit or Look Back first
-    0x5ba9a0,   # look-at (cdecl; matrix, eye, target, up): the orbited eye inside that update
+    # PS2 button icons (src/ug2/helpicons.cpp, src/ug2/psprompt.cpp)
+    0x51c110,   # FE font render (thiscall on the font): the context of its token skips
+    0x50bac0,   # "$name$" token skip (cdecl; text, flags): draws or measures the button icon
+    0x50bce0,   # line width (thiscall on the font): the context of its token skip
+    0x50c080,   # line width with wrapping (thiscall on the font): the context of its token skip
+    # PS2 bottom bar (src/ug2/psbar.cpp): the PC help bar fill
+    0x54e6e0, 0x54e6a0, 0x54e6b0,   # fill, Show, Hide
+    # Port screen table first (src/ug2/ownscreens.cpp)
+    0x50b790,   # screen constructor by package hash (cdecl; hash, package, argument)
+    0x50b840,   # screen table entry by package hash (cdecl; hash)
+    0x570d70,   # chunk register (cdecl; chunk): a replaced package chunk goes in instead (src/ug2/ownscreens.cpp)
+    0x5425a0,   # package chunk unload (cdecl; chunk): a replaced package's own chunk is unloaded (src/ug2/ownscreens.cpp)
     # Front touch (src/ug2/padbind.cpp)
-    0x50b460,   # FE mouse cursor draw (cdecl; x, y): skipped with front_touch=on
+    0x50b460,   # FE mouse cursor draw (cdecl; x, y): never drawn
     # Forwarding placeholders for the hot-function conversions (src/ug2/native/stubs.cpp, tools/native/placeholders.txt)
     0x5cf420, 0x5bc300, 0x61b670, 0x5bdde0, 0x5c5930, 0x5d6570,
     0x5bc210, 0x4013f0, 0x5bcc30, 0x4905a0, 0x5ceb30, 0x5dd490,
@@ -88,8 +97,15 @@ NATIVE_OVERRIDES = [
     # Free roam's drift mode (src/ug2/showoff_hooks.cpp, drift.c): the drift leaderboard, the style points' drift branch
     # and ShowNiftyDriftyMessage skipped while the switch is ours; the music manager's tick and the in-game mix without it
     0x56ddd0, 0x4c85d0, 0x4ac120, 0x482180, 0x471970,
+    # Controls in registry.txt (src/ug2/controlslink.cpp): the profile's control load and save
+    0x5b9570, 0x5b9420,
+    # Customize's bind wait takes the PC pad capture's button, axis and hat (src/ug2/native/sub_5b8460.cpp, sub_5b8250.cpp,
+    # sub_5c1720.cpp)
+    0x5b8460, 0x5b8250, 0x5c1720,
     # Menu up/down ignore the right stick (src/ug2/native/sub_571d50.cpp)
     0x571d50,
+    # Free look (src/ug2/freelook.cpp): chase camera update and look-at matrix
+    0x453570, 0x5ba9a0,
     # Medium graphics features: flares, shadow hull, headlight pass, particles
     0x490920, 0x5c5580, 0x60cee0, 0x5bdaa0, 0x48bdf0, 0x492e10,
     0x5c0e10, 0x4881d0, 0x5bb430, 0x61e700,
@@ -140,6 +156,8 @@ NATIVE_OVERRIDES = [
     # Unloads that wait for pending draw flushes (src/ug2/native/load_hooks.cpp): chunk unload, solid unload,
     # texture pack unload, streamed texture unload
     0x577b10, 0x493f20, 0x494dd0, 0x494b10,
+    # Movie frame conversion, YV12 to 32-bit pixels (cdecl; src/ug2/native/sub_700150.cpp)
+    0x700150,
 ]
 
 # Calls emitted inline with generate.py --inline-ftol2 (codegen/control.py INLINE): address -> helper.
@@ -199,6 +217,13 @@ PATCHES = [
     (0x5c7ffc, '60427800', 'f07f7e00'),
 ]
 THREAD_SEGMENTS = []
+
+# Mod operand edits, generated both ways and picked at run time by a flag (src/ug2/mods_runtime.cpp):
+# address, original bytes, the mod's bytes, flag.
+MOD_SWITCHES = [
+    # ExtraOptions 5.1.0.1340 [Gameplay] UnlockRegionalCars: PickRandomCarsOfSomeSort (0x4FEAF0) list length 26 -> 28
+    (0x4feb9d, '1a', '1c', 'modrt::euCarsAiList'),
+]
 
 # Net x87 pushes of functions the depth analysis cannot follow.
 FPU_DELTAS = {

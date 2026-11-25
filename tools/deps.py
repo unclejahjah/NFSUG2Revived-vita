@@ -1,7 +1,8 @@
 """Finds VitaSDK and LLVM, or downloads pinned versions once into a shared folder (~/vita-tools).
 
-python3 tools/deps.py vitasdk|llvm [--download]   prints the folder used
-VitaSDK and LLVM (22.1.8 or newer) are looked for in their usual places first.
+python3 tools/deps.py vitasdk|llvm|packages [--download]   prints the folder used
+VitaSDK and LLVM (22.1.8 or newer) are looked for in their usual places first. packages: the launcher's VitaSDK
+libraries (curl with mbedTLS, zstd, zlib, liblzma, bzip2) in a folder of their own.
 """
 import hashlib
 import json
@@ -43,6 +44,18 @@ LLVM = {
     ('linux', 'arm64'): ('LLVM-22.1.8-Linux-ARM64.tar.xz',
                          '805efad2bb91cb4967fa569e0881d10c0f69c04461cf671cccbae19f547acc34'),
 }
+
+PACKAGES_URL = 'https://github.com/vitasdk/vitasdk-autobuild/releases/download/packages-2026.08-snapshot-20261024.61.1/'
+PACKAGES_FOLDER = 'vita-launcher-packages-20261024'
+# Archive name, SHA-256
+PACKAGES = [
+    ('curl-mbedtls-8.22.0-1-vita.pkg.tar.xz', '249b6992000b77dc2cac59feec55bea7bb892f181c03cb9d5399504290b6d30f'),
+    ('mbedtls-3.6.5-1-vita.pkg.tar.xz', 'f0340ba0eae36b2e8358ec033245e85ad442395fcffe3cf19dcc1a9551cfcf07'),
+    ('zstd-1.5.7-1-vita.pkg.tar.xz', '8952615363f62179c9a9168bf7bab24e55b39db7f420ee63e580e1b141dc35f9'),
+    ('zlib-1.3.2-2-vita.pkg.tar.xz', 'e5b601fe333edb3781c0821c8ea168448d0edb0195362fb391d60e2c0e5d423c'),
+    ('xz-5.8.4-1-vita.pkg.tar.xz', '94f4efe01f4f7f3c9557c9f538a9c5b2d2f59a00abed8549e4e4ed0455ff36c5'),
+    ('bzip2-1.0.8-1-vita.pkg.tar.xz', '81072eb7487878d1cfede1122997644892a3f750a3e7da676d80d729f4e635d0'),
+]
 
 CMAKE_VERSION = '4.5.0'
 CMAKE_URL = 'https://github.com/Kitware/CMake/releases/download/v4.5.0/'
@@ -199,6 +212,31 @@ def install(name, table, base_url, folder, unpack, variable):
     with open(marker, 'w') as f:
         f.write(sha256 + '\n')
     os.remove(archive)
+    return target
+
+
+def packages():
+    """Downloads and unpacks the launcher's libraries once; returns their folder."""
+    target = os.path.join(tools_dir(), PACKAGES_FOLDER)
+    marker = os.path.join(target, '.installed')
+    stamp = hashlib.sha256(' '.join(sha for _, sha in PACKAGES).encode()).hexdigest()
+    if os.path.exists(marker) and open(marker).read().strip() == stamp:
+        return target
+    if os.path.exists(target):
+        shutil.rmtree(target)
+    os.makedirs(target)
+    for name, sha256 in PACKAGES:
+        archive = os.path.join(tools_dir(), 'downloads', name)
+        download(PACKAGES_URL + name, sha256, archive)
+        with tarfile.open(archive, 'r:xz') as tar:
+            members = [m for m in tar.getmembers() if m.name.startswith('arm-vita-eabi/')]
+            if hasattr(tarfile, 'tar_filter'):
+                tar.extractall(target, members=members, filter='tar')
+            else:
+                tar.extractall(target, members=members)
+        os.remove(archive)
+    with open(marker, 'w') as f:
+        f.write(stamp + '\n')
     return target
 
 
@@ -426,6 +464,9 @@ def build_tool(name, download=False):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2 or sys.argv[1] not in ('vitasdk', 'llvm') or sys.argv[2:] not in ([], ['--download']):
+    if len(sys.argv) < 2 or sys.argv[1] not in ('vitasdk', 'llvm', 'packages') or sys.argv[2:] not in ([], ['--download']):
         sys.exit(__doc__)
-    print((vitasdk if sys.argv[1] == 'vitasdk' else llvm)(download=sys.argv[2:] == ['--download']))
+    if sys.argv[1] == 'packages':
+        print(packages())
+    else:
+        print((vitasdk if sys.argv[1] == 'vitasdk' else llvm)(download=sys.argv[2:] == ['--download']))

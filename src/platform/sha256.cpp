@@ -1,4 +1,5 @@
 #include <platform/sha256.h>
+#include <algorithm>
 #include <cstring>
 
 namespace pf
@@ -65,6 +66,45 @@ std::string sha256Hex(const uint8_t* data, size_t size)
     static const char digits[] = "0123456789abcdef";
     std::string hex;
     for (uint32_t word : h)
+    {
+        for (int shift = 28; shift >= 0; shift -= 4)
+            hex += digits[(word >> shift) & 15];
+    }
+    return hex;
+}
+
+void Sha256::update(const uint8_t* data, size_t size)
+{
+    m_total += size;
+    while (size)
+    {
+        const size_t n = std::min(size, sizeof(m_block) - m_used);
+        memcpy(m_block + m_used, data, n);
+        m_used += n;
+        data += n;
+        size -= n;
+        if (m_used == sizeof(m_block))
+        {
+            block(m_h, m_block);
+            m_used = 0;
+        }
+    }
+}
+
+std::string Sha256::hex()
+{
+    const uint64_t bits = m_total * 8;
+    const uint8_t one = 0x80, zero = 0;
+    update(&one, 1);
+    while (m_used != 56)
+        update(&zero, 1);
+    uint8_t length[8];
+    for (int i = 0; i < 8; ++i)
+        length[i] = uint8_t(bits >> (56 - 8 * i));
+    update(length, 8);
+    static const char digits[] = "0123456789abcdef";
+    std::string hex;
+    for (uint32_t word : m_h)
     {
         for (int shift = 28; shift >= 0; shift -= 4)
             hex += digits[(word >> shift) & 15];

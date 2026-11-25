@@ -76,6 +76,9 @@ Gamepad::PollHook       s_pollHook;         // not guarded: set before the game 
 std::atomic<bool>       s_settingsWanted(false);
 std::atomic<int>        s_sayWanted(-1);
 std::atomic<float>      s_rightStick[2];    // the last pump's right stick
+std::atomic<float>      s_leftStick[2];     // the last pump's left stick
+std::atomic<bool>       s_touchBlocked;     // setTouchBlocked
+std::atomic<uint32_t>   s_lastInputs;       // the last pump's inputs, injected included
 controls::PadSample     s_injected;         // setInjectedPad
 Gamepad::Touch          s_touch;            // getTouch
 bool                    s_touchSeen;
@@ -288,9 +291,10 @@ void pump()
             pad.sticks[i] = s_injected.sticks[i];
     s_rightStick[0] = pad.sticks[2];
     s_rightStick[1] = pad.sticks[3];
-    if (!controls::frontTouchEnabled())
-        pad.touchCount = 0;
-    else if (s_injected.touchCount)
+    s_leftStick[0] = pad.sticks[0];
+    s_leftStick[1] = pad.sticks[1];
+    s_lastInputs = pad.inputs;
+    if (s_injected.touchCount)
     {
         memcpy(pad.touches, s_injected.touches, sizeof(pad.touches));
         pad.touchCount = s_injected.touchCount;
@@ -341,7 +345,8 @@ void pump()
     {
         state.buttons = 0;
         state.keys = 0;
-        state.pov = -1;
+        for (int h = 0; h < controls::HatCount; ++h)
+            state.pov[h] = -1;
         memset(state.axes, 0, sizeof(state.axes));
     }
     postKeys(s_field.active ? state.keys : 0);
@@ -457,8 +462,21 @@ x86::reg32 Gamepad::getDeviceType8() const
     return 0x0215;
 }
 
-// Each stick is shaped as a whole: the left with lX's properties, the right (Rz, Z) with Rz's; absent axes centred.
-void Gamepad::getState(x86::reg32* buttons, x86::sreg32 (&axes)[controls::AxisCount], int* pov)
+// Game's axis dead zone and saturation, on top of shaping.
+static float applyProperties(float value, const Gamepad::AxisProperties& properties)
+{
+    const float dead = float(properties.deadZone) / 10000.0f;
+    const float full = float(properties.saturation) / 10000.0f;
+    const float magnitude = std::fabs(value);
+    if (dead <= 0.0f && full >= 1.0f)
+        return value;
+    if (magnitude <= dead)
+        return 0.0f;
+    const float scaled = full > dead ? std::fmin(1.0f, (magnitude - dead) / (full - dead)) : 1.0f;
+    return value < 0.0f ? -scaled : scaled;
+}
+
+void Gamepad::getState(x86::reg32* buttons, x86::sreg32 (&axes)[controls::AxisCount], int (&pov)[controls::HatCount])
 {
     controls::State state;
     {
@@ -467,16 +485,13 @@ void Gamepad::getState(x86::reg32* buttons, x86::sreg32 (&axes)[controls::AxisCo
         state = s_state;
     }
     float shaped[controls::AxisCount] = {};
-    const AxisProperties& left = m_axisProperties[controls::AxisX];
-    controls::shapeStick(state.axes[controls::AxisX], state.axes[controls::AxisY], left.deadZone, left.saturation,
-                         &shaped[controls::AxisX], &shaped[controls::AxisY]);
-    const AxisProperties& right = m_axisProperties[controls::AxisRz];
-    controls::shapeStick(state.axes[controls::AxisRz], state.axes[controls::AxisZ], right.deadZone, right.saturation,
-                         &shaped[controls::AxisRz], &shaped[controls::AxisZ]);
-    *pov = state.pov;
+    for (int axis = 0; axis < controls::AxisCount; ++axis)
+        shaped[axis] = applyProperties(state.axes[axis], m_axisProperties[axis]);
+    for (int h = 0; h < controls::HatCount; ++h)
+        pov[h] = state.pov[h];
     *buttons = state.buttons;
     if (s_pollHook)
-        s_pollHook(buttons, pov);
+        s_pollHook(buttons, &pov[0]);
     for (int axis = 0; axis < controls::AxisCount; ++axis)
     {
         const AxisProperties& properties = m_axisProperties[axis];
@@ -524,11 +539,41 @@ void Gamepad::getRightStick(float* x, float* y)
     *y = s_rightStick[1];
 }
 
+void Gamepad::getPad(uint32_t* inputs, float (&sticks)[4])
+{
+    *inputs = s_lastInputs;
+    sticks[0] = s_leftStick[0];
+    sticks[1] = s_leftStick[1];
+    sticks[2] = s_rightStick[0];
+    sticks[3] = s_rightStick[1];
+}
+
+void Gamepad::getFixedRightStick(float* x, float* y)
+{
+    controls::fixedShape(s_rightStick[0], s_rightStick[1], x, y);
+}
+
+void Gamepad::setTouchBlocked(bool blocked)
+{
+    s_touchBlocked = blocked;
+}
+
 bool Gamepad::getTouch(Touch* touch, bool button)
 {
-    if (!controls::frontTouchEnabled())
-        return false;
     pf::LwLockGuard lock(s_mutex);
+    if (s_touchBlocked)
+    {
+        if (button)
+        {
+            s_buttonReader = true;
+            pump();
+            s_pressPending = false;
+            s_releasePending = false;
+        }
+        *touch = s_touch;
+        touch->down = false;
+        return false;
+    }
     if (!button)
     {
         *touch = s_touch;

@@ -2,6 +2,7 @@
 // of platform/render.h; Present hands the frame to the device (render thread on the Vita).
 
 #include <winapi/d3d9_internal.h>
+#include <winapi/d3d9_msaa.h>
 #include <winapi/d3d9_probe.h>
 #include <winapi/support.h>
 #include <lib/memlog.h>
@@ -60,6 +61,7 @@ const bool s_fastDraw = RENDER_FAST_PATHS != 0;
 // debug_frame_dump=on (development): one frame in 150, 40 frames in all, is written to the log call by call.
 std::atomic<bool> s_dumping{false};
 uint64_t s_recorded = 0;    // draws recorded in the frames submitted so far
+std::atomic<uint32_t> s_msaaSamples{1};     // bridge::setMsaaSamples, taken when a frame opens
 
 bool dumpThisFrame(uint32_t index)
 {
@@ -184,6 +186,9 @@ Device::~Device()
 {
     if (m_parent)
         return;
+    for (Surface* s : m_depthSurfaces)
+        s->setDepthListed(false);
+    m_depthSurfaces.clear();
     for (Device* clone : m_clones)
         delete clone;
     bridge::deviceGone(this);
@@ -240,6 +245,7 @@ void Device::bindSlot(T*& slot, T* object)
 
 void Device::resetBackBuffer(const D3DPRESENT_PARAMETERS& params)
 {
+    bridge::setMsaaSamples(requestedSamples(params.MultiSampleType, params.MultiSampleQuality));
     m_params = params;
     if (!m_params.BackBufferWidth || !m_params.BackBufferHeight)
     {
@@ -266,7 +272,8 @@ void Device::resetBackBuffer(const D3DPRESENT_PARAMETERS& params)
     if (m_params.EnableAutoDepthStencil)
     {
         m_autoDepth = new Surface(this, Surface::RoleDepth, w, h, m_params.AutoDepthStencilFormat);
-        m_autoDepth->setDepth(gpu().createDepth(w, h));
+        m_autoDepth->setDepth(gpu().createDepth(w, h, depthSamples(w, h, m_msaaSamples)));
+        listDepth(m_autoDepth);
         m_autoDepth->pin();
         publish(m_app, m_autoDepth);
     }
@@ -340,6 +347,8 @@ render::Frame* Device::frame(WinApplication* app, x86::CPU& cpu)
         app->unlockContext(cpu);
         m_frame = gpu().beginFrame(m_params.BackBufferWidth, m_params.BackBufferHeight);
         app->lockContext(cpu);
+        applyMsaa(m_frame->index);
+        m_frame->msaaSamples = uint8_t(m_msaaSamples);
         if (bridge::g_frameHook)
             bridge::g_frameHook(m_frame->index);
         if (timed)
@@ -378,6 +387,63 @@ uint64_t recordedDraws()
     return s_recorded;
 }
 
+void setMsaaSamples(uint32_t samples)
+{
+    s_msaaSamples = samples == 4 ? 4 : samples == 2 ? 2 : 1;
+}
+
+}
+
+void Device::applyMsaa(uint32_t frameIndex)
+{
+    const uint32_t samples = s_msaaSamples.load(std::memory_order_relaxed);
+    if (samples == m_msaaSamples)
+        return;
+    uint32_t replaced = 0, kept = 0;
+    for (Surface* s : m_depthSurfaces)
+    {
+        const uint32_t want = depthSamples(s->width(), s->height(), samples);
+        if (want == depthSamples(s->width(), s->height(), m_msaaSamples))
+            continue;
+        render::DepthStorage* depth = gpu().createDepth(s->width(), s->height(), want);
+        if (!depth)
+        {
+            ++kept;
+            continue;
+        }
+        // Frames recorded before this one keep the old depth; it is freed once they are finished.
+        gpu().release(s->depth());
+        s->setDepth(depth);
+        ++replaced;
+    }
+    pf::logInfo("d3d9: msaa %s from frame %u: %u depth surfaces replaced for it%s",
+                samples == 1 ? "off" : samples == 2 ? "2x" : "4x", unsigned(frameIndex), unsigned(replaced),
+                kept ? ", some kept (no GPU memory): their scenes stay 1x" : "");
+    m_msaaSamples = samples;
+}
+
+uint32_t Device::depthSamples(uint32_t width, uint32_t height, uint32_t samples) const
+{
+    return width >= m_params.BackBufferWidth && height >= m_params.BackBufferHeight ? samples : 1;
+}
+
+void Device::listDepth(Surface* surface)
+{
+    m_depthSurfaces.push_back(surface);
+    surface->setDepthListed(true);
+}
+
+void Device::forgetDepth(Surface* surface)
+{
+    for (size_t i = 0; i < m_depthSurfaces.size(); ++i)
+    {
+        if (m_depthSurfaces[i] == surface)
+        {
+            m_depthSurfaces[i] = m_depthSurfaces.back();
+            m_depthSurfaces.pop_back();
+            return;
+        }
+    }
 }
 
 // Hands the recorded frame to the device.
@@ -604,6 +670,8 @@ __attribute__((always_inline)) inline render::Scene* Device::scene()
     if (t && t->role() == Surface::RoleLevel && t->container())
     {
         target.color = t->container()->storage();
+        if (!target.color)
+            return nullptr;
         target.face = uint8_t(t->face());
         width = uint16_t(t->width());
         height = uint16_t(t->height());
@@ -882,11 +950,27 @@ __attribute__((always_inline)) inline HRESULT Device::draw(
         r.deviceSamplers = 0;
         r.deviceStates = 0;
     }
+    if (__builtin_expect(m_proxyTarget, 0))
+        dropSelfCopy(d, textures, s);
     memcpy(r.textures, textures, sizeof(textures));
     markRead(*f, textures, vertexStorage, indexStorage);
     ++m_drawCount;
     ++m_sceneDraws;
     return D3D_OK;
+}
+
+// Empties a proxy draw that reads its own texture.
+void Device::dropSelfCopy(render::DrawCall& d, const render::TextureStorage* const* textures, const render::Scene* s)
+{
+    for (uint32_t i = 0; i < render::MaxSamplers; ++i)
+    {
+        if (textures[i] && textures[i] == s->target.color)
+        {
+            d.count = 0;
+            D3D_LOG_ONCE("d3d9: a draw into a multisample proxy reads the texture it draws into: dropped");
+            return;
+        }
+    }
 }
 
 VertexDeclaration* Device::fvfDeclaration(DWORD fvf)
@@ -1261,11 +1345,29 @@ HRESULT Device::CreateRenderTarget(WinApplication* app, x86::CPU& cpu, UINT widt
                                    DWORD multiSample, DWORD quality, BOOL lockable, x86::reg32* surface,
                                    x86::reg32 sharedHandle)
 {
-    RC_USE(multiSample);
     RC_USE(quality);
     RC_USE(lockable);
     if (!surface)
         return D3DERR_INVALIDCALL;
+    if (multiSample != MultisampleNone)
+    {
+        // Multisampled (SPEED2.EXE's FSAA light-trails target): the renderer multisamples the texture it resolves to.
+        render::TextureDesc desc;
+        desc.format = textureFormat(format);
+        desc.levels = 1;
+        desc.cube = false;
+        desc.target = true;
+        desc.width = uint16_t(width);
+        desc.height = uint16_t(height);
+        desc.linear = false;
+        Texture* t = new Texture(this, desc, format, D3DUSAGE_RENDERTARGET, 0, true);
+        publish(app, t);
+        *surface = t->surface(app, 0, 0)->guest();
+        t->release();
+        D3D_LOG_ONCE("d3d9: CreateRenderTarget %ux%u multisample %u quality %u: a proxy without storage", width,
+                     height, unsigned(multiSample), unsigned(quality));
+        return D3D_OK;
+    }
     // A render target texture whose only reference is its surface.
     x86::reg32 texture = 0;
     const HRESULT result = CreateTexture(app, cpu, width, height, 1, D3DUSAGE_RENDERTARGET, format, 0, &texture,
@@ -1289,11 +1391,12 @@ HRESULT Device::CreateDepthStencilSurface(WinApplication* app, x86::CPU& cpu, UI
     RC_USE(sharedHandle);
     if (!surface || !width || !height)
         return D3DERR_INVALIDCALL;
-    render::DepthStorage* depth = gpu().createDepth(width, height);
+    render::DepthStorage* depth = gpu().createDepth(width, height, depthSamples(width, height, m_msaaSamples));
     if (!depth)
         return D3DERR_OUTOFVIDEOMEMORY;
     Surface* s = new Surface(this, Surface::RoleDepth, width, height, format);
     s->setDepth(depth);
+    listDepth(s);
     *surface = publish(app, s);
     return D3D_OK;
 }
@@ -1312,6 +1415,7 @@ HRESULT Device::SetRenderTarget(WinApplication* app, x86::CPU& cpu, DWORD index,
         return D3DERR_INVALIDCALL;
     bindSlot(m_state.target, surface);
     m_sceneCached = false;
+    m_proxyTarget = surface->role() == Surface::RoleLevel && surface->container()->proxy();
     // A new render target resets the viewport to the whole target.
     m_ctx.viewportSet(D3DVIEWPORT9{ 0, 0, surface->width(), surface->height(), 0.0f, 1.0f });
     m_viewportChanged = true;
@@ -1356,12 +1460,35 @@ bool newCopyKind(uint32_t key)
 
 }
 
+// The proxy a whole copy lends a texture to, or null.
+Texture* Device::lendingProxy(Surface* source, Surface* dest, const RECT* sourceRect, const RECT* destRect) const
+{
+    const auto plain = [](Surface* s) {
+        return s->role() == Surface::RoleLevel && s->container() && !s->container()->desc().cube && s->level() == 0
+            && s->container()->desc().target;
+    };
+    if (sourceRect || destRect || !plain(source) || !plain(dest) || source->width() != dest->width()
+        || source->height() != dest->height() || source->container()->proxy() == dest->container()->proxy())
+        return nullptr;
+    Texture* proxy = source->container()->proxy() ? source->container() : dest->container();
+    Texture* other = proxy == source->container() ? dest->container() : source->container();
+    return proxy->storage() == other->storage() ? nullptr : proxy;
+}
+
 // A textured quad drawn into the destination, in a scene of its own after the draws before it.
 HRESULT Device::StretchRect(WinApplication* app, x86::CPU& cpu, Surface* source, const RECT* sourceRect,
                             Surface* dest, const RECT* destRect, DWORD filter)
 {
     if (!source || !dest)
         return D3DERR_INVALIDCALL;
+    if (Texture* proxy = lendingProxy(source, dest, sourceRect, destRect))
+    {
+        proxy->lend((proxy == source->container() ? dest : source)->container());
+        m_sceneCached = false;
+        D3D_LOG_ONCE("d3d9: StretchRect %ux%u %s a multisample proxy: it draws into the texture from now on",
+                     dest->width(), dest->height(), proxy == source->container() ? "out of" : "into");
+        return D3D_OK;
+    }
     const render::TextureStorage* from = nullptr;
     if (source->role() == Surface::RoleBackBuffer)
         from = render::backBufferTexture();

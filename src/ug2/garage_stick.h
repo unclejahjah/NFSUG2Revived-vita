@@ -13,7 +13,6 @@ namespace ug2 { namespace garage_stick {
 const uint32_t OrbitLeftRight = 0x48, OrbitUpDown = 0x49;   // joy events the garage screen listens for
 const uint32_t MenuUpAlternate = 0x2E, MenuDownAlternate = 0x2F;
 const uint8_t  Centre = 0x80;
-const int      DefaultDeadZonePercent = 30;
 const float    MenuStickDeadZone = 0.05f;   // below the pad's own dead zone
 
 struct OrbitBytes
@@ -21,12 +20,6 @@ struct OrbitBytes
     bool    held;
     uint8_t leftRight, upDown;
 };
-
-// Dead zone as a fraction, from the cfg percentage.
-inline float deadZone(int percent)
-{
-    return float(std::min(std::max(percent, 0), 99)) / 100.0f;
-}
 
 // Event value the game reads as -(byte - 128) / 128.
 inline uint8_t orbitByte(float deflection)

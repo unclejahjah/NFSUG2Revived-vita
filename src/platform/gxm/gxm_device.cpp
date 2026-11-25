@@ -1358,9 +1358,9 @@ void Device::endUploads()
     m_impl->frames.endUploads();
 }
 
-render::DepthStorage* Device::createDepth(uint32_t width, uint32_t height)
+render::DepthStorage* Device::createDepth(uint32_t width, uint32_t height, uint32_t samples)
 {
-    return m_impl->frames.createDepth(width, height);
+    return m_impl->frames.createDepth(width, height, samples);
 }
 
 render::BufferStorage* Device::createBuffer(uint32_t size)

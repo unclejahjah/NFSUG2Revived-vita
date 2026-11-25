@@ -1,8 +1,10 @@
 // Garage camera orbit (sub_4a5d90): the right stick reaches the garage screen as the game's own car orbit
 // events, through its handler 0x4A5740.
 
+#include "../controlsshell.h"
 #include "../garage_stick.h"
 #include <native/common.h>
+#include <lib/controls.h>
 #include <lib/gamepad.h>
 #include <platform/config.h>
 
@@ -22,25 +24,29 @@ const x86::reg32 OrbitInput = 0x23C;        // the garage screen's orbit object;
 const x86::reg32 Busy = 0x00838578;         // the handler's other gate
 const x86::reg32 IdleSpin = 0x008363FC, IdleSince = 0x00837AA0, Ticks = 0x008651AC;
 
-struct GarageStick
+// Read again when Vita Settings changes a setting (pf::Config::generation).
+bool enabled()
 {
-    bool  enabled;
-    float deadZone;
-};
-
-// Read again when the options menu changes a setting (pf::Config::generation).
-const GarageStick& settings()
-{
-    static GarageStick s;
+    static bool on = true;
     static unsigned s_generation = ~0u;
     if (s_generation != pf::Config::generation())
     {
         s_generation = pf::Config::generation();
-        s.enabled = pf::Config::getBool("garage_stick", true);
-        s.deadZone = garage_stick::deadZone(pf::Config::getInt("garage_stick_deadzone",
-                                                               garage_stick::DefaultDeadZonePercent));
+        on = pf::Config::getBool("garage_stick", true);
     }
-    return s;
+    return on;
+}
+
+int deadZone()
+{
+    static int percent = 30;
+    static unsigned s_generation = ~0u;
+    if (s_generation != pf::Config::generation())
+    {
+        s_generation = pf::Config::generation();
+        percent = pf::Config::getInt("garage_stick_deadzone", 30);
+    }
+    return percent;
 }
 
 // Sends one joy event to the screen's orbit handler.
@@ -60,12 +66,15 @@ void orbitEvent(win32::WinApplication* app, x86::CPU& cpu, x86::reg32 screen, x8
 
 void sub_4a5d90(win32::WinApplication* app, x86::CPU& cpu)
 {
-    const GarageStick& g = settings();
     const x86::reg32 screen = cpu.ecx;
     float x = 0.0f, y = 0.0f;
-    if (g.enabled)
-        win32::Gamepad::getRightStick(&x, &y);
-    const garage_stick::OrbitBytes orbit = garage_stick::orbitBytes(x, y, g.deadZone);
+    if (enabled() && !controlsshell::inputHeld())
+    {
+        float rx = 0.0f, ry = 0.0f;
+        win32::Gamepad::getRightStick(&rx, &ry);
+        win32::controls::deadZoneShape(rx, ry, deadZone(), &x, &y);
+    }
+    const garage_stick::OrbitBytes orbit = garage_stick::orbitBytes(x, y, 0.0f);
     static bool s_held;
     if (orbit.held || s_held)
     {

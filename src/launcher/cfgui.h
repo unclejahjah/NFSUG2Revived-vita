@@ -36,6 +36,7 @@ struct Rect
 };
 Rect buttonRect(int which);     // 0 Cancel, 1 Save
 Rect choiceRect(int which);     // in a pop-up: 0 Go Back, 1 OK
+Rect okRect(int which);         // a pop-up with OK alone, for any which
 
 // 0xAABBGGRR: R, G, B, A in memory, the Vita display's A8B8G8R8.
 struct Canvas
@@ -94,9 +95,38 @@ struct ModView
     std::string file;                   // full path of the group's ini
     pf::cfgfile::FileState fileState = pf::cfgfile::FileState::Missing;
     std::string warning;                // shown while the group's ini is unreadable
+    std::string downloadName;           // the source mod, named in the download pop-up
+    uint64_t downloadSpace = 0;         // free bytes a download needs; 0: its files cannot be downloaded
 };
 
-enum class Screen { Splash, Manager, ConfirmCancel, ConfirmSave, Launch };   // Launch: nothing more to show
+// The Mods tab's file checks and downloads, kept out of the screen code; the launcher's is ModDownloads.
+class ModFiles
+{
+public:
+    enum class Phase { Download, Unpack, Install, Done, Failed, Cancelled };
+    struct Progress
+    {
+        Phase phase = Phase::Download;
+        float fraction = 0.0f;          // of the whole bar: download to 0.5, unpack to 0.9, install to 1
+        uint64_t downloaded = 0;
+        uint64_t total = 0;             // the archive's size
+        std::string error;              // one line, when Failed
+    };
+
+    virtual ~ModFiles() {}
+    // id: the registry feature (ModView::id).
+    virtual bool requirementsMet(int id) = 0;
+    // Takes the lock, checks space, starts; false: *error set.
+    virtual bool start(int id, std::string* error) = 0;
+    virtual Progress progress() = 0;
+    virtual void cancel() = 0;
+    // After Done, Failed or Cancelled: joins, releases the lock.
+    virtual void finish() = 0;
+};
+
+// Launch: nothing more to show. ConfirmDownload to DownloadError: a mod's files being fetched.
+enum class Screen { Splash, Manager, ConfirmCancel, ConfirmSave, Launch, ConfirmDownload, Downloading, ConfirmStop,
+                    DownloadError };
 enum class Tab { Mods, Config };
 enum class Outcome { Running, Boot, SaveAndBoot };
 
@@ -130,6 +160,13 @@ public:
     bool showingAll(Tab tab) const { return m_show[int(tab)]; }
     bool modEnabled(int index) const { return m_mods[index].current; }
     bool modChanged(int index) const { return m_mods[index].current != m_mods[index].view.enabled; }
+
+    // Null: every switch just toggles, as before.
+    void setModFiles(ModFiles* files) { m_files = files; }
+    std::string popupText() const;                          // the download screens' message, else empty
+    std::string progressText() const;                       // below the progress bar
+    float progressFraction() const { return m_progress.fraction; }
+    bool progressPrompt() const { return !m_stopping && !m_complete; }    // Circle Cancel under the bar
 
     void selectKey(const char* key);                        // tests and screenshots; shows dev settings if needed
     void setConfigFile(const std::string& path, pf::cfgfile::FileState state, const std::string& warning);
@@ -199,6 +236,9 @@ private:
     void drawModRows(Painter& p) const;
     std::vector<PanelLine> panelLines(const Painter& p, const Mod* mod, bool buttons) const;
     void drawPopup(Painter& p, const char* text) const;
+    void drawPopupFrame(Painter& p, const std::vector<std::string>& lines, bool choices) const;
+    void drawProgress(Painter& p) const;
+    void endDownload(bool installed);
 
     std::string m_cfgText;
     std::string m_configPath;
@@ -234,6 +274,13 @@ private:
     uint64_t m_stickSince = 0;
     uint64_t m_stickLastUs = 0;
     double m_stickSteps = 0.0;
+    ModFiles* m_files = nullptr;
+    int m_download = -1;                // the mod index being fetched
+    bool m_askDownload = false;         // the switch asked for a download this update
+    bool m_stopping = false;            // cancelled, waiting for the work to end
+    bool m_complete = false;            // installed; the dialog waits for any button
+    ModFiles::Progress m_progress;
+    std::string m_error;
 };
 
 // A few centred lines on an empty screen: the launcher's error message.

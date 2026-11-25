@@ -31,8 +31,8 @@ endif()
 
 set(VITA_APP_NAME "NFS Underground 2")
 set(VITA_TITLEID  "NFSU2VITA")
-set(NFSU_VERSION  "0.8.5")
-set(VITA_VERSION  "00.85")
+set(NFSU_VERSION  "0.9.0")
+set(VITA_VERSION  "00.90")
 
 option(NFSU_LOG_DEBUG        "Verbose runtime logging" OFF)
 option(NFSU_ASSERT_SOFT      "Log failed assertions instead of trapping" OFF)
@@ -66,7 +66,7 @@ include(cmake/sources.cmake)
 
 nfsu_add_shaders(NFSU_SHADER_SOURCES)
 
-# Native VP6 movies (movies=vp6): the minimal FFmpeg that tools/vita/build_ffmpeg_vp6.py builds, linked when present.
+# Native VP6 movies (movies=vp6preferred or vp6only): the minimal FFmpeg that tools/vita/build_ffmpeg_vp6.py builds, linked when present.
 set(NFSU_FFMPEG_DIR "${CMAKE_SOURCE_DIR}/build-ffmpeg-vp6/install" CACHE PATH "FFmpeg for VP6 (build_ffmpeg_vp6.py)")
 set(NFSU_FFMPEG_LIBS "")
 if(EXISTS "${NFSU_FFMPEG_DIR}/lib/libavcodec.a" AND EXISTS "${NFSU_FFMPEG_DIR}/lib/libavutil.a")
@@ -183,6 +183,15 @@ set_source_files_properties(${NFSU_LIGHT_SOURCES} PROPERTIES COMPILE_OPTIONS -Og
 set_property(SOURCE ${NFSU_LIGHT_SOURCES} APPEND PROPERTY COMPILE_OPTIONS ${NFSU_CLANG_LIGHT_FLAGS})
 target_compile_definitions(nfsu_game PRIVATE ${NFSU_DEFINES})
 target_include_directories(nfsu_game PRIVATE ${NFSU_INCLUDES})
+# Generated code older than NATIVE_OVERRIDES links without the new natives and no error; this stops the build instead.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+  add_custom_target(nfsu_native_check
+    COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tools/recompiler/check_natives.py
+            ${CMAKE_SOURCE_DIR}/tools/recompiler/games/ug2.py ${NFSU_GENERATED_DIR}
+    VERBATIM)
+  add_dependencies(nfsu_game nfsu_native_check)
+endif()
 
 # Runtime and Vita backend.
 add_library(nfsu_runtime OBJECT ${NFSU_RUNTIME_SOURCES} ${NFSU_SHADER_SOURCES})
@@ -255,6 +264,10 @@ add_executable(NFSU2LAUNCH.elf
   src/launcher/cfgui_sysfont.cpp src/launcher/mods_edit.cpp src/launcher/save.cpp src/launcher/log.cpp
   src/launcher/mods_registry.cpp src/ug2/mods_require.cpp src/ug2/mods_hook.cpp src/ug2/notice_text.cpp
   src/platform/settings.cpp src/platform/cfgfile.cpp src/platform/textfile.cpp)
+# Start-up screen shots on request (shot_c.req) with the game's screenshot writer, development builds only.
+if(DEV_TOOLS)
+  target_sources(NFSU2LAUNCH.elf PRIVATE src/launcher/shots.cpp src/dev/screenshot.cpp)
+endif()
 target_compile_options(NFSU2LAUNCH.elf PRIVATE ${NFSU_COMMON_FLAGS} -O2)
 target_compile_definitions(NFSU2LAUNCH.elf PRIVATE ${NFSU_RUNTIME_DEFINES})
 target_include_directories(NFSU2LAUNCH.elf PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src/ug2
@@ -278,6 +291,42 @@ target_link_libraries(NFSU2LAUNCH.elf
   c
   m
 )
+# Mod downloads, launcher only: VitaSDK packages from tools/deps.py (curl, mbedTLS, zlib, zstd, liblzma, bzip2) and
+# libarchive from tools/vita/build_libarchive.py. Without them, no downloads.
+set(NFSU_VITA_PACKAGES "" CACHE PATH "Folder with arm-vita-eabi/include and lib of the launcher's libraries")
+set(NFSU_LIBARCHIVE_DIR "${CMAKE_SOURCE_DIR}/build-libarchive/install" CACHE PATH "libarchive (build_libarchive.py)")
+set(NFSU_VPK_LAUNCHER_FILES "")
+set(NFSU_PACKAGES_LIB "${NFSU_VITA_PACKAGES}/arm-vita-eabi/lib")
+if(NFSU_VITA_PACKAGES AND EXISTS "${NFSU_PACKAGES_LIB}/libcurl.a" AND EXISTS "${NFSU_PACKAGES_LIB}/liblzma.a"
+   AND EXISTS "${NFSU_LIBARCHIVE_DIR}/lib/libarchive.a")
+  target_sources(NFSU2LAUNCH.elf PRIVATE src/launcher/mods_download.cpp src/launcher/net_curl.cpp
+                 src/launcher/unpack.cpp src/launcher/file_lock.cpp src/platform/sha256.cpp)
+  target_compile_definitions(NFSU2LAUNCH.elf PRIVATE NFSU_MOD_DOWNLOAD)
+  target_include_directories(NFSU2LAUNCH.elf PRIVATE "${NFSU_LIBARCHIVE_DIR}/include"
+                             "${NFSU_VITA_PACKAGES}/arm-vita-eabi/include")
+  target_link_libraries(NFSU2LAUNCH.elf
+    "${NFSU_LIBARCHIVE_DIR}/lib/libarchive.a"
+    "${NFSU_PACKAGES_LIB}/libcurl.a"
+    "${NFSU_PACKAGES_LIB}/libmbedtls.a"
+    "${NFSU_PACKAGES_LIB}/libmbedx509.a"
+    "${NFSU_PACKAGES_LIB}/libmbedcrypto.a"
+    "${NFSU_PACKAGES_LIB}/libeverest.a"
+    "${NFSU_PACKAGES_LIB}/libp256m.a"
+    "${NFSU_PACKAGES_LIB}/liblzma.a"
+    "${NFSU_PACKAGES_LIB}/libbz2.a"
+    "${NFSU_PACKAGES_LIB}/libzstd.a"
+    "${NFSU_PACKAGES_LIB}/libz.a"
+    pthread
+    SceNet_stub
+    SceNetCtl_stub
+    SceShellSvc_stub
+  )
+  set(NFSU_VPK_LAUNCHER_FILES -a "${CMAKE_SOURCE_DIR}/src/launcher/cacert.pem=launcher/cacert.pem"
+      -a "${CMAKE_SOURCE_DIR}/src/launcher/LICENSES.txt=launcher/LICENSES.txt")
+  message(STATUS "Mod downloads: on (libarchive from ${NFSU_LIBARCHIVE_DIR})")
+else()
+  message(STATUS "Mod downloads: off (set NFSU_VITA_PACKAGES and run tools/vita/build_libarchive.py to enable)")
+endif()
 vita_create_self(NFSU2LAUNCH.self NFSU2LAUNCH.elf UNSAFE)
 
 configure_file(
@@ -320,6 +369,7 @@ add_custom_command(OUTPUT "${NFSU_VPK}"
           -a "${NFSU_ART_DIR}/livearea/contents/startup.png=sce_sys/livearea/contents/startup.png"
           -a "${NFSU_TEMPLATE}=sce_sys/livearea/contents/template.xml"
           ${NFSU_VPK_GAME}
+          ${NFSU_VPK_LAUNCHER_FILES}
           -s "${NFSU_SFO}" -b "${NFSU_VPK_EBOOT}" "${NFSU_VPK}"
   DEPENDS "${NFSU_SFO}" "${NFSU_SELF}" "${NFSU_LAUNCH_SELF}" "${NFSU_TEMPLATE}" "${NFSU_ART_DIR}/icon0.png"
           "${NFSU_ART_DIR}/livearea/contents/bg.png" "${NFSU_ART_DIR}/livearea/contents/startup.png"

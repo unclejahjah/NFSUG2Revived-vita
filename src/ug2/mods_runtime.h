@@ -29,8 +29,13 @@ bool runs(Feature feature, const std::string& gameFolder);
 // For the game: as read at start-up, on in the ini and every requirement met.
 bool active(Feature feature);
 
-// The car ids in the game's EU-only (CORSA, PEUGOT106) and US-only (CIVIC, RSX) lists that sub_5022c0 checks.
+// ExtraOptions 5.1.0.1340 [Gameplay] UnlockRegionalCars: EU-only (CORSA, PEUGOT106), US-only (CIVIC, RSX) list ids.
 const uint32_t RegionListIds[4] = { 0x7f7c48, 0x7f7c4c, 0x7f7c50, 0x7f7c54 };
+// ExtraOptions 5.1.0.1340 [Gameplay] UnlockRegionalCars: AI car list entries 26, 27 <- CORSA, PEUGOT106.
+const uint32_t AiListExtra = 0x7f6dbe;
+const uint8_t AiListCars[2] = { 0x07, 0x06 };
+// ExtraOptions 5.1.0.1340 [Gameplay] UnlockRegionalCars: the generated 0x4FEB9C reads 28, not 26 (MOD_SWITCHES).
+extern bool euCarsAiList;
 // Writes the active features' patches into guest memory, before the game code runs. The count written.
 int applyPatches(uint8_t* guestBase);
 

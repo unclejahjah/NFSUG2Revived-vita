@@ -1,5 +1,5 @@
-// Widescreen for the Vita's 960x544. The 640x480 canvas keeps the 4:3 scale, centred; HUD
-// units move to the screen edges; the player views get a hor+ projection. widescreen=off keeps the 4:3 game.
+// Widescreen for the Vita's 960x544, always on. The 640x480 canvas keeps the 4:3 scale, centred; HUD
+// units move to the screen edges; the player views get a hor+ projection.
 
 #include "widescreen.h"
 
@@ -25,7 +25,6 @@
 namespace ug2
 {
 
-void sub_5bf610_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_537480_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_51a5d0_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_5c7ec0_guest(win32::WinApplication* app, x86::CPU& cpu);
@@ -94,11 +93,6 @@ struct Box
 // HUD units: extents of this flush and of the last flush of the same package.
 std::unordered_map<x86::reg32, Box> s_unitNow, s_unitLast;
 
-bool enabled()
-{
-    return pf::cachedStatic([] { return pf::Config::getBool("widescreen", true); });
-}
-
 bool uiLog()
 {
     return pf::cachedStatic([] { return pf::Config::getBool("ui_log", false); });
@@ -166,9 +160,9 @@ void writeSlots(uint32_t width, uint32_t height)
 {
     s_width = width;
     s_height = height;
-    s_k = enabled() && width && height ? std::min(1.0, double(height) / double(width) / 0.75) : 1.0;
+    s_k = width && height ? std::min(1.0, double(height) / double(width) / 0.75) : 1.0;
     setMap(placeMap(Place::Centre, s_k));
-    rc::st32(SlotPictureWidth, enabled() ? x86::reg32(std::lround(height * 4.0 / 3.0)) : width);
+    rc::st32(SlotPictureWidth, x86::reg32(std::lround(height * 4.0 / 3.0)));
     rc::stf32(SlotFovX, 1.0f);
     rc::stf32(SlotFovY, 0.5f);
     s_ready = true;
@@ -230,26 +224,20 @@ void logDraw(x86::reg32 render, x86::reg32 object, x86::reg32 unit, const Box& b
 
 }
 
-// Racing resolution (thiscall): the display size with widescreen=on.
-void racingResolution(win32::WinApplication* app, x86::CPU& cpu)
+// Racing resolution (thiscall): the display size.
+void racingResolution(win32::WinApplication*, x86::CPU& cpu)
 {
     const x86::reg32 widthPointer = rc::ld32(cpu.esp + 4), heightPointer = rc::ld32(cpu.esp + 8);
-    if (enabled())
-    {
-        rc::st32(widthPointer, pf::gxm::DisplayWidth);
-        rc::st32(heightPointer, pf::gxm::DisplayHeight);
-        cpu.esp += 12;
-    }
-    else
-        sub_5bf610_guest(app, cpu);
+    rc::st32(widthPointer, pf::gxm::DisplayWidth);
+    rc::st32(heightPointer, pf::gxm::DisplayHeight);
+    cpu.esp += 12;
     const uint32_t width = rc::ld32(widthPointer), height = rc::ld32(heightPointer);
     writeSlots(width, height);
     static bool s_logged = false;
     if (!s_logged)
     {
         s_logged = true;
-        pf::logInfo("screen: back buffer %ux%u, widescreen %s, 4:3 part of the width %.4f", unsigned(width),
-                    unsigned(height), enabled() ? "on" : "off", s_k);
+        pf::logInfo("screen: back buffer %ux%u, 4:3 part of the width %.4f", unsigned(width), unsigned(height), s_k);
     }
 }
 
@@ -342,7 +330,7 @@ void projection(win32::WinApplication* app, x86::CPU& cpu)
 {
     const x86::reg32 view = rc::ld32(cpu.esp + 4);
     float fovX = 1.0f, fovY = 0.5f;
-    if (enabled() && view)
+    if (view)
     {
         const x86::reg32 id = rc::ld32(view + 4), target = rc::ld32(view + 0x58);
         const bool player = id == 1 || id == 2 || id == 4 || id == 5;

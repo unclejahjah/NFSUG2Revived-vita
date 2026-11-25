@@ -1,5 +1,4 @@
 #include <lib/controls.h>
-#include <platform/cached.h>
 #include <platform/config.h>
 #include <platform/log.h>
 #ifdef __vita__
@@ -58,6 +57,10 @@ static const ButtonMapping s_buttons[] =
 
 // Button that a short press of Select (no chord) reports: respot.
 static const int s_selectTapButton = 8;
+const int HatUp    = 0;
+const int HatDown  = 18000;
+const int HatLeft  = 27000;
+const int HatRight = 9000;
 static const int s_buttonCount = 16;
 
 // Keys held while an input is held in a text field: the d-pad moves its cursor (WM_KEYDOWN Left / Right).
@@ -106,18 +109,6 @@ static const Chord s_chords[] =
 // How long a Select tap holds its button, enough for one game frame at 10 fps.
 static const uint64_t s_tapUs = 100000;
 
-// Left and right stick: dead zone and saturation as fractions of full deflection, and the response curve
-// y = linear * x + (1 - linear) * x^3 between them (finer aim near the centre). The dead zone (stick_deadzone,
-// percent) and the curve (stick_response) are read again when Vita Settings changes them.
-static const float s_stickSaturation = 0.94f;
-
-struct StickShape
-{
-    unsigned generation = ~0u;
-    float deadZone = 0.15f;
-    float linear = 0.6f;
-};
-
 // steering=digital: how far the left stick goes before it counts, and the seconds to full lock and to the centre.
 static const float s_digitalThreshold = 0.5f;
 static const float s_digitalTurnS = 0.25f;
@@ -143,13 +134,6 @@ static std::atomic<uint64_t> s_chatLiveUs{0};
 void setQuickChatLive(uint64_t nowUs)
 {
     s_chatLiveUs.store(nowUs, std::memory_order_relaxed);
-}
-
-static std::atomic<uint64_t> s_cameraLiveUs{0};
-
-void setCameraStickLive(uint64_t nowUs)
-{
-    s_cameraLiveUs.store(nowUs, std::memory_order_relaxed);
 }
 
 static std::atomic<uint64_t> s_chatHeldSince{0};
@@ -181,33 +165,34 @@ int quickChatButton()
     return s_button.load(std::memory_order_relaxed);
 }
 
-// horn_button: rear_l3 (the default: the rear touch pad's lower left, none of the game's controls until bound),
-// rear_r3, dpad_left, dpad_right or off
+// horn_button: dpad_left (the default, held: a short press is still the game's World Map), dpad_right, rear_l3,
+// rear_r3 or off. 0.9.0's Control Types put Hydraulics and Bounce on the rear touch pad's lower corners.
 static int hornButton()
 {
     static std::atomic<unsigned> s_generation{~0u};
-    static std::atomic<int> s_button{RearL3};
+    static std::atomic<int> s_button{DpadLeft};
     const unsigned generation = pf::Config::generation();
     if (s_generation.load(std::memory_order_acquire) != generation)
     {
-        static const char* const Names[] = { "rear_l3", "rear_r3", "dpad_left", "dpad_right", "off" };
-        static const int Buttons[] = { RearL3, RearR3, DpadLeft, DpadRight, -1 };
+        static const char* const Names[] = { "dpad_left", "dpad_right", "rear_l3", "rear_r3", "off" };
+        static const int Buttons[] = { DpadLeft, DpadRight, RearL3, RearR3, -1 };
         s_button.store(Buttons[pf::Config::getChoice("horn_button", Names, 5, 0)], std::memory_order_relaxed);
         s_generation.store(generation, std::memory_order_release);
     }
     return s_button.load(std::memory_order_relaxed);
 }
 
-// drift_button: rear_r3 (the default: the rear touch pad's lower right), rear_l3, dpad_left, dpad_right or off
+// drift_button: dpad_right (the default, held: a short press is still the game's Read SMS), dpad_left, rear_r3,
+// rear_l3 or off
 static int driftButton()
 {
     static std::atomic<unsigned> s_generation{~0u};
-    static std::atomic<int> s_button{RearR3};
+    static std::atomic<int> s_button{DpadRight};
     const unsigned generation = pf::Config::generation();
     if (s_generation.load(std::memory_order_acquire) != generation)
     {
-        static const char* const Names[] = { "rear_r3", "rear_l3", "dpad_left", "dpad_right", "off" };
-        static const int Buttons[] = { RearR3, RearL3, DpadLeft, DpadRight, -1 };
+        static const char* const Names[] = { "dpad_right", "dpad_left", "rear_r3", "rear_l3", "off" };
+        static const int Buttons[] = { DpadRight, DpadLeft, RearR3, RearL3, -1 };
         s_button.store(Buttons[pf::Config::getChoice("drift_button", Names, 5, 0)], std::memory_order_relaxed);
         s_generation.store(generation, std::memory_order_release);
     }
@@ -266,26 +251,134 @@ void quickChatSlots(Input slots[7])
     slots[6] = button == Triangle ? Friend[1] : Friend[0];
 }
 
-static StickShape stickShape()
+// A flick past FlickOn moves the hat; re-arms under FlickOff.
+static const float FlickOn  = 0.7f;
+static const float FlickOff = 0.3f;
+static const float ConeFadeDegrees = 15.0f;    // width of the fade from full weight to the plain axis reading
+
+// ---- Roles and shaping ----
+
+namespace
 {
-    static std::atomic<unsigned> s_generation{~0u};
-    static std::atomic<float> s_deadZone{0.15f}, s_linear{0.6f};
-    const unsigned generation = pf::Config::generation();
-    if (s_generation.load(std::memory_order_acquire) != generation)
-    {
-        static const char* const Responses[] = { "standard", "linear", "precise" };
-        static const float Linear[] = { 0.6f, 1.0f, 0.3f };
-        const int percent = std::clamp(pf::Config::getInt("stick_deadzone", 15), 0, 40);
-        const int response = pf::Config::getChoice("stick_response", Responses, 3, 0);
-        s_deadZone.store(float(percent) / 100.0f, std::memory_order_relaxed);
-        s_linear.store(Linear[response >= 0 && response < 3 ? response : 0], std::memory_order_relaxed);
-        s_generation.store(generation, std::memory_order_release);
-    }
-    StickShape shape;
-    shape.generation = generation;
-    shape.deadZone = s_deadZone.load(std::memory_order_relaxed);
-    shape.linear = s_linear.load(std::memory_order_relaxed);
-    return shape;
+
+struct Shared
+{
+    std::atomic<uint32_t> roles;
+    std::atomic<float>    shape[2][3];      // left, right: dead zone, saturation, sensitivity
+    std::atomic<bool>     driving;
+    std::atomic<int>      coneAngle;      // degrees either side of the axis; 0 is off
+
+    Shared();
+};
+
+uint32_t packRoles(const StickRoles& r)
+{
+    return (r.axes[0] ? 1u : 0u) | (r.axes[1] ? 2u : 0u) | (r.flick[0] ? 4u : 0u) | (r.flick[1] ? 8u : 0u) | (r.freeLook ? 16u : 0u) | (r.throttle[0] ? 32u : 0u) | (r.throttle[1] ? 64u : 0u);
+}
+
+StickRoles unpackRoles(uint32_t v)
+{
+    return { { (v & 1) != 0, (v & 2) != 0 }, { (v & 4) != 0, (v & 8) != 0 }, (v & 16) != 0, { (v & 32) != 0, (v & 64) != 0 } };
+}
+
+Shared::Shared()
+    :   roles(packRoles({ { true, false }, { false, false }, true, { false, false } }))
+    ,   driving(false)
+    ,   coneAngle(std::min(std::max(pf::Config::getInt("stick_cone_angle", 25), 0), 45))
+{
+    shape[0][0] = 0.15f;
+    shape[0][1] = 1.0f;
+    shape[0][2] = 1.0f;
+    shape[1][0] = 0.15f;
+    shape[1][1] = 1.0f;
+    shape[1][2] = 1.0f;
+}
+
+Shared& shared()
+{
+    static Shared s;
+    return s;
+}
+
+}
+
+StickRoles stickRoles()
+{
+    return unpackRoles(shared().roles);
+}
+
+void setStickRoles(const StickRoles& roles)
+{
+    shared().roles = packRoles(roles);
+}
+
+int stickConeAngle()
+{
+    return shared().coneAngle;
+}
+
+void setStickConeAngle(int degrees)
+{
+    shared().coneAngle = std::min(std::max(degrees, 0), 45);
+}
+
+bool rightStickUnbound()
+{
+    return stickRoles().freeLook;
+}
+
+StickShape stickShape(bool right)
+{
+    Shared& s = shared();
+    const int i = right ? 1 : 0;
+    return { s.shape[i][0], s.shape[i][1], s.shape[i][2] };
+}
+
+void setStickShape(bool right, const StickShape& shape)
+{
+    Shared& s = shared();
+    const int i = right ? 1 : 0;
+    s.shape[i][0] = std::min(std::max(shape.deadZone, 0.0f), 0.5f);
+    s.shape[i][1] = std::min(std::max(shape.saturation, 0.5f), 1.0f);
+    s.shape[i][2] = std::min(std::max(shape.sensitivity, 0.0f), 1.0f);
+}
+
+StickShape roleShape(const StickRoles& roles, bool right)
+{
+    const int i = right ? 1 : 0;
+    return roles.axes[i] || roles.flick[i] ? stickShape(right) : FixedStickShape;
+}
+
+void fixedShape(float x, float y, float* outX, float* outY)
+{
+    shapeStick(x, y, FixedStickShape, outX, outY);
+}
+
+void deadZoneShape(float x, float y, int percent, float* outX, float* outY)
+{
+    const StickShape shape = { std::min(std::max(percent, 0), 70) / 100.0f, 1.0f, 1.0f };
+    shapeStick(x, y, shape, outX, outY);
+}
+
+void setDriving(bool driving)
+{
+    shared().driving = driving;
+}
+
+bool driving()
+{
+    return shared().driving;
+}
+
+int hatAngle(bool up, bool down, bool left, bool right)
+{
+    if (up && down)
+        up = down = false;
+    if (left && right)
+        left = right = false;
+    const int v = up ? 1 : down ? -1 : 0, h = right ? 1 : left ? -1 : 0;
+    static const int Angles[3][3] = { { 22500, 27000, 31500 }, { 18000, -1, 0 }, { 13500, 9000, 4500 } };    // [h][v]
+    return Angles[h + 1][v + 1];
 }
 
 // ---- Keys ----
@@ -420,18 +513,16 @@ static const PadButton s_padButtons[] =
 
 static bool s_touchReady = false;
 static bool s_rearTouch = true;
-static bool s_frontTouch = false;
 static SceTouchPanelInfo s_panels[2];   // front, back
 
-// rear_touch=off and front_touch (off by default) choose the panels read.
+// Front panel always; rear_touch=off skips the rear one.
 static void initTouch()
 {
     s_touchReady = true;
     s_rearTouch = pf::Config::getBool("rear_touch", true);
-    s_frontTouch = frontTouchEnabled();
     for (int port = 0; port < 2; ++port)
     {
-        if (!(port ? s_rearTouch : s_frontTouch))
+        if (port && !s_rearTouch)
             continue;
         sceTouchSetSamplingState(port, SCE_TOUCH_SAMPLING_STATE_START);
         if (sceTouchGetPanelInfo(port, &s_panels[port]) < 0)
@@ -480,7 +571,7 @@ PadSample readPad()
         for (SceUInt32 i = 0; i < touch.reportNum && i < SCE_TOUCH_MAX_REPORT; ++i)
             sample.inputs |= bit(Quadrants[touch.report[i].y >= centreY][touch.report[i].x >= centreX]);
     }
-    if (s_frontTouch && sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1) >= 0)
+    if (sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1) >= 0)
     {
         const SceTouchPanelInfo& panel = s_panels[SCE_TOUCH_PORT_FRONT];
         for (SceUInt32 i = 0; i < touch.reportNum && i < SCE_TOUCH_MAX_REPORT && sample.touchCount < PadSample::MaxTouches; ++i)
@@ -532,9 +623,46 @@ PadSample readPad()
 }
 #endif
 
-bool frontTouchEnabled()
+// ---- HUD touch zones ----
+
+static std::atomic<bool>               s_freeRoam(false);
+static std::atomic<const ZonePolygon*> s_hudZones(nullptr);
+static std::atomic<uint32_t>           s_worldRequests(0);
+
+void setFreeRoam(bool freeRoam)
 {
-    return pf::cachedStatic([] { return pf::Config::getBool("front_touch", true); });
+    s_freeRoam = freeRoam;
+}
+
+bool freeRoam()
+{
+    return s_freeRoam;
+}
+
+bool insidePolygon(const ZonePolygon& polygon, float x, float y)
+{
+    bool inside = false;
+    for (int i = 0, j = polygon.count - 1; i < polygon.count; j = i++)
+    {
+        const ZonePoint a = polygon.points[i], b = polygon.points[j];
+        const float dx = b.x - a.x, dy = b.y - a.y, length2 = dx * dx + dy * dy;
+        const float t = length2 > 0.0f ? std::fmax(0.0f, std::fmin(1.0f, ((x - a.x) * dx + (y - a.y) * dy) / length2)) : 0.0f;
+        if (std::hypot(a.x + t * dx - x, a.y + t * dy - y) <= 0.5f)
+            return true;
+        if ((a.y > y) != (b.y > y) && x < a.x + (y - a.y) * dx / dy)
+            inside = !inside;
+    }
+    return inside;
+}
+
+void setHudZones(const ZonePolygon* zones)
+{
+    s_hudZones = zones;
+}
+
+uint32_t takeWorldRequests()
+{
+    return s_worldRequests.exchange(0);
 }
 
 // ---- Pad script ----
@@ -645,7 +773,104 @@ Mapper::Mapper()
     ,   m_chatPulseEndUs(0)
     ,   m_steer(0.0f)
     ,   m_steerUs(0)
+    ,   m_hold{ {}, {} }
+    ,   m_flickArmed{ false, false }
+    ,   m_shiftEndUs{ { 0, 0 }, { 0, 0 } }
 {
+    for (Tap& tap : m_taps)
+        tap.id = -1;
+}
+
+// Short still taps in a zone, in free roam, request its action.
+void Mapper::updateTaps(const PadSample& pad, uint64_t nowUs)
+{
+    static const uint64_t TapMaxUs = 300000;
+    static const float TapMaxMove = 0.04f;
+#ifdef DEV_TOOLS
+    static const char* const ZoneNames[HudZoneCount] = { "World Map", "Read SMS", "Enter Shop", "Career Stats" };
+#endif
+    for (Tap& tap : m_taps)
+        tap.seen = false;
+    for (int i = 0; i < pad.touchCount; ++i)
+    {
+        const PadSample::Touch& touch = pad.touches[i];
+        Tap* tap = nullptr;
+        for (Tap& t : m_taps)
+        {
+            if (t.id == touch.id)
+                tap = &t;
+        }
+        for (Tap& t : m_taps)
+        {
+            if (!tap && t.id < 0)
+                tap = &t;
+        }
+        if (!tap)
+            continue;
+        if (tap->id != touch.id)
+            *tap = { touch.id, nowUs, touch.x, touch.y, 0.0f, true };
+        tap->seen = true;
+        tap->farthest = std::fmax(tap->farthest, std::hypot(touch.x - tap->startX, touch.y - tap->startY));
+    }
+    for (Tap& tap : m_taps)
+    {
+        if (tap.id < 0 || tap.seen)
+            continue;
+        const bool quick = nowUs - tap.startUs <= TapMaxUs && tap.farthest <= TapMaxMove;
+        tap.id = -1;
+        const float x = tap.startX * PanelWidth, y = tap.startY * PanelHeight;
+        const ZonePolygon* zones = s_hudZones;
+        int zone = 0;
+        while (zones && zone < HudZoneCount && !insidePolygon(zones[zone], x, y))
+            ++zone;
+        const bool inZone = zones && zone < HudZoneCount;
+        if (s_freeRoam && quick && inZone)
+            s_worldRequests |= 1u << zone;
+#ifdef DEV_TOOLS
+        const char* what = inZone ? ZoneNames[zone] : "no";
+        if (!s_freeRoam)
+            pf::logInfo("controls: touch at %.0f, %.0f px (%s zone) ignored: not free roam", double(x), double(y), what);
+        else if (!quick)
+            pf::logInfo("controls: touch at %.0f, %.0f px (%s zone) ignored: not a tap (%.0f ms, moved %.0f px)", double(x),
+                        double(y), what, double(nowUs - tap.startUs) / 1000.0, double(tap.farthest * PanelWidth));
+        else if (!inZone)
+            pf::logInfo("controls: tap at %.0f, %.0f px ignored: outside the zones", double(x), double(y));
+        else
+            pf::logInfo("controls: tap at %.0f, %.0f px in the %s zone", double(x), double(y), what);
+#endif
+    }
+}
+
+static float clampUnit(float v)
+{
+    return std::fmax(-1.0f, std::fmin(1.0f, v));
+}
+
+// horn_button and drift_button: a rear corner is ours from the press; a D-pad direction (one of the game's own
+// controls in every Control Type) only once held for HoldUs, and a shorter press reaches the game afterwards as a tap.
+static const uint64_t HoldUs = 250000;
+
+bool Mapper::held(Hold& hold, Input input, uint32_t inputs, uint32_t pressed, uint64_t nowUs, uint32_t* hidden,
+                  uint32_t* pulse)
+{
+    const uint32_t key = bit(input);
+    const bool dpad = input == DpadUp || input == DpadDown || input == DpadLeft || input == DpadRight;
+    if (pressed & key)
+        hold = { nowUs ? nowUs : 1, !dpad, 0 };
+    if (inputs & key)
+    {
+        if (hold.sinceUs && !hold.fired && nowUs - hold.sinceUs >= HoldUs)
+            hold.fired = true;
+        *hidden |= key;
+        return hold.fired;
+    }
+    if (hold.sinceUs && !hold.fired)
+        hold.pulseEndUs = nowUs + s_tapUs;
+    hold.sinceUs = 0;
+    hold.fired = false;
+    if (nowUs < hold.pulseEndUs)
+        *pulse |= key;
+    return false;
 }
 
 State Mapper::update(const PadSample& pad, uint64_t nowUs)
@@ -653,6 +878,8 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
     State state;
     memset(&state, 0, sizeof(state));
     state.sayChord = -1;
+    const bool driving = controls::driving();
+    const StickRoles roles = stickRoles();
     const uint32_t inputs = pad.inputs;
     const uint32_t pressed = inputs & ~m_previous;
     const uint32_t released = m_previous & ~inputs;
@@ -723,21 +950,29 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
     // the horn: its button held in free roam proper (not while quick chat's is: Left and Right pick phrases then)
     const uint64_t hornAt = s_hornLiveUs.load(std::memory_order_relaxed);
     const int hornBtn = hornAt && nowUs - hornAt < 250000 && !chatHeld ? hornButton() : -1;
-    const bool horn = hornBtn >= 0 && hornBtn != chatButton && (inputs & bit(Input(hornBtn))) && !(m_chorded & bit(Input(hornBtn)));
+    const bool hornOn = hornBtn >= 0 && hornBtn != chatButton && !(m_chorded & bit(Input(hornBtn)));
+    uint32_t hornHidden = 0, holdPulse = 0;
+    bool horn = false;
+    if (hornOn)
+        horn = held(m_hold[0], Input(hornBtn), inputs, pressed, nowUs, &hornHidden, &holdPulse);
+    else
+        m_hold[0] = {};
     s_hornHeld.store(horn, std::memory_order_relaxed);
-    const uint32_t hornHidden = horn ? bit(Input(hornBtn)) : 0;
-    // drift mode's button, in free roam's world (not on the horn's or quick chat's): a press switches it, and the
-    // button is not the game's meanwhile
+    // drift mode's button, in free roam's world (not on the horn's or quick chat's): held (a D-pad direction past
+    // HoldUs, a rear corner at once) it switches drift mode once, and the button is not the game's meanwhile
     const uint64_t driftAt = s_driftLiveUs.load(std::memory_order_relaxed);
     const int driftBtn = driftAt && nowUs - driftAt < 250000 && !chatHeld ? driftButton() : -1;
     uint32_t driftHidden = 0;
     if (driftBtn >= 0 && driftBtn != chatButton && driftBtn != hornBtn && !(m_chorded & bit(Input(driftBtn))))
     {
-        driftHidden = bit(Input(driftBtn));
-        if (pressed & driftHidden)
+        const bool wasFired = m_hold[1].fired;
+        if (held(m_hold[1], Input(driftBtn), inputs, pressed, nowUs, &driftHidden, &holdPulse) && !wasFired)
             s_driftPresses.fetch_add(1, std::memory_order_relaxed);
     }
-    const uint32_t normal = (inputs & ~m_chorded & ~chatHidden & ~m_chatSwallow & ~hornHidden & ~driftHidden) | chatPulse;
+    else
+        m_hold[1] = {};
+    const uint32_t normal = (inputs & ~m_chorded & ~chatHidden & ~m_chatSwallow & ~hornHidden & ~driftHidden) |
+                            chatPulse | holdPulse;
     // steering=digital: the left stick is left, centre or right, and its X axis ramps to full lock and back as a
     // keyboard's steering does (the D-pad is not involved).
     const bool digital = digitalSteering();
@@ -776,35 +1011,105 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
     }
     if (nowUs < m_selectPulseEndUs)
         state.buttons |= uint32_t(1) << s_selectTapButton;
+    updateTaps(pad, nowUs);
 
-    state.axes[AxisX] = steerX;
-    state.axes[AxisY] = pad.sticks[1];
-    const uint64_t cameraAt = s_cameraLiveUs.load(std::memory_order_relaxed);
-    const bool camera = cameraAt && nowUs - cameraAt < 250000;    // the stick camera has the right stick
-    state.axes[AxisZ] = camera ? 0.0f : pad.sticks[3];
-    state.axes[AxisRz] = camera ? 0.0f : pad.sticks[2];
-    state.pov = -1;
+    float stick[2][2];
+    for (int side = 0; side < 2; ++side)
+    {
+        const float x = side == 0 ? steerX : pad.sticks[2], y = pad.sticks[side * 2 + 1];   // steering=digital ramps X
+        if (driving && roles.axes[side])
+        {
+            const StickShape shape = stickShape(side != 0);
+            const bool vertical = roles.throttle[side];
+            const float u = coneInput(x, y, vertical, shared().coneAngle);
+            stick[side][0] = vertical ? 0.0f : shapeAxis(u, shape);
+            stick[side][1] = vertical ? shapeAxis(u, shape) : 0.0f;
+        }
+        else
+            shapeStick(x, y, roleShape(roles, side != 0), &stick[side][0], &stick[side][1]);
+    }
+    for (int h = 0; h < HatCount; ++h)
+        state.pov[h] = -1;
+    if (!driving)
+    {
+        m_flickArmed[0] = m_flickArmed[1] = false;
+        state.axes[AxisX] = stick[0][0];
+        state.axes[AxisY] = stick[0][1];
+        state.axes[AxisZ] = stick[1][1];
+        state.axes[AxisRz] = stick[1][0];
+        return state;
+    }
+
+    if (roles.axes[0])
+    {
+        state.axes[AxisX] = stick[0][0];
+        state.axes[AxisY] = stick[0][1];
+    }
+    if (roles.axes[1])
+    {
+        state.axes[AxisZ] = stick[1][1];
+        state.axes[AxisRz] = stick[1][0];
+    }
+    for (int side = 0; side < 2; ++side)
+    {
+        const float y = stick[side][1];
+        if (!roles.flick[side])
+        {
+            m_flickArmed[side] = false;
+            continue;
+        }
+        if (std::fabs(y) < FlickOff)
+            m_flickArmed[side] = true;
+        else if (m_flickArmed[side] && std::fabs(y) > FlickOn)
+        {
+            m_flickArmed[side] = false;
+            m_shiftEndUs[side][y < 0.0f ? 0 : 1] = nowUs + s_tapUs;
+        }
+        state.pov[HatLeftStick + side] = hatAngle(nowUs < m_shiftEndUs[side][0], nowUs < m_shiftEndUs[side][1], false, false);
+    }
     return state;
 }
 
 // ---- Stick shaping ----
 
-void shapeStick(float x, float y, uint32_t deadZone, uint32_t saturation, float* outX, float* outY)
+float shapeAxis(float v, const StickShape& shape)
 {
-    const StickShape shape = stickShape();
-    const float dead = std::fmax(shape.deadZone, float(deadZone) / 10000.0f);
-    const float full = std::fmin(s_stickSaturation, float(saturation) / 10000.0f);
+    const float a = std::fabs(v);
+    if (a <= shape.deadZone)
+        return 0.0f;
+    const float t = shape.saturation > shape.deadZone ?
+        std::fmin(1.0f, (a - shape.deadZone) / (shape.saturation - shape.deadZone)) : 1.0f;
+    const float r = clampUnit(shape.sensitivity * t + (1.0f - shape.sensitivity) * t * t * t);
+    return v < 0.0f ? -r : r;
+}
+
+float coneInput(float x, float y, bool vertical, int angle)
+{
+    const float v = vertical ? y : x, along = std::fabs(v), across = std::fabs(vertical ? x : y);
+    if (angle <= 0 || along <= 0.0f)
+        return v;
+    const float degrees = std::atan2(across, along) * (180.0f / 3.14159265358979f);
+    const float s = std::min(1.0f, std::max(0.0f, (float(angle) + ConeFadeDegrees - degrees) / ConeFadeDegrees));
+    const float w = s * s * (3.0f - 2.0f * s);
+    const float m = std::min(1.0f, std::sqrt(x * x + y * y));
+    const float u = w * m + (1.0f - w) * along;
+    return v < 0.0f ? -u : u;
+}
+
+void shapeStick(float x, float y, const StickShape& shape, float* outX, float* outY)
+{
     const float magnitude = std::sqrt(x * x + y * y);
-    if (magnitude <= dead)
+    if (magnitude <= shape.deadZone)
     {
         *outX = 0.0f;
         *outY = 0.0f;
         return;
     }
-    const float t = full > dead ? std::fmin(1.0f, (magnitude - dead) / (full - dead)) : 1.0f;
-    const float scale = (shape.linear * t + (1.0f - shape.linear) * t * t * t) / magnitude;
-    *outX = std::fmax(-1.0f, std::fmin(1.0f, x * scale));
-    *outY = std::fmax(-1.0f, std::fmin(1.0f, y * scale));
+    const float t = shape.saturation > shape.deadZone ?
+        std::fmin(1.0f, (magnitude - shape.deadZone) / (shape.saturation - shape.deadZone)) : 1.0f;
+    const float scale = (shape.sensitivity * t + (1.0f - shape.sensitivity) * t * t * t) / magnitude;
+    *outX = clampUnit(x * scale);
+    *outY = clampUnit(y * scale);
 }
 
 }}

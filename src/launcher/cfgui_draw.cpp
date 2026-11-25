@@ -48,6 +48,9 @@ const int PathTop = HintsTop - 25;     // the file line, right-justified below t
 const int ButtonsTop = 484;
 const int ButtonHeight = 38;
 const int Centre = Width / 2;
+const int PopupWidth = 620;
+const int PopupHeight = 190;
+const int PopupText = PopupWidth - 48;
 
 enum class Face { Cross, Circle, Square, Triangle };
 
@@ -338,6 +341,12 @@ Rect choiceRect(int which)
     return Rect{ (Width - 2 * w - between) / 2 + which * (w + between), (Height - 190) / 2 + 190 - h - 24, w, h };
 }
 
+Rect okRect(int)
+{
+    const Rect r = choiceRect(0);
+    return Rect{ (Width - r.w) / 2, r.y, r.w, r.h };
+}
+
 void drawMessage(Canvas& canvas, const Font& font, const std::vector<std::string>& lines)
 {
     Configurator::Painter p{ canvas, font };
@@ -368,6 +377,20 @@ void Configurator::draw(Canvas& canvas, const Font& font) const
         drawPopup(p, "Save these mod and configuration changes?");
         break;
     case Screen::Launch:
+        break;
+    case Screen::ConfirmDownload:
+    case Screen::DownloadError:
+        drawManager(p);
+        drawPopupFrame(p, wrap(p, popupText(), PopupText, FontNormal), m_screen == Screen::ConfirmDownload);
+        break;
+    case Screen::Downloading:
+        drawManager(p);
+        drawProgress(p);
+        break;
+    case Screen::ConfirmStop:
+        drawManager(p);
+        drawProgress(p);
+        drawPopupFrame(p, wrap(p, popupText(), PopupText, FontNormal), true);
         break;
     }
 }
@@ -682,6 +705,45 @@ void Configurator::drawModRows(Painter& p) const
         }
         p.text(28 + lines[l].indent, panelTop + 6 + l * lineHeight, text, lines[l].color, FontSmall);
     }
+}
+
+void Configurator::drawPopupFrame(Painter& p, const std::vector<std::string>& lines, bool choices) const
+{
+    p.darken();
+    const int x = (Width - PopupWidth) / 2, y = (Height - PopupHeight) / 2;
+    p.roundRect(x, y, PopupWidth, PopupHeight, 16, Panel);
+    const int shown = std::min<int>(3, int(lines.size()));
+    for (int l = 0; l < shown; ++l)
+        p.centred(y + 24 + l * 28 + (3 - shown) * 14, lines[l], White, FontNormal);
+    for (int c = choices ? 0 : 1; c < 2; ++c)
+    {
+        const Rect r = choices ? choiceRect(c) : okRect(0);
+        p.roundRect(r.x, r.y, r.w, r.h, 10, rgb(0x34, 0x37, 0x3d));
+        const std::string label = c ? "OK" : "Go Back";
+        const int content = 24 + 10 + p.textWidth(label, FontNormal);
+        const int left = r.x + (r.w - content) / 2;
+        p.face(left + 12, r.y + r.h / 2.0f, 12, c ? Face::Cross : Face::Circle);
+        p.text(left + 34, r.y + (r.h - 26) / 2, label, c ? Green : White, FontNormal);
+    }
+}
+
+void Configurator::drawProgress(Painter& p) const
+{
+    p.darken();
+    const int x = (Width - PopupWidth) / 2, y = (Height - PopupHeight) / 2;
+    p.roundRect(x, y, PopupWidth, PopupHeight, 16, Panel);
+    p.centred(y + 28, "Files for " + m_mods[m_download].view.downloadName, White, FontNormal);
+    const int barX = x + 40, barY = y + 78, barW = PopupWidth - 80, barH = 16;
+    p.roundRect(barX, barY, barW, barH, barH / 2.0f, Rule);
+    const float fraction = std::min(1.0f, std::max(0.0f, m_progress.fraction));
+    if (fraction > 0.0f)
+        p.roundRect(barX, barY, std::max(float(barH), barW * fraction), barH, barH / 2.0f, Green);
+    p.centred(y + 104, progressText(), Label, FontSmall);
+    if (!progressPrompt())
+        return;
+    const int width = 24 + 8 + p.textWidth("Cancel", FontSmall), left = (Width - width) / 2;
+    p.face(left + 10, y + 155, 10, Face::Circle);
+    p.text(left + 28, y + 144, "Cancel", Grey, FontSmall);
 }
 
 void Configurator::drawPopup(Painter& p, const char* title) const
