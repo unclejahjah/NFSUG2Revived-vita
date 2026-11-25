@@ -176,6 +176,9 @@ const Item FriendsPage[] = {
       "The quick chat phrase in slot 5 (see Quick chat button for its button)." },
     { "Phrase 6", Ini, "Say6", Choice, OPTIONS(Phrases), "1", 0, nullptr,
       "The quick chat phrase in slot 6 (see Quick chat button for its button)." },
+    { "Blocked players", Ini, "Blocked", Text, nullptr, 0, "", 255, "None",
+      "Names as they show over cars, joined by commas (up to 32). You and they never see each other in free roam: "
+      "no car, name, quick chat, outrun or race lobby. Takes effect the next time you go online." },
     { "Crews", Ini, "Crew", Text, nullptr, 0, "", 120, "None",
       "Up to 4 crews, joined by commas. Players who share one see each other's names and map arrows in its colour." },
     { "Crew colours", Ini, "CrewColours", Text, nullptr, 0, "", 40, "Cyan, magenta, violet, red",
@@ -191,6 +194,9 @@ const Item FreeRoam[] = {
       "Any other flag by its two-letter country code (de, jp, br), or gb-eng style for a nation." },
     { "Show flags", Ini, "ShowFlags", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "Show the flags before the names over the cars on your screen. The others still see yours." },
+    { "Player messages", Ini, "Messages", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "A line at the top of the screen when a player joins free roam, leaves, goes into a race or opens a race "
+      "nearby. Never while you race." },
     { "World", Ini, "Room", Choice, OPTIONS(Worlds), "", 0, nullptr,
       "Free roam shows only the players in the same world. World 4 has ghost cars off for everyone in it." },
     { "Own world", Ini, "Room", Text, nullptr, 0, "", 32, "Main world",
@@ -346,6 +352,8 @@ const char IniTemplate[] =
     "Flag =\n"
     "; the flags before the names drawn on your screen (1) or not (0)\n"
     "ShowFlags = 1\n"
+    "; a line at the top of the screen when a player joins free roam, leaves or goes into a race (1 on, 0 off)\n"
+    "Messages = 1\n"
     "\n"
     "; quick chat (1 on, 0 off) and the phrase numbers of slots 1-6 (the cfg's quick_chat_button picks them)\n"
     "QuickChat = 1\n"
@@ -355,6 +363,9 @@ const char IniTemplate[] =
     "Say4 = 8\n"
     "Say5 = 14\n"
     "Say6 = 1\n"
+    "\n"
+    "; players you never see in free roam, nor they you: names as over cars, joined by commas (up to 32)\n"
+    "Blocked =\n"
     "\n"
     "; 1 = friends' cars are solid; 0 = ghost cars you drive through; none = traffic is a ghost too\n"
     "Collide = 0\n"
