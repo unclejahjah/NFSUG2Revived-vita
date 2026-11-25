@@ -346,6 +346,7 @@ static uint32_t engine_of(const char *acc, const char *dcl){
     strcpy(g_eng[e].name[0], acc); strcpy(g_eng[e].name[1], dcl);
     __atomic_store_n(&g_eng[e].state, 1, __ATOMIC_RELEASE);
     pthread_t t; pthread_attr_t a; pthread_attr_init(&a); pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
+    pthread_attr_setstacksize(&a, 256 * 1024);   /* the Vita's default thread stack is small: fopen's realpath and the path overflowed it */
     if (pthread_create(&t, &a, eng_load_main, (void *)(intptr_t)e)) eng_load_main((void *)(intptr_t)e);
     pthread_attr_destroy(&a);
     return (uint32_t)e + 1;
@@ -474,6 +475,7 @@ void carsfx_begin(const float *pos, const float *fwd, const float *vel){
     if (!g_load_started){
         g_load_started = 1;
         pthread_t t; pthread_attr_t a; pthread_attr_init(&a); pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
+        pthread_attr_setstacksize(&a, 256 * 1024);   /* the Vita's default thread stack is small: fopen's realpath and the path overflowed it */
         if (pthread_create(&t, &a, load_main, 0)) load_main(0);
         pthread_attr_destroy(&a);
     }
