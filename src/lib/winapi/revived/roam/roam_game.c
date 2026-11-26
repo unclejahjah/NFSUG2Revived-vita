@@ -2578,7 +2578,9 @@ enum { DH_TITLE, DH_PTS, DH_BEST_L, DH_BEST, DH_TOT_L, DH_TOT, DH_MULT, DH_GAIN_
        DH_TIME_L, DH_TIME, DH_ROW0 /* a drift battle's board: rank, name, points a row, two rows */ };   /* (TAG_DH0 + these) */
 #define DH_BIG_SOURCE   0x2da220aau   /* HUD_SingleRace's "+9999": Font_ConduitMdITCTT38bi, the drift event's points' */
 static inline int dh_big(int i){ return i == DH_PTS || i == DH_MULT; }
-#define TAG_ALL         (TAG_N + 1 + TAG_MPN + TAG_QCN + TAG_LBN + TAG_DHN)
+#define TAG_HB0         (TAG_DH0 + TAG_DHN)   /* and the HORN touch button's label (hb_draw) */
+#define TAG_HBN         1
+#define TAG_ALL         (TAG_N + 1 + TAG_MPN + TAG_QCN + TAG_LBN + TAG_DHN + TAG_HBN)
 #define TAG_DUEL_MAX    120
 /* the names' objects in a HUD; co-op free roam has a set for each player's (its half of the screen) */
 typedef struct { uint32_t hud, obj[TAG_ALL]; uint8_t looked[TAG_ALL], shown[TAG_ALL], alpha[TAG_ALL]; char text[TAG_ALL][TAG_DUEL_MAX]; uint32_t rgb[TAG_ALL];
@@ -2938,7 +2940,9 @@ static uint32_t flag_texture(CPU *c, int i){
 #define FL_TOPN         18
 #define FL_DH           (FL_TOP + FL_TOPN) /* drift mode's HUD: the drift event's three backings (dh_draw) */
 #define FL_DHN          (3 + 7 + 7 + 4)   /* (3 unused, the scores' box and the battle's box: UI_PANEL_N each, 4 rules) */
-#define FL_ALL          (FL_DH + FL_DHN)
+#define FL_HB           (FL_DH + FL_DHN)   /* the HORN touch button's box (hb_draw: UI_PANEL_N pieces) */
+#define FL_HBN          7
+#define FL_ALL          (FL_HB + FL_HBN)
 typedef struct { uint32_t hud, like, obj[FL_ALL]; uint8_t looked[FL_ALL], shown[FL_ALL], alpha[FL_ALL]; uint32_t tex[FL_ALL]; int said;
                  uint32_t probe, probe_hash; } FlagSet;   /* (probe: the first image made, its hash: tags_live) */
 static FlagSet g_fls[2], *g_flp = &g_fls[0];
@@ -6163,6 +6167,32 @@ static void dh_draw(CPU *c, uint32_t pkg){
     g_dh_drawn = 1;
 }
 #endif
+#if FLAGS && defined(ROAM_VITA_SOUNDS)
+#define ROAM_HORN_BUTTON
+#endif
+/* The HORN touch button (Jah 2026-11-26: the horn off D-pad Left, a small button on the screen): just above the N2O
+ * meter on the screen's right edge, in drift mode's box, lime "HORN", lit while it honks.  controls.cpp takes a
+ * touch there (HornTouch*: 896..960, 290..350 of the 960 x 544 panel); here 908..954, 300..340 in HUD units from
+ * the right edge (widescreen place 2: 544 / 480 to the pixel) */
+#ifdef ROAM_HORN_BUTTON
+static int g_hb_drawn;
+static void hb_hide(CPU *c){ tag_hide(c, TAG_HB0); ui_hide_imgs(c, FL_HB, FL_HBN); g_hb_drawn = 0; }
+static void hb_draw(CPU *c, uint32_t pkg){
+    extern int roam_host_horn_button(int *lit);
+    int lit = 0;
+    if (!roam_host_horn_button(&lit)){ if (g_hb_drawn) hb_hide(c); return; }
+    const float k = 480.f / 544.f, x0 = 640.f - (960.f - 908.f) * k, x1 = 640.f - (960.f - 954.f) * k;
+    const float y0 = 300.f * k, y1 = 340.f * k;
+    g_ui_place = 2;
+    if (lit) ui_panel(c, FL_HB, pkg, x0, y0, x1 - x0, y1 - y0, 1, 0x96ff5au, 150, 0.42f);
+    else ui_panel(c, FL_HB, pkg, x0, y0, x1 - x0, y1 - y0, 0, 0xffffffu, 140, 0.42f);
+    uint32_t obj = tag_obj(c, TAG_HB0, pkg);
+    if (obj) ui_text(c, TAG_HB0, pkg, "HORN", lit ? 0x141e0au : 0xcaf48au, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, 0.66f, 1);
+    g_ui_place = -1;
+    if (!g_hb_drawn) rlog("[roam] f=%ld horn: its touch button shows\n", rh_frame());
+    g_hb_drawn = 1;
+}
+#endif
 static void du_hud(CPU *c, int64_t host){
     uint32_t pl = rd32(G_PLAYER1), hud = pl && ok(pl, PL_HUD + 4u) ? rd32(pl + PL_HUD) : 0;
     uint32_t pkg = hud && ok(hud, 0x14) ? rd32(hud + 0x10u) : 0;
@@ -6172,6 +6202,10 @@ static void du_hud(CPU *c, int64_t host){
     /* drift mode's own panels, the drift event's (dh_draw) */
     if (g_in_roam && hud_on_top(pkg) && !rd32(0x00838974u /* a dialog up */)) dh_draw(c, pkg);
     else if (g_dh_drawn) dh_hide(c);
+#endif
+#ifdef ROAM_HORN_BUTTON
+    if (g_in_roam && hud_on_top(pkg) && !rd32(0x00838974u /* a dialog up */)) hb_draw(c, pkg);
+    else if (g_hb_drawn) hb_hide(c);
 #endif
     char tx[TAG_DUEL_MAX] = {0};
 #if MPRACES

@@ -814,6 +814,17 @@ int roam_host_horn_held(void)
     return win32::controls::hornHeld() ? 1 : 0;
 }
 
+// the HORN touch button (roam_game.c hb_draw): 1 to draw it (Horn not off, free roam's HUD up), *lit while it honks
+extern "C" int roam_host_horn_button(int* lit)
+{
+    const char* kind = roam_opt("NFSU2_ROAM_HORN");
+    *lit = 0;
+    if ((kind && !strcasecmp(kind, "off")) || !roam_game_hud_up())
+        return 0;
+    *lit = win32::controls::hornHeld() ? 1 : 0;
+    return 1;
+}
+
 // the game's Master Volume (its Audio options: G_VOLUMES +0, a float 0 .. 1), which every horn follows
 float horn_game_master(void)
 {

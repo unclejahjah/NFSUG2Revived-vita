@@ -149,28 +149,29 @@ static bool quickChatLive(uint64_t nowUs)
     return at && nowUs - at < 250000;
 }
 
-// quick_chat_button: dpad_down (the default), dpad_up, triangle or select
+// quick_chat_button: triangle (the default, Jah 2026-11-26: D-pad Down held is a race lobby's Friends only), dpad_down,
+// dpad_up or select
 int quickChatButton()
 {
     static std::atomic<unsigned> s_generation{~0u};
-    static std::atomic<int> s_button{DpadDown};
+    static std::atomic<int> s_button{Triangle};
     const unsigned generation = pf::Config::generation();
     if (s_generation.load(std::memory_order_acquire) != generation)
     {
         static const char* const Names[] = { "dpad_down", "dpad_up", "triangle", "select" };
         static const int Buttons[] = { DpadDown, DpadUp, Triangle, -1 };
-        s_button.store(Buttons[pf::Config::getChoice("quick_chat_button", Names, 4, 0)], std::memory_order_relaxed);
+        s_button.store(Buttons[pf::Config::getChoice("quick_chat_button", Names, 4, 2)], std::memory_order_relaxed);
         s_generation.store(generation, std::memory_order_release);
     }
     return s_button.load(std::memory_order_relaxed);
 }
 
-// horn_button: dpad_left (the default, held: a short press is still the game's World Map), dpad_right, rear_l3,
-// rear_r3 or off. 0.9.0's Control Types put Hydraulics and Bounce on the rear touch pad's lower corners.
+// horn_button: off (the default, Jah 2026-11-26: the HORN touch button above the N2O meter; D-pad Left held is a race
+// lobby's New lobby), dpad_left (held: a short press is still the game's World Map), dpad_right, rear_l3, rear_r3. 0.9.0's Control Types put Hydraulics and Bounce on the rear touch pad's lower corners.
 static int hornButton()
 {
     static std::atomic<unsigned> s_generation{~0u};
-    static std::atomic<int> s_button{DpadLeft};
+    static std::atomic<int> s_button{-1};
     const unsigned generation = pf::Config::generation();
     if (s_generation.load(std::memory_order_acquire) != generation)
     {
@@ -178,7 +179,7 @@ static int hornButton()
                                              "triangle", "circle", "square", "cross", "l", "r", "rear_l2", "rear_r2" };
         static const int Buttons[] = { DpadLeft, DpadRight, RearL3, RearR3, -1, DpadUp, DpadDown, Triangle, Circle, Square,
                                        Cross, L, R, RearL2, RearR2 };
-        s_button.store(Buttons[pf::Config::getChoice("horn_button", Names, 15, 0)], std::memory_order_relaxed);
+        s_button.store(Buttons[pf::Config::getChoice("horn_button", Names, 15, 4)], std::memory_order_relaxed);
         s_generation.store(generation, std::memory_order_release);
     }
     return s_button.load(std::memory_order_relaxed);
@@ -247,6 +248,8 @@ int takeShowoffPresses()
 }
 
 static std::atomic<bool> s_hornHeld{false};
+// the HORN touch button's zone, panel pixels (960 x 544): a little larger than the button drawn (908..954, 300..340)
+static const float HornTouchX0 = 896.0f, HornTouchY0 = 290.0f, HornTouchY1 = 350.0f;
 static std::atomic<uint64_t> s_hornLiveUs{0};
 
 void setHornLive(uint64_t nowUs)
@@ -1035,6 +1038,15 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
         horn = held(m_hold[0], Input(hornBtn), inputs, pressed, nowUs, &hornHidden, &holdPulse);
     else
         m_hold[0] = {};
+    // the HORN touch button above the N2O meter, on the screen's right edge (roam_game.c hb_draw draws it there):
+    // touched and held, in free roam proper, it honks too, whatever horn_button is
+    if (hornAt && nowUs - hornAt < 250000)
+        for (int i = 0; i < pad.touchCount; ++i)
+        {
+            const float x = pad.touches[i].x * PanelWidth, y = pad.touches[i].y * PanelHeight;
+            if (x >= HornTouchX0 && y >= HornTouchY0 && y <= HornTouchY1)
+                horn = true;
+        }
     s_hornHeld.store(horn, std::memory_order_relaxed);
     // drift mode's button, in free roam's world (not on the horn's or quick chat's): held (a D-pad direction past
     // HoldUs, a rear corner at once) it switches drift mode once, and the button is not the game's meanwhile
