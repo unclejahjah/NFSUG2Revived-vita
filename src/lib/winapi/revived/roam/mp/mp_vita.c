@@ -190,13 +190,19 @@ float racenet_jump(const char *name){ (void)name; return 0.f; }
 float racenet_farthest(char name[16]){ name[0] = 0; return 0.f; }
 /* the lobby panel's keys (roam_game.c mp_pad, ROAM_LOBBY_PANEL): on the Vita D-pad Up held (left: a new lobby) and
  * Down held (second: Friends only), taken from the game by controls.cpp only while offered (roam_vita.cpp) */
-void roam_host_lobby_keys(int left, int down);
+void roam_host_lobby_keys(int up, int down, int left);
 int roam_host_lobby_take(void);
-static int g_pad_left, g_pad_down;
-void pad_lobby_offer(int left, int down){ g_pad_left = left; g_pad_down = down; roam_host_lobby_keys(left != 0, down != 0); }
+static int g_pad_up, g_pad_down, g_pad_left;
+/* up: D-pad Up held's action, down: Down held's, left: Left held's (0 none) */
+void pad_lobby_offer3(int up, int down, int left){
+    g_pad_up = up; g_pad_down = down; g_pad_left = left;
+    roam_host_lobby_keys(up != 0, down != 0, left != 0);
+}
+void pad_lobby_offer(int up, int down){ pad_lobby_offer3(up, down, 0); }
 int pad_lobby_take(void){
     int b = roam_host_lobby_take();
-    if ((b & 1) && g_pad_left) return g_pad_left;
+    if ((b & 4) && g_pad_left) return g_pad_left;
+    if ((b & 1) && g_pad_up) return g_pad_up;
     if ((b & 2) && g_pad_down) return g_pad_down;
     return 0;
 }

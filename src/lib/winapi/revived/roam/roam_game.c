@@ -6872,6 +6872,10 @@ static int mp_open(int64_t host, uint32_t r){
     /* who can join (the host's V: mp_act): our stage and below, and our friends and crew-mates, by default */
     { uint32_t me = rd32(G_CAREER + C_STAGE); g_mp.l.hstage = (uint8_t)(me <= 7u ? me : 7u); }
     g_mp.l.past = (uint8_t)(!(g_mp.l.counts & 1u) && mp_past(r)); g_mp.l.staged = 1;
+#ifdef ROAM_LOBBY_PANEL
+    g_mp.l.staged = 0;                        /* (open to every stage: a player past it was kept out and never knew why,
+                                               * 2026-11-26; Friends only is the host's one choice, D-pad Down held) */
+#endif
     memset(g_mp.away, 0, sizeof g_mp.away);
     if (!race_place(r, &g_mp.l.x, &g_mp.l.y)) return 0;
     g_mp.opened++;
@@ -6992,6 +6996,23 @@ static MpLobby *mp_picked(void){
 }
 /* the lobby Enter joins here: the card's page (else Enter opens a new one at a spot) */
 static MpLobby *mp_joinable(void){ MpLobby *l = mp_picked(); return l && mp_can_join(l) ? l : 0; }
+#ifdef ROAM_LOBBY_PANEL
+#define ROAM_LB_JOIN_HERE 100                 /* (the Vita's D-pad Left held: mp_pad, mp_act) */
+/* a lobby heard of at the player's start: the one to join, else one open that keeps us out or is full (the panel
+ * says why), 0 none */
+static const MpLobby *mp_lobby_here(void){
+    MpLobby *l = mp_joinable();
+    if (l) return l;
+    const MpLobby *best = 0;
+    for (int i = 0; i < g_mp.nseen; i++){
+        const MpLobby *f = &g_mp.seen[i];
+        if (f->state != RC_LS_OPEN || !f->race || mp_dist(f->x, f->y) >= MP_JOIN_M) continue;
+        if (f->priv && !mp_mate(f->host)) continue;
+        if (!best || mp_dist(f->x, f->y) < mp_dist(best->x, best->y)) best = f;
+    }
+    return best;
+}
+#endif
 /* the JOIN to the host, and its copy to the hub: the hub links us with the host first (were it not linking us, the
  * JOIN would go nowhere) */
 static void mp_ask_in(void){ roam_plat_lock(); mp_send(RC_LOBBY_JOIN, 0, g_mp.l.host); mp_send(RC_LOBBY_JOIN, 0, 0); roam_plat_unlock(); }
@@ -7238,6 +7259,9 @@ static void mp_trip(int64_t host){
 static int mp_engage_spot(int64_t host, uint32_t r){
     const char *no = mp_cannot();
     if (no){ mp_note(host, no); return 0; }
+#ifdef ROAM_LOBBY_PANEL
+    return mp_open(host, r);                  /* (Up only opens a lobby; D-pad Left held joins one: mp_join_here, Jah 2026-11-26) */
+#endif
     MpLobby *l = mp_joinable();
     if (l) return mp_join(host, l);
     return mp_open(host, r);
@@ -7347,7 +7371,7 @@ static void mp_act(int64_t host, int in_roam, int act, uint32_t a, uint32_t b, u
         if (g_mp.st != MP_HOST) return;
         int career = g_mp.l.counts & 1u, who = g_mp.l.priv ? 1 : g_mp.l.staged ? 0 : 2;
 #ifdef ROAM_LOBBY_PANEL
-        who = who == 1 ? 0 : 1;                   /* (D-pad Down held: Friends only on or off, off the default) */
+        who = who == 1 ? 2 : 1;                   /* (D-pad Down held: Friends only on or off, off (everyone) the default) */
         (void)career;
 #else
         who = who == 0 ? 1 : who == 1 && !career ? 2 : 0;
@@ -7357,6 +7381,23 @@ static void mp_act(int64_t host, int in_roam, int act, uint32_t a, uint32_t b, u
              who == 0 ? "its stage and below" : who == 1 ? "Friends & crew only" : "everyone");
         g_mp.tx_at = 0;                                                  /* (its adverts at once) */
         return; }
+#ifdef ROAM_LOBBY_PANEL
+    case ROAM_LB_JOIN_HERE: {
+        /* D-pad Left held: the lobby at this start joined (the panel's), else why not */
+        if (g_mp.st != MP_IDLE || !in_roam) return;
+        const char *no = mp_cannot();
+        if (no){ mp_note(host, no); return; }
+        MpLobby *l = mp_joinable();
+        if (l){ rlog("[roam] f=%ld race lobby %08x: joining it (Left held)\n", rh_frame(), l->id); mp_join(host, l); return; }
+        const MpLobby *k = mp_lobby_here();
+        char t[TAG_DUEL_MAX];
+        if (k && mp_kept_out(k)) snprintf(t, sizeof t, "%s's lobby takes stage %d and below: ask them to let everyone in, or add them as a friend", mp_name(k->host), mp_kept_out(k));
+        else if (k && k->n >= k->max) snprintf(t, sizeof t, "%s's lobby is full", mp_name(k->host));
+        else snprintf(t, sizeof t, "No lobby to join here");
+        rlog("[roam] f=%ld race lobby: Left held, none to join (%s)\n", rh_frame(), k ? (mp_kept_out(k) ? "kept out" : "full or closed") : "none");
+        mp_note(host, t);
+        return; }
+#endif
     case ROAM_LB_LEAVE:
         if (g_mp.st == MP_ASKED || g_mp.st == MP_IN) mp_close(host, RC_LL_LEFT, "You left the race");
         return;
@@ -7369,10 +7410,12 @@ static void mp_act(int64_t host, int in_roam, int act, uint32_t a, uint32_t b, u
  * (hosting) or leave (joined from afar), right held the next lobby; what each does now, while the card is up (the page
  * shows them in place of the keys while a controller drives: lobby.ts) */
 void pad_lobby_offer(int left, int right);
+void pad_lobby_offer3(int up, int down, int left);
 int  pad_lobby_take(void);
 static void mp_pad(int64_t host, int in_roam){
     int l = 0, r = 0;
 #ifdef ROAM_LOBBY_PANEL
+    int j = 0;
     /* the Vita's panel: D-pad Up held a new lobby at any start of a LAN race (one waiting there or not: Jah
      * 2026-11-26; a tap is Engage: joins the lobby there, else opens one), Down held (hosting) Friends only */
     if (in_roam && host - g_mp_hud_at < 250000 && !mp_cannot()){
@@ -7380,10 +7423,10 @@ static void mp_pad(int64_t host, int in_roam){
         /* (Up held: a new lobby wherever one can open, beside one waiting too; a tap joins the lobby here first and
          * opens one only where none can be joined: mp_engage_spot, Jah 2026-11-26.  The panel offers it beside a
          * lobby only: lb_panel) */
-        if (g_mp.st == MP_IDLE && sp && race_lan(sp->race) && mp_can_host()) l = ROAM_LB_NEW;
+        if (g_mp.st == MP_IDLE && mp_lobby_here()) j = ROAM_LB_JOIN_HERE;
         else if (g_mp.st == MP_HOST) r = ROAM_LB_PRIVATE;
     }
-    pad_lobby_offer(l, r);
+    pad_lobby_offer3(l, r, j);
     return;
 #endif
     if (in_roam && host - g_mp_hud_at < 250000 && !mp_cannot()){
@@ -7495,9 +7538,7 @@ static void mp_frame(CPU *c, int64_t host, int in_roam, int world_runs, const ui
         const MpSpot *sp = mp_spot_here();
         mp_ui_frame(c, host, in_roam, press, sp);
 #ifdef ROAM_LOBBY_PANEL
-        /* Up (Engage) joins the panel's lobby wherever it is, at the game's own race markers too (its card, which
-         * the same Engage brings, closes itself as we are in a lobby: mp_card) */
-        if (press && g_mp.st == MP_IDLE){ MpLobby *l = mp_joinable(); if (l) mp_join(host, l); }
+        /* (Up only opens a lobby, mp_ui_frame and the race card; D-pad Left held joins the one here: mp_pad) */
 #else
         if (press && !sp && g_mp.st == MP_IDLE){ MpLobby *l = mp_joinable(); if (l) mp_join(host, l); }
 #endif
@@ -7763,7 +7804,7 @@ static int lb_panel(CPU *c, uint32_t pkg, int64_t host){
     if (g_mp.st != MP_IDLE) l = &g_mp.l;
     else {
         sp = mp_spot_here();
-        l = no ? 0 : mp_picked();
+        l = mp_lobby_here();
         /* (no lobby here: no panel, Up opens one as before, Jah 2026-11-26: the new lobby's key only beside one) */
         if (!l){ if (g_lb_drawn) lb_hide(c); return 0; }
         if (!sp || no || !race_lan(sp->race) || !mp_can_host()) sp = 0;
@@ -7791,12 +7832,17 @@ static int lb_panel(CPU *c, uint32_t pkg, int64_t host){
     LbKey key[2]; int nk = 0; memset(key, 0, sizeof key);
     switch (g_mp.st){
     case MP_IDLE:
-        if (l){
-            if (mp_outpaced(l->race)){ snprintf(ta, sizeof ta, "Stage %d race: its cars are", mp_outpaced(l->race)); snprintf(tb, sizeof tb, "usually much faster than yours"); ra = 0xff8020u; }
-            key[nk].gl = GL_UP; snprintf(key[nk].label, sizeof key[nk].label, "Join lobby"); nk++;
-        } else snprintf(ta, sizeof ta, "No lobby here yet");
-        /* a new lobby beside it: Up held (mp_pad) */
-        if (sp && !no && race_lan(sp->race) && mp_can_host()){ key[nk].hold = 1; key[nk].gl = GL_UP; snprintf(key[nk].label, sizeof key[nk].label, "New lobby"); nk++; }
+        {
+            int kept = mp_kept_out(l), full = l->n >= l->max;
+            if (no == MP_NOCAR){ snprintf(ta, sizeof ta, "Joining needs your own car:"); snprintf(tb, sizeof tb, "buy one in your career first"); ra = 0xff8020u; }
+            else if (no){ snprintf(ta, sizeof ta, "Join races from your"); snprintf(tb, sizeof tb, "career's free roam"); ra = 0xff8020u; }
+            else if (kept){ snprintf(ta, sizeof ta, "For stage %d and below: ask %s", kept, hn); snprintf(tb, sizeof tb, "to let everyone in, or add them as a friend"); ra = 0xff8020u; }
+            else if (full) snprintf(ta, sizeof ta, "The lobby is full");
+            else if (mp_outpaced(l->race)){ snprintf(ta, sizeof ta, "Stage %d race: its cars are", mp_outpaced(l->race)); snprintf(tb, sizeof tb, "usually much faster than yours"); ra = 0xff8020u; }
+            if (!no && !kept && !full){ key[nk].hold = 1; key[nk].gl = GL_LEFT; snprintf(key[nk].label, sizeof key[nk].label, "Join lobby"); nk++; }
+        }
+        /* Up: a lobby of our own (the game's card at a career race, Solo or Multiplayer) */
+        if (sp && !no && race_lan(sp->race) && mp_can_host()){ key[nk].gl = GL_UP; snprintf(key[nk].label, sizeof key[nk].label, sp->kind == MPS_ONLY ? "New lobby" : "Race (solo or new lobby)"); nk++; }
         break;
     case MP_HOST:
         if (l->away_s){ snprintf(ta, sizeof ta, "You seem away: it closes in %d s", l->away_s); snprintf(tb, sizeof tb, "unless you press a button"); ra = 0xff8020u; }
@@ -8253,7 +8299,11 @@ static void mp_card(CPU *c){
     if (msg == MSG_BUTTON && ok(obj, 0x14) && MR32(obj + 0x10u) == CARD_ACCEPT && !MR8(self + 0x51u) && g_mp.st == MP_IDLE){
         uint32_t r = rd32(G_ENGAGED_RACE);
         if (!r || !race_lan(r)){ sub_00499c00(c); return; }                        /* a race no LAN race can be: as before */
+#ifdef ROAM_LOBBY_PANEL
+        MpLobby *l = 0;                                                            /* (Multiplayer opens a lobby: joining is Left held) */
+#else
         MpLobby *l = mp_joinable();                                                /* (the lobby card's page: else a new lobby) */
+#endif
         if (!l && !mp_can_host()){ sub_00499c00(c); return; }                     /* (no lobby to join, none to open: Solo) */
         char t[320];
         /* (with others a win counts too where it counts with Solo: mp_counts; a friend's win too); in the game's

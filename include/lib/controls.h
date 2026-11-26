@@ -238,7 +238,7 @@ private:
         bool     fired;             // held long enough: ours for the rest of this press
         uint64_t pulseEndUs;        // the short press reaches the game until then
     };
-    Hold        m_hold[4];          // horn, drift, a race lobby's Left and Down (setLobbyKeys)
+    Hold        m_hold[5];          // horn, drift, a race lobby's Up, Down and Left (setLobbyKeys)
     bool        m_lobbyDownFired;   // quick chat's button held on into the lobby's Down: fired once this press
     bool        m_flickArmed[2];    // per stick: back under the re-arm level since the last flick
     uint64_t    m_shiftEndUs[2][2]; // per stick: up and down flick hats end
@@ -283,7 +283,8 @@ void setDriftLive(uint64_t nowUs);
 // held opens a new lobby (a tap still reaches the game, after it: Engage); down, D-pad Down held switches Friends only (over quick chat when it is on
 // Down: held on for LobbyDownUs with no phrase picked).  takeLobbyPresses: bit 0 Left fired, bit 1 Down, since the last
 // call.  lobbyDownHeldUs: how long Down has been held towards it now (0 none), for the quick chat box's bar.
-void setLobbyKeys(uint64_t nowUs, bool left, bool down);
+// left: D-pad Left held joins the lobby at this start (bit 2 of takeLobbyPresses; a tap is still the World Map).
+void setLobbyKeys(uint64_t nowUs, bool up, bool down, bool left);
 int takeLobbyPresses();
 uint64_t lobbyDownHeldUs();
 extern const uint64_t LobbyDownUs;
