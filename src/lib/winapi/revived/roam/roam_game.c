@@ -9756,8 +9756,16 @@ static void ph_mark(const char *what){
     if (g_phn < 16){ g_ph[g_phn].what = what; g_ph[g_phn].ns = t - g_ph_t; g_ph[g_phn].run_us = r - g_ph_run; g_phn++; }
     g_ph_t = t; g_ph_run = r;
 }
+/* each part's time over the stats' window (periodic_log: the parts' means, the most first), for the steady cost */
+static struct { const char *what; uint64_t ns; } g_pa[24]; static int g_pan;
 static void ph_report(uint64_t ns){
     { char none[8]; roam_probe_end(none, (int)sizeof none); }   /* (probing ends with the frame) */
+    for (int i = 0; i < g_phn; i++){
+        int j = 0;
+        while (j < g_pan && g_pa[j].what != g_ph[i].what) j++;
+        if (j == g_pan){ if (g_pan >= 24) continue; g_pa[g_pan].what = g_ph[i].what; g_pa[g_pan].ns = 0; g_pan++; }
+        g_pa[j].ns += g_ph[i].ns;
+    }
     if (ns >= PH_SLOW_US * 1000ull){
         char b[384]; int at = 0;
         for (int i = 0; i < g_phn && at < (int)sizeof b - 48; i++)
@@ -9825,6 +9833,18 @@ static void periodic_log(int64_t host){
                 (unsigned long long)m->n_dup, (unsigned long long)m->n_stale, (unsigned long long)m->n_snap, (double)m->err_max, (unsigned long long)m->n_epoch);
     }
     roam_plat_unlock();
+    if (g_pan && g_cost_win_n){
+        char b[320]; int at = 0;
+        for (int shown = 0; shown < 8 && at < (int)sizeof b - 40; shown++){
+            int best = -1;
+            for (int j = 0; j < g_pan; j++) if (g_pa[j].ns && (best < 0 || g_pa[j].ns > g_pa[best].ns)) best = j;
+            if (best < 0) break;
+            at += snprintf(b + at, sizeof b - (size_t)at, "%s %s %.0f", shown ? "," : "", g_pa[best].what, g_pa[best].ns / 1e3 / (double)g_cost_win_n);
+            g_pa[best].ns = 0;
+        }
+        rlog("[roam]   frame cost by part, mean us:%s\n", b);
+    }
+    g_pan = 0;
     g_cost_win_t0 = host; g_cost_win_sum = g_cost_win_n = g_cost_win_max = 0;
 }
 
