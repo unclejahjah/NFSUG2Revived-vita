@@ -6034,8 +6034,9 @@ int roam_game_hud_up(void){ return roam_plat_now_us() - g_mp_hud_at < 250000; }
 #define DH_LEFT_DY      156.f         /* the left panels moved down to sit just above the minimap (Jah, 2026-11-26): the
                                          * drift event's 39..140 to 195..296; the minimap's ring starts at about 304 */
 #define DH_LIME         0xcaf48au
-#define DH_BOX_RGB      0xb4b4b4u     /* the box: the white panel pieces tinted grey, translucent */
-#define DH_BOX_A        110
+#define DH_BOX_RGB      0x666666u     /* the box: as the Bank's backing (PositionBacking, 3RDPERSON_BOXCORNER, white at 255:
+                                         * its texels grey 102 at 102 of 255), the white panel pieces (60 %) tinted to it */
+#define DH_BOX_A        170           /* ...at 0.6 x 170/255 = 40 %, the texture's */
 #define DH_GREY         0xc0c0c0u
 static int g_dh_drawn;
 static void dh_text(CPU *c, int i, uint32_t pkg, const char *tx, uint32_t rgb, uint8_t a, float x, float y, float sc, uint32_t just){
