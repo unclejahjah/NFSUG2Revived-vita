@@ -241,24 +241,6 @@ void playAccept(win32::WinApplication* app, x86::CPU& cpu, reg32 menu)
         callGuest(app, cpu, SoundPlay, manager, { reg32(sound) });
 }
 
-// The name of the front end's top package ("" none).
-std::string topPackage()
-{
-    const reg32 manager = rc::ld32(FeManager);
-    if (!manager || rc::ld32(manager + 0x10) == manager + 0x10)
-        return std::string();
-    const reg32 from = rc::ld32(rc::ld32(manager + 0x10) + 8);
-    std::string name;
-    for (reg32 k = 0; from && k < 63; ++k)
-    {
-        const char c = char(rc::ld8(from + k));
-        if (!c)
-            break;
-        name += c;
-    }
-    return name;
-}
-
 bool isOurRow(reg32 row)
 {
     return row && s_rowClass && rc::ld32(row) == s_rowClass;
@@ -423,7 +405,9 @@ void stanceFrame(win32::WinApplication* app, x86::CPU& cpu)
         stance_fe_preview(0);
         return;
     }
-    stance_fe_preview(s_stance || topPackage() == "UI_GenericParts_Browser.fng");
+    // (the Body Shop's list loaded, whatever is over it: the shops' Visual Rating and other overlays are packages of
+    // their own, so the top package is not always the list)
+    stance_fe_preview(s_stance || callGuest(app, cpu, FePackage, 0, { PartsName }) != 0);
     if (!s_stance)
         return;
     const reg32 package = callGuest(app, cpu, FePackage, 0, { OptionsName });
