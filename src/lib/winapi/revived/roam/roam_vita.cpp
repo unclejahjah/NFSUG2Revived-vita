@@ -251,6 +251,37 @@ const char* roam_opt(const char* name)
     return nullptr;   // the PC plugin's test aids come from its environment: none here
 }
 
+// The network thread's lines wait here until it has let go of roam_plat_lock (roam_host_net_idle): a line written
+// with the lock held stalled the game thread behind the memory card for 0.4 to 0.8 s while the city streamed
+// (2026-11-26: LEAVE/JOIN lines, the virtual LAN's stats, then "lock 733 ms").
+static SceUID s_netThread = -1;
+static pthread_mutex_t s_qLock = PTHREAD_MUTEX_INITIALIZER;
+static char s_q[16384];
+static size_t s_qn;
+
+static void roam_write_line(const char* line)
+{
+    // the game's thread and the network thread both log: one line at a time
+    static pthread_mutex_t s_lock = PTHREAD_MUTEX_INITIALIZER;
+    static uint64_t s_flushed;
+    pthread_mutex_lock(&s_lock);
+    pf::logInfo("%s", line);
+    if (!s_log && optOn(roam_opt("NFSU2_ROAM_LOG")))
+        s_log = fopen(LogPath, "w");
+    if (s_log)
+    {
+        fprintf(s_log, "%s\n", line);
+        // (to the card at most once a second, not with every line: each flush waits on the card)
+        const uint64_t now = pf::ticksUs();
+        if (now - s_flushed >= 1000000)
+        {
+            fflush(s_log);
+            s_flushed = now;
+        }
+    }
+    pthread_mutex_unlock(&s_lock);
+}
+
 void roam_log(const char* fmt, ...)
 {
     char line[1024];
@@ -261,18 +292,33 @@ void roam_log(const char* fmt, ...)
     size_t n = strlen(line);
     while (n && line[n - 1] == '\n')
         line[--n] = 0;
-    // the game's thread and the network thread both log: one line at a time
-    static pthread_mutex_t s_lock = PTHREAD_MUTEX_INITIALIZER;
-    pthread_mutex_lock(&s_lock);
-    pf::logInfo("%s", line);
-    if (!s_log && optOn(roam_opt("NFSU2_ROAM_LOG")))
-        s_log = fopen(LogPath, "w");
-    if (s_log)
+    if (s_netThread >= 0 && sceKernelGetThreadId() == s_netThread)
     {
-        fprintf(s_log, "%s\n", line);
-        fflush(s_log);
+        pthread_mutex_lock(&s_qLock);
+        const bool fits = s_qn + n + 1 <= sizeof(s_q);
+        if (fits)
+        {
+            memcpy(s_q + s_qn, line, n + 1);
+            s_qn += n + 1;
+        }
+        pthread_mutex_unlock(&s_qLock);
+        if (fits)
+            return;
     }
-    pthread_mutex_unlock(&s_lock);
+    roam_write_line(line);
+}
+
+// roam_web.c's network thread, roam_plat_lock let go: its lines written now
+extern "C" void roam_host_net_idle(void)
+{
+    static char batch[sizeof(s_q)];
+    pthread_mutex_lock(&s_qLock);
+    const size_t n = s_qn;
+    memcpy(batch, s_q, n);
+    s_qn = 0;
+    pthread_mutex_unlock(&s_qLock);
+    for (size_t at = 0; at < n; at += strlen(batch + at) + 1)
+        roam_write_line(batch + at);
 }
 
 // Free roam's friends, as nfsu2.xyz's page does them (web/src/app/friends.ts FriendPrompt): two cars nose to nose for
@@ -415,6 +461,7 @@ static int slotPhrase(int slot)
 // It sleeps between its 10 ms ticks and datagrams.
 void roam_host_net_thread(void)
 {
+    s_netThread = sceKernelGetThreadId();
     if (pf::Thread::setCurrentPriority(150))
         pf::logInfo("roam: network thread priority 150");
 }

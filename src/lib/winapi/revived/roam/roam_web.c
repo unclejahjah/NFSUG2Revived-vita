@@ -129,7 +129,9 @@ void roam_plat_lock(void){
 void roam_plat_unlock(void){ pthread_mutex_unlock(&g_mu); }
 /* the network thread, the lock just released: while another thread waits for it, sleep until that one has it
  * (at most 2 ms; it holds it a frame's part) */
+__attribute__((weak)) void roam_host_net_idle(void){}
 static void net_let_in(void){
+    roam_host_net_idle();                  /* (the lines it logged with the lock held: the host writes them now) */
     if (!atomic_load(&g_waiting)) return;
     g_let_in++;
     for (int i = 0; i < 20 && atomic_load(&g_waiting); i++) usleep(100);
@@ -703,7 +705,7 @@ static void *net_main(void *u){
             st(&MB->rx_tail, tail + 1);
             net_let_in();
         }
-        if (IMP.on){ roam_plat_lock(); imp_release(now); roam_plat_unlock(); }
+        if (IMP.on){ roam_plat_lock(); imp_release(now); roam_plat_unlock(); net_let_in(); }
         if (now >= next_tick){
             roam_plat_lock(); held_at = roam_plat_now_us();
             rc_tick(g_s, now); if (g_s2) rc_tick(g_s2, now); where_watch(now);
@@ -712,7 +714,7 @@ static void *net_main(void *u){
             net_let_in();
             next_tick = now + 10000;
         }
-        if (now >= next_stats){ roam_plat_lock(); web_stats_log("stats"); roam_plat_unlock(); next_stats = now + 30000000; }
+        if (now >= next_stats){ roam_plat_lock(); web_stats_log("stats"); roam_plat_unlock(); next_stats = now + 30000000; net_let_in(); }
     }
     return 0;
 }
@@ -772,7 +774,7 @@ void roam_plat_stop(uint8_t reason){
     atomic_store(&g_stop, 1);
     __atomic_add_fetch(&MB->rx_bell, 1, __ATOMIC_SEQ_CST);
     vlan_atomic_notify((int *)&MB->rx_bell, 1);
-    pthread_join(g_thr, 0); g_thr_on = 0; atomic_store(&g_net_self_on, 0);
+    pthread_join(g_thr, 0); g_thr_on = 0; atomic_store(&g_net_self_on, 0); roam_host_net_idle();
     roam_plat_lock(); web_stats_log("closed"); roam_plat_unlock();
     st(&MB->mode, NET_MODE_CLOSED);
     set_want(0);
