@@ -83,13 +83,18 @@ static uint32_t record(uint32_t h){
     }
     return 0;
 }
-/* player 1's profile now ("" none) */
+/* player 1's profile now: its name, whether or not +0x20 says one is loaded (with that flag's "none" test15's stances
+ * were likely kept in memory only, never written); "Default" with no name at all */
 static const char *profile(void){
     static char nm[33];
-    nm[0] = 0;
-    if (MR8(G_PROFILE_NAME + 0x20u))
-        for (int k = 0; k < 32; k++) if (!(nm[k] = (char)MR8(G_PROFILE_NAME + (uint32_t)k))) break;
-    nm[32] = 0;
+    int n = 0;
+    for (; n < 32; n++){
+        char ch = (char)MR8(G_PROFILE_NAME + (uint32_t)n);
+        if (!ch) break;
+        nm[n] = ch >= ' ' && ch <= '~' && ch != '[' && ch != ']' ? ch : '_';
+    }
+    nm[n] = 0;
+    if (!n) snprintf(nm, sizeof nm, "Default");
     return nm;
 }
 
@@ -121,7 +126,6 @@ static void load_profile(const char *name){
 }
 /* the file again with this profile's section as it is now (the others' kept as they were) */
 static void save_profile(void){
-    if (!g_cars.name[0]) return;                       /* (no profile: kept until the game ends) */
     char *keep = 0; size_t kn = 0, kcap = 0;
     FILE *f = fopen(STANCE_FILE, "r");
     if (f){
@@ -154,7 +158,11 @@ static void save_profile(void){
             fprintf(f, "%08x = %08x %d %d %d %d %u\n", e->handle, e->type, e->v.fc, e->v.rc, e->v.fo, e->v.ro, e->v.tw);
         }
     }
-    fclose(f); free(keep);
+    int bad = ferror(f);
+    bad = fclose(f) != 0 || bad;
+    free(keep);
+    fprintf(stderr, "[stance] %s: profile %s, %d car%s%s\n", STANCE_FILE, g_cars.name, g_cars.n, g_cars.n == 1 ? "" : "s",
+            bad ? " (the write FAILED)" : " written");
 }
 /* the cars of the profile now */
 static void cars_now(void){
@@ -175,7 +183,8 @@ static const StanceV *mine(void){
         g_mine_read = f; g_mine_stale = 0;
         char on[8] = "";
         roam_host_ini_value("Stance", on, (int)sizeof on);
-        int now = on[0] == '1';
+        /* (no value: the .ini not there, or being written over by Vita Settings at that moment: as it was) */
+        int now = on[0] ? on[0] == '1' : g_mine_on;
         if (now != g_mine_on) fprintf(stderr, "[stance] f=%ld your cars' stances: %s\n", f, now ? "on" : "off");
         g_mine_on = now;
     }
