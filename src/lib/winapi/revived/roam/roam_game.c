@@ -7377,7 +7377,8 @@ static void mp_pad(int64_t host, int in_roam){
      * 2026-11-26; a tap is Engage: joins the lobby there, else opens one), Down held (hosting) Friends only */
     if (in_roam && host - g_mp_hud_at < 250000 && !mp_cannot()){
         const MpSpot *sp = mp_spot_here();
-        if (g_mp.st == MP_IDLE && sp && race_lan(sp->race) && mp_can_host()) l = ROAM_LB_NEW;
+        MpLobby *h[MP_SEEN];
+        if (g_mp.st == MP_IDLE && sp && race_lan(sp->race) && mp_can_host() && mp_here(h) > 0) l = ROAM_LB_NEW;   /* (beside one only) */
         else if (g_mp.st == MP_HOST) r = ROAM_LB_PRIVATE;
     }
     pad_lobby_offer(l, r);
@@ -7761,11 +7762,12 @@ static int lb_panel(CPU *c, uint32_t pkg, int64_t host){
     else {
         sp = mp_spot_here();
         l = no ? 0 : mp_picked();
-        if (!l && (!sp || no || !race_lan(sp->race) || !mp_can_host())) sp = 0;
-        if (!l && !sp){ if (g_lb_drawn) lb_hide(c); return 0; }
+        /* (no lobby here: no panel, Up opens one as before, Jah 2026-11-26: the new lobby's key only beside one) */
+        if (!l){ if (g_lb_drawn) lb_hide(c); return 0; }
+        if (!sp || no || !race_lan(sp->race) || !mp_can_host()) sp = 0;
     }
     if (!tag_obj(c, TAG_LB0, pkg)) return 0;
-    race = l ? l->race : sp->race;
+    race = l->race;
     char title[48], count[24] = "", sub[TAG_DUEL_MAX];
     snprintf(title, sizeof title, l ? "%s lobby" : "%s", race_kind(race)); lb_upper(title);
     if (l) snprintf(count, sizeof count, "%d of %d", l->n, l->max);
@@ -7791,8 +7793,8 @@ static int lb_panel(CPU *c, uint32_t pkg, int64_t host){
             if (mp_outpaced(l->race)){ snprintf(ta, sizeof ta, "Stage %d race: its cars are", mp_outpaced(l->race)); snprintf(tb, sizeof tb, "usually much faster than yours"); ra = 0xff8020u; }
             key[nk].gl = GL_UP; snprintf(key[nk].label, sizeof key[nk].label, "Join lobby"); nk++;
         } else snprintf(ta, sizeof ta, "No lobby here yet");
-        /* a new lobby: Up at a multiplayer-only spot with none (mp_ui_frame), else Up held (mp_pad) */
-        if (sp && !no && race_lan(sp->race) && mp_can_host()){ key[nk].hold = l || sp->kind != MPS_ONLY; key[nk].gl = GL_UP; snprintf(key[nk].label, sizeof key[nk].label, "New lobby"); nk++; }
+        /* a new lobby beside it: Up held (mp_pad) */
+        if (sp && !no && race_lan(sp->race) && mp_can_host()){ key[nk].hold = 1; key[nk].gl = GL_UP; snprintf(key[nk].label, sizeof key[nk].label, "New lobby"); nk++; }
         break;
     case MP_HOST:
         if (l->away_s){ snprintf(ta, sizeof ta, "You seem away: it closes in %d s", l->away_s); snprintf(tb, sizeof tb, "unless you press a button"); ra = 0xff8020u; }
@@ -8249,9 +8251,6 @@ static void mp_card(CPU *c){
     if (msg == MSG_BUTTON && ok(obj, 0x14) && MR32(obj + 0x10u) == CARD_ACCEPT && !MR8(self + 0x51u) && g_mp.st == MP_IDLE){
         uint32_t r = rd32(G_ENGAGED_RACE);
         if (!r || !race_lan(r)){ sub_00499c00(c); return; }                        /* a race no LAN race can be: as before */
-#ifdef ROAM_LOBBY_PANEL
-        sub_00499c00(c); return;                  /* no question: Accept races it Solo; Up joins a lobby, Up held opens one */
-#endif
         MpLobby *l = mp_joinable();                                                /* (the lobby card's page: else a new lobby) */
         if (!l && !mp_can_host()){ sub_00499c00(c); return; }                     /* (no lobby to join, none to open: Solo) */
         char t[320];
