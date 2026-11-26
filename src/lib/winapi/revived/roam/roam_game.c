@@ -6026,15 +6026,16 @@ int roam_game_hud_up(void){ return roam_plat_now_us() - g_mp_hud_at < 250000; }
  *    NextSpeeed_Trap_Indicator "GAIN X2 WITH" (51, -101) TT14i 0.9 (170,170,170) to its right; its points
  *    SpeedTrap_Speed_DATA (47, -81) TT14i 0.9 (202,244,138) to its right; CurrentSpeed_Trap_Backing_01 (-23.6, -81)
  *    154.9 x 40 White16x16, black at 150.
- * The left ones keep to the screen's left edge (widescreen place 1), the drift to the middle (0).  The HUD's D-pad
- * widget (group 0x3345911D, free roam's own, where the drift event has its panels) is hidden while they show and given
- * back after.  The texts and when they show: drift.c drift_vita_hud. */
+ * The left ones keep to the screen's left edge (widescreen place 1), the drift to the middle (0).  The left ones sit
+ * lower than the drift event's, just above the minimap (DH_LEFT_DY), clear of free roam's D-pad widget, which has the
+ * drift event's place.  The texts and when they show: drift.c drift_vita_hud. */
 #define DH_TEX_BEST     0x51052532u   /* DRIFT_STYLE_POINTS_BACKING (InGameFreeRoam's HUD textures) */
 #define DH_TEX_TOTAL    0x6fd193f6u   /* 3RDPERSON_BOXTIME (InGameCommon) */
-#define DH_DPAD         0x3345911du   /* HUD_SingleRace: the D-pad widget's group */
+#define DH_LEFT_DY      156.f         /* the left panels moved down to sit just above the minimap (Jah, 2026-11-26): the
+                                         * drift event's 39..140 to 195..296; the minimap's ring starts at about 304 */
 #define DH_LIME         0xcaf48au
 #define DH_GREY         0xc0c0c0u
-static int g_dh_drawn; static uint32_t g_dh_dpad, g_dh_hud; static int g_dh_dpad_was;   /* the widget (of HUD g_dh_hud), and whether it showed */
+static int g_dh_drawn;
 static void dh_text(CPU *c, int i, uint32_t pkg, const char *tx, uint32_t rgb, uint8_t a, float x, float y, float sc, uint32_t just){
     int k = TAG_DH0 + i;
     if (!tx || !tx[0]){ tag_hide(c, k); return; }
@@ -6060,26 +6061,9 @@ static void dh_img(CPU *c, int k, uint32_t pkg, uint32_t tex, float x, float y, 
     if (j >= 4 || have[j] < 0){ tex = FLAG_TEMPLATE; if (rgb) rgb = 0x202020u; }
     ui_img(c, FL_DH + k, pkg, tex, x - w * 0.5f, y - h * 0.5f, x + w * 0.5f, y + h * 0.5f, 0.f, 0.f, 1.f, 1.f, rgb, a, 0.42f);
 }
-static void dh_dpad(CPU *c, uint32_t pkg, int hide){
-    if (g_dh_dpad && g_dh_hud != g_tag.hud) g_dh_dpad = 0;   /* another HUD's (that one is gone) */
-    if (hide){
-        if (!g_dh_dpad){
-            uint32_t a[2] = { pkg, DH_DPAD }, o = rh_call(c, FN_FE_FIND, 0, 0, 2, a);
-            if (!ok(o, 0x20)) return;
-            g_dh_dpad = o; g_dh_hud = g_tag.hud; g_dh_dpad_was = !(MR32(o + 0x1cu) & 1u);
-        }
-        if (!(MR32(g_dh_dpad + 0x1cu) & 1u)) gcall1(c, FN_FE_HIDE, 0, g_dh_dpad);
-    } else if (g_dh_dpad){
-        if (g_dh_dpad_was) gcall1(c, FN_FE_SHOW, 0, g_dh_dpad);
-        g_dh_dpad = 0;
-    }
-}
 static void dh_hide(CPU *c){
     for (int i = 0; i < TAG_DHN; i++) tag_hide(c, TAG_DH0 + i);
     ui_hide_imgs(c, FL_DH, FL_DHN);
-    if (g_dh_dpad && g_dh_hud != g_tag.hud) g_dh_dpad = 0;
-    if (g_dh_dpad) gcall1(c, g_dh_dpad_was ? FN_FE_SHOW : FN_FE_HIDE, 0, g_dh_dpad);
-    g_dh_dpad = 0;
     g_dh_drawn = 0;
 }
 static void dh_draw(CPU *c, uint32_t pkg){
@@ -6094,25 +6078,24 @@ static void dh_draw(CPU *c, uint32_t pkg){
     g_ui_place = 0;                              /* under the rear view mirror */
     dh_text(c, DH_TITLE, pkg, popup ? "DRIFT" : "", DH_LIME, 255, 320.f, 87.f, 1.f, 1u);
     dh_text(c, DH_PTS, pkg, popup ? pts : "", DH_LIME, 255, 320.f, 117.f, 1.f, 5u);
-    g_ui_place = 1;                              /* the top left */
-    dh_img(c, 0, pkg, DH_TEX_BEST, 68.f, 55.f, 256.f, 32.f, 0xffffffu, 120);
-    dh_text(c, DH_BEST_L, pkg, "Best:", DH_GREY, 255, 39.f, 47.f, 0.9f, 0u);
-    dh_text(c, DH_BEST, pkg, best, DH_LIME, 255, 180.f, 45.f, 1.f, 2u);
-    dh_img(c, 1, pkg, DH_TEX_TOTAL, 151.f, 124.f, 256.f, 32.f, 0xffffffu, 200);
-    dh_text(c, DH_TOT_L, pkg, "Total:", DH_GREY, 255, 40.f, 116.f, 0.9f, 0u);
-    dh_text(c, DH_TOT, pkg, tot, 0xcfe9f2u, 200, 179.f, 116.f, 0.9f, 2u);
+    g_ui_place = 1;                              /* the left, above the minimap */
+    dh_img(c, 0, pkg, DH_TEX_BEST, 68.f, 55.f + DH_LEFT_DY, 256.f, 32.f, 0xffffffu, 120);
+    dh_text(c, DH_BEST_L, pkg, "Best:", DH_GREY, 255, 39.f, 47.f + DH_LEFT_DY, 0.9f, 0u);
+    dh_text(c, DH_BEST, pkg, best, DH_LIME, 255, 180.f, 45.f + DH_LEFT_DY, 1.f, 2u);
+    dh_img(c, 1, pkg, DH_TEX_TOTAL, 151.f, 124.f + DH_LEFT_DY, 256.f, 32.f, 0xffffffu, 200);
+    dh_text(c, DH_TOT_L, pkg, "Total:", DH_GREY, 255, 40.f, 116.f + DH_LEFT_DY, 0.9f, 0u);
+    dh_text(c, DH_TOT, pkg, tot, 0xcfe9f2u, 200, 179.f, 116.f + DH_LEFT_DY, 0.9f, 2u);
     /* the multiplier's box while a drift is up (its group's FadeIn and fadeout) */
     if (popup){
-        dh_img(c, 2, pkg, FLAG_TEMPLATE, 111.4f, 93.f, 154.9f, 40.f, 0x000000u, 150);
-        dh_text(c, DH_MULT, pkg, mult, 0x30cf30u, 255, 53.f, 95.f, 0.9f, 5u);
-        dh_text(c, DH_GAIN_L, pkg, gl, 0xaaaaaau, 255, 186.f, 73.f, 0.9f, 2u);
-        dh_text(c, DH_GAIN, pkg, gn, DH_LIME, 255, 182.f, 93.f, 0.9f, 2u);
+        dh_img(c, 2, pkg, FLAG_TEMPLATE, 111.4f, 93.f + DH_LEFT_DY, 154.9f, 40.f, 0x000000u, 150);
+        dh_text(c, DH_MULT, pkg, mult, 0x30cf30u, 255, 53.f, 95.f + DH_LEFT_DY, 0.9f, 5u);
+        dh_text(c, DH_GAIN_L, pkg, gl, 0xaaaaaau, 255, 186.f, 73.f + DH_LEFT_DY, 0.9f, 2u);
+        dh_text(c, DH_GAIN, pkg, gn, DH_LIME, 255, 182.f, 93.f + DH_LEFT_DY, 0.9f, 2u);
     } else {
         ui_hide_imgs(c, FL_DH + 2, 1);
         for (int i = DH_MULT; i <= DH_GAIN; i++) tag_hide(c, TAG_DH0 + i);
     }
     g_ui_place = -1;
-    dh_dpad(c, pkg, 1);
     if (!g_dh_drawn) rlog("[roam] f=%ld drift HUD: the drift event's panels up (best %s, total %s)\n", rh_frame(), best, tot);
     g_dh_drawn = 1;
 }
