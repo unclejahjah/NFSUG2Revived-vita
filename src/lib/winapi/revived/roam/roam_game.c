@@ -7377,8 +7377,10 @@ static void mp_pad(int64_t host, int in_roam){
      * 2026-11-26; a tap is Engage: joins the lobby there, else opens one), Down held (hosting) Friends only */
     if (in_roam && host - g_mp_hud_at < 250000 && !mp_cannot()){
         const MpSpot *sp = mp_spot_here();
-        MpLobby *h[MP_SEEN];
-        if (g_mp.st == MP_IDLE && sp && race_lan(sp->race) && mp_can_host() && mp_here(h) > 0) l = ROAM_LB_NEW;   /* (beside one only) */
+        /* (Up held: a new lobby wherever one can open, beside one waiting too; a tap joins the lobby here first and
+         * opens one only where none can be joined: mp_engage_spot, Jah 2026-11-26.  The panel offers it beside a
+         * lobby only: lb_panel) */
+        if (g_mp.st == MP_IDLE && sp && race_lan(sp->race) && mp_can_host()) l = ROAM_LB_NEW;
         else if (g_mp.st == MP_HOST) r = ROAM_LB_PRIVATE;
     }
     pad_lobby_offer(l, r);
