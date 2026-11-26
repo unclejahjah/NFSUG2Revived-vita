@@ -6099,8 +6099,8 @@ static void dh_draw(CPU *c, uint32_t pkg){
     dh_text(c, DH_BEST_L, pkg, "Best:", DH_GREY, 255, tl, DH_Y0 + 12.f, 0.9f, 4u);
     dh_text(c, DH_BEST, pkg, best, DH_LIME, 255, tr, DH_Y0 + 12.f, 1.f, 6u);
     ui_rect(c, FL_DH + 17, pkg, UI_BOX_W, L + 4.f, DH_Y0 + 24.f, DH_W - 8.f, 1.f, 0xffffffu, DH_RULE_A, 0.41f);
-    dh_text(c, DH_MULT, pkg, mult, 0x30cf30u, 255, L + 26.f, DH_Y0 + 45.f, 0.9f, 5u);
-    dh_text(c, DH_GAIN_L, pkg, gl, 0xaaaaaau, 255, tr, DH_Y0 + 36.f, 0.9f, 6u);
+    dh_text(c, DH_MULT, pkg, mult, 0x30cf30u, 255, L + 22.f, DH_Y0 + 45.f, 0.9f, 5u);
+    dh_text(c, DH_GAIN_L, pkg, gl, 0xaaaaaau, 255, tr, DH_Y0 + 36.f, 0.8f, 6u);
     dh_text(c, DH_GAIN, pkg, gn, DH_LIME, 255, tr, DH_Y0 + 54.f, 0.9f, 6u);
     ui_rect(c, FL_DH + 18, pkg, UI_BOX_W, L + 4.f, DH_Y0 + 66.f, DH_W - 8.f, 1.f, 0xffffffu, DH_RULE_A, 0.41f);
     dh_text(c, DH_TOT_L, pkg, "Total:", DH_GREY, 255, tl, DH_Y0 + 79.f, 0.9f, 4u);
