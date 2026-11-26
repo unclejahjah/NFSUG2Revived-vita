@@ -2936,7 +2936,7 @@ static uint32_t flag_texture(CPU *c, int i){
 #define FL_TOP          (FL_LB + FL_LBN)   /* the line at the top's: panel, rule, glyph (du_hud) */
 #define FL_TOPN         18
 #define FL_DH           (FL_TOP + FL_TOPN) /* drift mode's HUD: the drift event's three backings (dh_draw) */
-#define FL_DHN          3
+#define FL_DHN          (3 + 7)       /* (the box: UI_PANEL_N pieces from FL_DH + 3) */
 #define FL_ALL          (FL_DH + FL_DHN)
 typedef struct { uint32_t hud, like, obj[FL_ALL]; uint8_t looked[FL_ALL], shown[FL_ALL], alpha[FL_ALL]; uint32_t tex[FL_ALL]; int said;
                  uint32_t probe, probe_hash; } FlagSet;   /* (probe: the first image made, its hash: tags_live) */
@@ -6034,6 +6034,8 @@ int roam_game_hud_up(void){ return roam_plat_now_us() - g_mp_hud_at < 250000; }
 #define DH_LEFT_DY      156.f         /* the left panels moved down to sit just above the minimap (Jah, 2026-11-26): the
                                          * drift event's 39..140 to 195..296; the minimap's ring starts at about 304 */
 #define DH_LIME         0xcaf48au
+#define DH_BOX_RGB      0xb4b4b4u     /* the box: the white panel pieces tinted grey, translucent */
+#define DH_BOX_A        110
 #define DH_GREY         0xc0c0c0u
 static int g_dh_drawn;
 static void dh_text(CPU *c, int i, uint32_t pkg, const char *tx, uint32_t rgb, uint8_t a, float x, float y, float sc, uint32_t just){
@@ -6077,24 +6079,20 @@ static void dh_draw(CPU *c, uint32_t pkg){
     int popup = (on & 2) != 0;
     g_ui_place = 0;                              /* under the rear view mirror */
     dh_text(c, DH_TITLE, pkg, popup ? "DRIFT" : "", DH_LIME, 255, 320.f, 87.f, 1.f, 1u);
-    dh_text(c, DH_PTS, pkg, popup ? pts : "", DH_LIME, 255, 320.f, 117.f, 1.f, 5u);
+    dh_text(c, DH_PTS, pkg, popup ? pts : "", on & 8 ? 0xcf3030u : on & 4 ? 0xff8020u : DH_LIME, 255, 320.f, 117.f, 1.f, 5u);   /* lost red, ending orange */
     g_ui_place = 1;                              /* the left, above the minimap */
-    dh_img(c, 0, pkg, DH_TEX_BEST, 68.f, 55.f + DH_LEFT_DY, 256.f, 32.f, 0xffffffu, 120);
+    /* Best, the multiplier and Total in one translucent grey box with the game's menus' rounded corners (ui_panel's
+     * white pieces, tinted: Jah 2026-11-26, the three in a single box, corners as the native UI), round the texts'
+     * 39..186 and 201..286 */
+    ui_hide_imgs(c, FL_DH, 3);
+    ui_panel(c, FL_DH + 3, pkg, 28.f, 192.f, 168.f, 102.f, 1, DH_BOX_RGB, DH_BOX_A, 0.42f);
     dh_text(c, DH_BEST_L, pkg, "Best:", DH_GREY, 255, 39.f, 47.f + DH_LEFT_DY, 0.9f, 0u);
     dh_text(c, DH_BEST, pkg, best, DH_LIME, 255, 180.f, 45.f + DH_LEFT_DY, 1.f, 2u);
-    dh_img(c, 1, pkg, DH_TEX_TOTAL, 151.f, 124.f + DH_LEFT_DY, 256.f, 32.f, 0xffffffu, 200);
+    dh_text(c, DH_MULT, pkg, mult, 0x30cf30u, 255, 53.f, 95.f + DH_LEFT_DY, 0.9f, 5u);
+    dh_text(c, DH_GAIN_L, pkg, gl, 0xaaaaaau, 255, 186.f, 73.f + DH_LEFT_DY, 0.9f, 2u);
+    dh_text(c, DH_GAIN, pkg, gn, DH_LIME, 255, 182.f, 93.f + DH_LEFT_DY, 0.9f, 2u);
     dh_text(c, DH_TOT_L, pkg, "Total:", DH_GREY, 255, 40.f, 116.f + DH_LEFT_DY, 0.9f, 0u);
     dh_text(c, DH_TOT, pkg, tot, 0xcfe9f2u, 200, 179.f, 116.f + DH_LEFT_DY, 0.9f, 2u);
-    /* the multiplier's box while a drift is up (its group's FadeIn and fadeout) */
-    if (popup){
-        dh_img(c, 2, pkg, FLAG_TEMPLATE, 111.4f, 93.f + DH_LEFT_DY, 154.9f, 40.f, 0x000000u, 150);
-        dh_text(c, DH_MULT, pkg, mult, 0x30cf30u, 255, 53.f, 95.f + DH_LEFT_DY, 0.9f, 5u);
-        dh_text(c, DH_GAIN_L, pkg, gl, 0xaaaaaau, 255, 186.f, 73.f + DH_LEFT_DY, 0.9f, 2u);
-        dh_text(c, DH_GAIN, pkg, gn, DH_LIME, 255, 182.f, 93.f + DH_LEFT_DY, 0.9f, 2u);
-    } else {
-        ui_hide_imgs(c, FL_DH + 2, 1);
-        for (int i = DH_MULT; i <= DH_GAIN; i++) tag_hide(c, TAG_DH0 + i);
-    }
     g_ui_place = -1;
     if (!g_dh_drawn) rlog("[roam] f=%ld drift HUD: the drift event's panels up (best %s, total %s)\n", rh_frame(), best, tot);
     g_dh_drawn = 1;
