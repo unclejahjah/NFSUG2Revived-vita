@@ -566,13 +566,13 @@ int drift_vita_line(char *tx, int n){
  * The drift's points in its colours (0x4AB780 picks one of the popup's three, set by 0x4F7AD0 and 0x4C7EA0): lime
  * (202,244,138); orange (255,128,32) while the DriftCar's +0x18 or +0x3C is over 1 (0x4C7EA0 from the drift part's
  * update 0x4DA590: the drift about to end); red (207,48,48) once it is lost (a wall), shown so for the popup's time.
- * 0 when drift mode's handling is off (or a drift battle's line has it); 1 the panels; 3 the panels and the drift;
+ * 0 when drift mode's handling is off; 1 the panels; 3 the panels and the drift;
  * | 4 the drift orange, | 8 red */
 #define DH_POPUP_FRAMES 45            /* the drift's points stay this long after it is banked (1.5 s) */
 int drift_vita_hud(char *pts, char *mult, char *gain_txt, char *gain, char *total, char *best, int n){
     static long at = -1000; static double last; static int lost;
     pts[0] = mult[0] = gain_txt[0] = gain[0] = total[0] = best[0] = 0;
-    if (!D.on || B.on){ at = -1000; return 0; }
+    if (!D.on){ at = -1000; return 0; }          /* (a drift battle's too: roam_game.c dh_draw adds its clock and points) */
     long f = autotest_frame();
     int lvl = (int)D.val[2], st = (int)D.val[6];
     if (lvl < 1 || lvl > 5) lvl = 1;
