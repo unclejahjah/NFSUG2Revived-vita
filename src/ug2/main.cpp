@@ -241,10 +241,15 @@ int main(int argc, char** argv)
     // A shader compile request (tools/shadercomp/vita_compile.py) runs instead of the game.
     if (shadercomp::runIfRequested("ux0:data/NeedForSpeedUnderground2/shaders"))
         sceKernelExitProcess(0);
-    scePowerSetArmClockFrequency(444);
-    scePowerSetBusClockFrequency(222);
-    scePowerSetGpuClockFrequency(222);
-    scePowerSetGpuXbarClockFrequency(166);
+    // The highest clocks an app may set itself; never lower ones a clock plugin already set (500 MHz and the like).
+    if (scePowerGetArmClockFrequency() < 444)
+        scePowerSetArmClockFrequency(444);
+    if (scePowerGetBusClockFrequency() < 222)
+        scePowerSetBusClockFrequency(222);
+    if (scePowerGetGpuClockFrequency() < 222)
+        scePowerSetGpuClockFrequency(222);
+    if (scePowerGetGpuXbarClockFrequency() < 166)
+        scePowerSetGpuXbarClockFrequency(166);
 #endif
     const Folders f = folders(argc, argv);
 #ifdef __vita__
