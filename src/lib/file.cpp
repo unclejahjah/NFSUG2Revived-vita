@@ -510,17 +510,16 @@ bool isParkedOrMissing(const std::string& host)
 }
 
 #ifdef __vita__
-pf::Semaphore& warmSignal()
-{
-    static pf::Semaphore s_signal{"file_prewarm", 0};
-    return s_signal;
-}
+// Made by File::prewarm before the worker starts: a function-local static here was first constructed on the game
+// thread while the worker's first wait reached its guard, and the guard threw recursive_init_error (the Vita,
+// 2026-11-26: std::terminate on file_prewarm as free roam's players came in).
+pf::Semaphore* s_warmSignal = nullptr;
 
 int warmWorker(void*)
 {
     for (;;)
     {
-        warmSignal().wait();
+        s_warmSignal->wait();
         std::string host;
         {
             pf::LwLockGuard guard(parkedLock());
@@ -580,13 +579,14 @@ void File::prewarm(const char* guestPath)
                 return;
         s_warmQueue.push_back(host);
     }
-    static pf::Thread* s_thread = nullptr;
+    static pf::Thread* s_thread = nullptr;   // (the game thread only)
     if (!s_thread)
     {
-        s_thread = new pf::Thread("file_prewarm", warmWorker, nullptr, pf::Thread::PriorityLow, 16 * 1024);
+        s_warmSignal = new pf::Semaphore("file_prewarm", 0);
+        s_thread = new pf::Thread("file_prewarm", warmWorker, nullptr, pf::Thread::PriorityLow, 32 * 1024);
         s_thread->start();
     }
-    warmSignal().post();
+    s_warmSignal->post();
 #else
     (void)guestPath;
 #endif
