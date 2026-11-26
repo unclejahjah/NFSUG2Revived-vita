@@ -46,6 +46,10 @@ void cycle(int g, int i, int delta);
 void setText(int g, int i, const std::string& text);
 // After a change was saved: applies it now if it can be, which most settings cannot (true then).
 bool applyLive(int g, int i);
+// A cfg setting from another screen (Controls > Customize): its value as Vita Settings shows it, and a step of it,
+// saved and applied at once.
+std::string cfgValue(const char* key);
+bool cfgCycle(const char* key, int delta);
 
 }}
 

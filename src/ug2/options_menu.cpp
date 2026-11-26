@@ -1022,4 +1022,39 @@ bool applyLive(int g, int i)
     return false;
 }
 
+// A cfg setting's row from another screen (the Controls Customize screen's Horn and Drift Mode rows): its value as
+// shown, and a step Left or Right, saved and applied at once. False when no page has the key.
+static bool findCfg(const char* key, int* g, int* i)
+{
+    for (int p = 0; p < PageCount; ++p)
+        for (int k = 0; k < Pages[p].count; ++k)
+        {
+            const Item& it = Pages[p].items[k];
+            if (it.kind != Heading && it.store == Cfg && !strcmp(it.key, key))
+            {
+                *g = p;
+                *i = k;
+                return true;
+            }
+        }
+    return false;
+}
+
+std::string cfgValue(const char* key)
+{
+    int g, i;
+    return findCfg(key, &g, &i) ? itemValue(g, i) : std::string();
+}
+
+bool cfgCycle(const char* key, int delta)
+{
+    int g, i;
+    if (!findCfg(key, &g, &i))
+        return false;
+    cycle(g, i, delta);
+    const bool saved = save();
+    applyLive(g, i);
+    return saved;
+}
+
 }}

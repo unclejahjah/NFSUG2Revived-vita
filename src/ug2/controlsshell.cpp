@@ -11,6 +11,7 @@
 #include "diagram.h"
 #include "ownscreens.h"
 #include "psprompt.h"
+#include "options_menu.h"
 
 #include <lib/gamepad.h>
 #include <lib/memmap.h>
@@ -94,7 +95,20 @@ const char* const ScreenSources[ScreenCount] = { "", "UI_Options.fng", "UI_Optio
 const reg32 ScreenTitles[ScreenCount] = { 0, TextControls, TextJoypad, TextCustomize };
 const Screen ScreenParents[ScreenCount] = { ScreenNone, ScreenNone, ScreenTop, ScreenJoypad };
 
-enum Kind { KindJoypad, KindStick, KindControlType, KindCustomize, KindEntry };
+enum Kind { KindJoypad, KindStick, KindControlType, KindCustomize, KindEntry, KindVitaButton };
+
+// Customize's rows after the game's actions: free roam's held buttons (src/lib/controls.cpp), cfg settings that
+// Left and Right step through as Vita Settings does (options_menu.cpp), not binds in registry.txt.
+struct VitaButton
+{
+    const char* label;
+    const char* key;
+};
+const VitaButton VitaButtons[] = {
+    { "Horn (free roam)", "horn_button" },
+    { "Drift Mode (free roam)", "drift_button" },
+};
+const int VitaButtonCount = int(sizeof(VitaButtons) / sizeof(VitaButtons[0]));
 
 struct Text
 {
@@ -282,7 +296,7 @@ void fitLabel(win32::WinApplication* app, x86::CPU& cpu, reg32 label, const Text
 
 bool hasArrows(Kind kind)
 {
-    return kind == KindStick || kind == KindControlType;
+    return kind == KindStick || kind == KindControlType || kind == KindVitaButton;
 }
 
 void hideArrows(win32::WinApplication* app, x86::CPU& cpu, reg32 row)
@@ -328,6 +342,14 @@ void rowTexts(win32::WinApplication* app, x86::CPU& cpu, const Row& r)
             setPlain(app, cpu, value, shown);
         else
             setHash(app, cpu, value, TextNone);
+        break;
+    }
+    case KindVitaButton:
+    {
+        const Text text = { 0, VitaButtons[r.index].label };
+        setText(app, cpu, label, text);
+        fitLabel(app, cpu, label, text);
+        setPlain(app, cpu, value, options::cfgValue(VitaButtons[r.index].key));
         break;
     }
     }
@@ -857,11 +879,17 @@ void buildRows(win32::WinApplication* app, x86::CPU& cpu, reg32 screen)
         break;
     case ScreenCustomize:
     {
-        const int shown = s_slots[ScreenCustomize] < EntryCount ? s_slots[ScreenCustomize] : EntryCount;
-        if (shown < EntryCount)
-            pf::logError("controlsshell: Customize has %d row slots for %d entries", s_slots[ScreenCustomize], EntryCount);
+        const int rows = EntryCount + VitaButtonCount;
+        const int shown = s_slots[ScreenCustomize] < rows ? s_slots[ScreenCustomize] : rows;
+        if (shown < rows)
+            pf::logError("controlsshell: Customize has %d row slots for %d entries", s_slots[ScreenCustomize], rows);
         for (int i = 0; i < shown; ++i)
-            addRow(app, cpu, screen, KindEntry, i);
+        {
+            if (i < EntryCount)
+                addRow(app, cpu, screen, KindEntry, i);
+            else
+                addRow(app, cpu, screen, KindVitaButton, i - EntryCount);
+        }
         break;
     }
     default:
@@ -1071,6 +1099,11 @@ void rowMessage(win32::WinApplication* app, x86::CPU& cpu)
         const int direction = message == MessageLeft ? -1 : 1;
         if (r->kind == KindControlType)
             changeType(direction);
+        else if (r->kind == KindVitaButton)
+        {
+            if (!options::cfgCycle(VitaButtons[r->index].key, direction))
+                pf::logError("controlsshell: %s not saved", VitaButtons[r->index].key);
+        }
         else
             changeStick(r->index, direction);
         call(app, cpu, rc::ld32(rc::ld32(row) + 4 * SlotBase), row, { message });
@@ -1150,7 +1183,7 @@ void configure(win32::WinApplication& app)
             fepackage::Package donor;
             const bool haveDonor = which == ScreenCustomize && ownscreens::loadPackage(controlsbake::InstructionDonor, &donor);
             const controlsbake::Result r = which == ScreenJoypad ? controlsbake::joypad(p, ScreenTitles[which]) :
-                controlsbake::options(p, ScreenTitles[which], which == ScreenCustomize, EntryCount, haveDonor ? &donor : nullptr);
+                controlsbake::options(p, ScreenTitles[which], which == ScreenCustomize, EntryCount + VitaButtonCount, haveDonor ? &donor : nullptr);
             if (which == ScreenCustomize && r.instruction < 0)
                 pf::logError("controlsshell: no instruction line: %s", r.error.c_str());
             s_slots[which] = r.slots;
