@@ -26,6 +26,8 @@ const StanceV *stance_mine(int p);                    /* player p's car's, 0: no
 int  stance_wire_mine(int16_t v[5]);                 /* roam_game.c: RC_EXT_STANCE */
 void stance_wire_car(int k, uint32_t car, int has, const int16_t v[5]);
 void stance_forget(void);
+void stance_reload(void);                             /* the .ini changed: read again at the next car drawn */
+void stance_fe_preview(int on);                       /* the front end's car drawn with the .ini's stance */
 /* modpacks.c, MODPARTS.DAT: player p's stances as its entries (8 words: handle, car type, the cambers, the offsets,
  * the tires' width, 0, 0, STANCE_KIND) -> how many; a profile of player p (its name) loaded: none until stance_load
  * gives each of its file's (1 taken); a car gone (traded), a car moved to another record */

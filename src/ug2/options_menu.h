@@ -22,7 +22,12 @@ bool save();
 // Starts the game again (does not return on the Vita).
 void restart();
 
+// Vita Settings' pages (the Car Shop's Stance page is not one of them).
 int groupCount();
+// The Car Shop's Stance page (menu_entry.cpp): its rows are a group like the others; row 0 is Stance on or off.
+int stanceGroup();
+bool stanceIsOn();
+void stanceTurnOn();
 const char* groupTitle(int g);
 int itemCount(int g);
 const char* itemLabel(int g, int i);

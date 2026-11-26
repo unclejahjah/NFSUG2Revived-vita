@@ -22,6 +22,8 @@
 // src/lib/winapi/revived/revived_link.cpp: Social's "Add friend by name"
 void revived_friend_ask(const std::string& name);
 std::string revived_friend_status(unsigned* version);
+// src/lib/winapi/revived/roam/stance_vita.c: the stance read from the .ini again at the next car drawn
+extern "C" void stance_reload(void);
 
 namespace ug2 { namespace options {
 
@@ -108,14 +110,28 @@ const Item Saves[] = {
 
 // Your car's stance, as nfsu2.xyz's Stance mod sets it (src/lib/winapi/revived/roam/stance_vita.c): for whichever car
 // you drive out in the world, seen by the players near you; theirs show on their cars. Only the look changes.
-const Option Cambers[] = { { "0", "0 degrees" }, { "1", "1 degree" }, { "2", "2 degrees" }, { "3", "3 degrees" },
-                           { "4", "4 degrees" }, { "5", "5 degrees" }, { "6", "6 degrees" }, { "8", "8 degrees" },
-                           { "10", "10 degrees" }, { "12", "12 degrees" }, { "15", "15 degrees" } };
-const Option Offsets[] = { { "-40", "-40 mm (in)" }, { "-20", "-20 mm (in)" }, { "-10", "-10 mm (in)" }, { "0", "0 mm" },
-                           { "10", "+10 mm" }, { "20", "+20 mm" }, { "30", "+30 mm" }, { "40", "+40 mm" },
-                           { "50", "+50 mm" }, { "60", "+60 mm" }, { "80", "+80 mm" } };
-const Option TireWidths[] = { { "80", "80 %" }, { "90", "90 %" }, { "100", "100 % (the car's own)" }, { "110", "110 %" },
-                              { "120", "120 %" }, { "130", "130 %" } };
+// (half degrees and 5 mm steps, as the Car Shop's Stance page moves them: stance_vita.c takes tenths of a degree)
+const Option Cambers[] = { { "0", "0 degrees" }, { "0.5", "0.5 degrees" }, { "1", "1 degree" },
+                           { "1.5", "1.5 degrees" }, { "2", "2 degrees" }, { "2.5", "2.5 degrees" },
+                           { "3", "3 degrees" }, { "3.5", "3.5 degrees" }, { "4", "4 degrees" },
+                           { "4.5", "4.5 degrees" }, { "5", "5 degrees" }, { "5.5", "5.5 degrees" },
+                           { "6", "6 degrees" }, { "6.5", "6.5 degrees" }, { "7", "7 degrees" },
+                           { "7.5", "7.5 degrees" }, { "8", "8 degrees" }, { "8.5", "8.5 degrees" },
+                           { "9", "9 degrees" }, { "9.5", "9.5 degrees" }, { "10", "10 degrees" },
+                           { "10.5", "10.5 degrees" }, { "11", "11 degrees" }, { "11.5", "11.5 degrees" },
+                           { "12", "12 degrees" }, { "12.5", "12.5 degrees" }, { "13", "13 degrees" },
+                           { "13.5", "13.5 degrees" }, { "14", "14 degrees" }, { "14.5", "14.5 degrees" },
+                           { "15", "15 degrees" } };
+const Option Offsets[] = { { "-40", "-40 mm (in)" }, { "-35", "-35 mm (in)" }, { "-30", "-30 mm (in)" },
+                           { "-25", "-25 mm (in)" }, { "-20", "-20 mm (in)" }, { "-15", "-15 mm (in)" },
+                           { "-10", "-10 mm (in)" }, { "-5", "-5 mm (in)" }, { "0", "0 mm" }, { "5", "+5 mm" },
+                           { "10", "+10 mm" }, { "15", "+15 mm" }, { "20", "+20 mm" }, { "25", "+25 mm" },
+                           { "30", "+30 mm" }, { "35", "+35 mm" }, { "40", "+40 mm" }, { "45", "+45 mm" },
+                           { "50", "+50 mm" }, { "55", "+55 mm" }, { "60", "+60 mm" }, { "65", "+65 mm" },
+                           { "70", "+70 mm" }, { "75", "+75 mm" }, { "80", "+80 mm" } };
+const Option TireWidths[] = { { "80", "80 %" }, { "85", "85 %" }, { "90", "90 %" }, { "95", "95 %" },
+                              { "100", "100 % (the car's own)" }, { "105", "105 %" }, { "110", "110 %" },
+                              { "115", "115 %" }, { "120", "120 %" }, { "125", "125 %" }, { "130", "130 %" } };
 
 const Item Mods[] = {
     { "NFSU2 Revived", Cfg, "network", Choice, OPTIONS(Network), "revived", 0, nullptr,
@@ -126,8 +142,25 @@ const Item Mods[] = {
     { "EU Car Content", Extra, "UnlockRegionalCars", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
       "Drive the Peugeot 106 and Vauxhall Corsa in the US game (NFSU2 Extra Options). Needs their car folders." },
     { "Stance", Ini, "Stance", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
-      "Camber, offset and tire width for your car (Stance Mod by Archie, as on nfsu2.xyz), set in the rows below. "
-      "Only the look changes; players near you in free roam see it." },
+      "Camber, offset and tire width for your car (Stance Mod by Archie, as on nfsu2.xyz), set in the rows below or "
+      "in Customize's Body Shop (Stance, after Rims). Only the look changes; players near you in free roam see it." },
+    { "Front camber", Ini, "FrontCamber", Choice, OPTIONS(Cambers), "0", 0, nullptr,
+      "How far the front wheels' tops lean in." },
+    { "Rear camber", Ini, "RearCamber", Choice, OPTIONS(Cambers), "0", 0, nullptr,
+      "How far the rear wheels' tops lean in." },
+    { "Front offset", Ini, "FrontOffset", Choice, OPTIONS(Offsets), "0", 0, nullptr,
+      "How far the front wheels stand out from the body (in, below 0)." },
+    { "Rear offset", Ini, "RearOffset", Choice, OPTIONS(Offsets), "0", 0, nullptr,
+      "How far the rear wheels stand out from the body (in, below 0)." },
+    { "Tire width", Ini, "TireWidth", Choice, OPTIONS(TireWidths), "100", 0, nullptr,
+      "The tires' width, of the car's own." },
+};
+
+// The Car Shop's Stance page (Customize, Body Shop, Stance after Rims: menu_entry.cpp): the same keys as the Mods
+// page's rows, shown with the car seen behind them. Not one of Vita Settings' pages.
+const Item StanceShop[] = {
+    { "Stance", Ini, "Stance", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Your car's stance on or off. Moving any row below turns it on." },
     { "Front camber", Ini, "FrontCamber", Choice, OPTIONS(Cambers), "0", 0, nullptr,
       "How far the front wheels' tops lean in." },
     { "Rear camber", Ini, "RearCamber", Choice, OPTIONS(Cambers), "0", 0, nullptr,
@@ -383,8 +416,10 @@ const Page Pages[] = {
     { "Game", OPTIONS(Game) },
     { "Saves", OPTIONS(Saves) },
     { "Mods", OPTIONS(Mods) },
+    { "Stance", OPTIONS(StanceShop) },   // the Car Shop's page, last: not shown in Vita Settings (groupCount)
 };
 const int PageCount = int(sizeof(Pages) / sizeof(Pages[0]));
+const int StancePage = PageCount - 1;
 
 // Written when free roam is first turned on without an .ini: the PC mod's file with the Vita's defaults.
 const char FreeRoamSection[] = "FreeRoam";
@@ -853,7 +888,29 @@ void restart()
 
 int groupCount()
 {
-    return PageCount;
+    return StancePage;      // Vita Settings' pages: all but the Car Shop's Stance page
+}
+
+int stanceGroup()
+{
+    return StancePage;
+}
+
+bool stanceIsOn()
+{
+    if (!s_loaded)
+        load();
+    return boolValue(s_values[StancePage][0]) == 1;
+}
+
+void shareValue(int g, int i);
+
+void stanceTurnOn()
+{
+    if (!s_loaded)
+        load();
+    s_values[StancePage][0] = "1";
+    shareValue(StancePage, 0);
 }
 
 const char* groupTitle(int g)
@@ -1014,6 +1071,19 @@ bool applyLive(int g, int i)
                                         "quick_chat_button",
                                         "horn_button", "drift_button" };
     const Item& it = item(g, i);
+    // The stance: stance_vita.c reads the .ini again at the next car it draws.
+    static const char* const StanceKeys[] = { "Stance", "FrontCamber", "RearCamber", "FrontOffset", "RearOffset",
+                                              "TireWidth" };
+    if (it.store == Ini)
+    {
+        for (const char* key : StanceKeys)
+            if (!strcmp(it.key, key))
+            {
+                stance_reload();
+                return true;
+            }
+        return false;
+    }
     if (it.store != Cfg)
         return false;
     for (const char* key : Live)

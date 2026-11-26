@@ -2,8 +2,9 @@
  * wheels' camber, front and rear, how far they stand out, and the tires' width, as the car is drawn; the car drives as
  * in the original game.  Yours are the .ini's (Vita Settings, Free roam: Stance and its five rows) for whichever car
  * you drive out in the world; a friend's come with their car's record in free roam (roam_core.c RC_EXT_STANCE), and
- * nfsu2.xyz's players' per car stances show on their cars here too.  No Body Shop page: the browser's is a patch of
- * the game's own Options screen, which the Vita's translation does not take.
+ * nfsu2.xyz's players' per car stances show on their cars here too.  The Car Shop's page (Customize, Body Shop,
+ * Stance after Rims: src/ug2/menu_entry.cpp, as the browser's) sets the same .ini keys, and while the Body Shop or that
+ * page is open the front end's car is drawn with them (stance_fe_preview).
  *
  * The game (v1.2 NA), in the car's drawing 0x620AE0 (thiscall render info, 12 arguments, ret 0x30):
  *   - Front camber: the angle is int(7.0 [0x7A6754] * f * 65536) / 360, f = [0x7A6750] when that is not 0 (a tweak,
@@ -34,7 +35,16 @@ int roam_host_ini_value(const char *key, char *out, int n);   /* roam_vita.cpp: 
 #define RI_WHEEL_Y     0x400u        /* ... each wheel's sideways place, two floats (the car's left: below 0) */
 #define RI_TIRE_W      0x420u        /* ... each wheel's tire width, m */
 
-static StanceV g_mine; static int g_mine_on = 0; static long g_mine_read = -1000;
+static StanceV g_mine; static int g_mine_on = 0; static long g_mine_read = -1000; static int g_mine_stale = 1;
+static int g_fe_preview = 0;
+
+/* the .ini changed (Vita Settings, the Car Shop's page): read again at the next car drawn */
+void stance_reload(void){ g_mine_stale = 1; }
+/* the front end's car drawn with the player's stance (on: the Body Shop or its Stance page is open) */
+void stance_fe_preview(int on){
+    if (on != g_fe_preview) fprintf(stderr, "[stance] f=%ld the front end's car: %s\n", autotest_frame(), on ? "your stance" : "the game's");
+    g_fe_preview = on;
+}
 static StanceV g_friend[STANCE_FRIENDS]; static uint32_t g_friend_car[STANCE_FRIENDS];
 
 static int16_t clamp16(int v, int lo, int hi){ return (int16_t)(v < lo ? lo : v > hi ? hi : v); }
@@ -47,8 +57,8 @@ static float ini_num(const char *key, float def){
 /* the player's own, from the .ini (read again every 3 s or so: Vita Settings may have changed it) */
 static const StanceV *mine(void){
     long f = autotest_frame();
-    if (f - g_mine_read >= 90 || f < g_mine_read){
-        g_mine_read = f;
+    if (g_mine_stale || f - g_mine_read >= 90 || f < g_mine_read){
+        g_mine_read = f; g_mine_stale = 0;
         char on[8] = "";
         roam_host_ini_value("Stance", on, (int)sizeof on);
         StanceV v;
@@ -99,10 +109,12 @@ static struct {
     float    keep_y[8], keep_w[4];
 } D;
 
-/* the stance the car of render info ri is drawn with, 0: the game's (out in the world only) */
+/* the stance the car of render info ri is drawn with, 0: the game's (out in the world; in the front end only the
+ * Car Shop's car, while stance_fe_preview has it) */
 static const StanceV *of_drawn(uint32_t ri){
     uint32_t car = guest_rd32(ri + RI_CAR);
-    if (MR32(G_FLOW) != 6u || !car) return 0;
+    if (MR32(G_FLOW) != 6u) return g_fe_preview ? mine() : 0;   /* (the browser's page: every car the front end draws) */
+    if (!car) return 0;
     if (car == guest_rd32(guest_rd32(SPLIT_PLAYERS_INDEX) + PL_CAR)) return mine();
     for (int k = 0; k < STANCE_FRIENDS; k++) if (g_friend_car[k] == car) return &g_friend[k];
     return 0;
