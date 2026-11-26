@@ -188,10 +188,18 @@ int mpcredit_busy(void){ return 0; }
 /* the network race's cars as they came in (racenet.c): not measured here */
 float racenet_jump(const char *name){ (void)name; return 0.f; }
 float racenet_farthest(char name[16]){ name[0] = 0; return 0.f; }
-/* the lobby card's controller keys (dinput_pad.c lobby_pad: D-pad left and right held, the page's card): not on the
- * Vita, where the D-pad is the game's; Enter's own pick is the lobby joined */
-void pad_lobby_offer(int left, int right){ (void)left; (void)right; }
-int pad_lobby_take(void){ return 0; }
+/* the lobby panel's keys (roam_game.c mp_pad, ROAM_LOBBY_PANEL): on the Vita D-pad Left held (left: a new lobby) and
+ * Down held (second: Friends only), taken from the game by controls.cpp only while offered (roam_vita.cpp) */
+void roam_host_lobby_keys(int left, int down);
+int roam_host_lobby_take(void);
+static int g_pad_left, g_pad_down;
+void pad_lobby_offer(int left, int down){ g_pad_left = left; g_pad_down = down; roam_host_lobby_keys(left != 0, down != 0); }
+int pad_lobby_take(void){
+    int b = roam_host_lobby_take();
+    if ((b & 1) && g_pad_left) return g_pad_left;
+    if ((b & 2) && g_pad_down) return g_pad_down;
+    return 0;
+}
 
 /* ---- the race's own port (racehorn.c HORN_PORT, next to the race link's 3658) ------------------------------- */
 /* Of what the browser's games send there (horns, frame rates, car states, quick chat), only a racer's quit ("N2QT")

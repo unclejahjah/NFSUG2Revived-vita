@@ -656,6 +656,25 @@ int roam_host_drift_presses(void)
     return win32::controls::takeDriftPresses();
 }
 
+// The race lobby panel's keys (roam/mp/mp_vita.c pad_lobby_offer, each frame while free roam's HUD is up): D-pad Left
+// held for a new lobby, Down held for Friends only (controls::setLobbyKeys); the presses since the last frame, bit 0
+// Left, bit 1 Down; and how far Down's hold towards Friends only is, 0..1 (-1 none), for the quick chat box's bar.
+extern "C" void roam_host_lobby_keys(int left, int down)
+{
+    win32::controls::setLobbyKeys(pf::ticksUs(), left != 0, down != 0);
+}
+
+extern "C" int roam_host_lobby_take(void)
+{
+    return win32::controls::takeLobbyPresses();
+}
+
+extern "C" float roam_host_lobby_hold(void)
+{
+    const uint64_t held = win32::controls::lobbyDownHeldUs();
+    return held ? float(double(held) / double(win32::controls::LobbyDownUs)) : -1.0f;
+}
+
 // The game's thread, as free roam's frame runs on it (showoff_hooks.cpp: drift mode's music natives change the
 // switch only there)
 static int s_gameThread = 0;
@@ -793,6 +812,17 @@ int roam_host_horn_held(void)
         return 0;
     win32::controls::setHornLive(pf::ticksUs());
     return win32::controls::hornHeld() ? 1 : 0;
+}
+
+// the HORN touch button (roam_game.c hb_draw): 1 to draw it (Horn not off, free roam's HUD up), *lit while it honks
+extern "C" int roam_host_horn_button(int* lit)
+{
+    const char* kind = roam_opt("NFSU2_ROAM_HORN");
+    *lit = 0;
+    if ((kind && !strcasecmp(kind, "off")) || !roam_game_hud_up())
+        return 0;
+    *lit = win32::controls::hornHeld() ? 1 : 0;
+    return 1;
 }
 
 // the game's Master Volume (its Audio options: G_VOLUMES +0, a float 0 .. 1), which every horn follows
