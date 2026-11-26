@@ -221,6 +221,55 @@ void removeIntroScreens(int skip)
     pf::logInfo("movies: skip_intro_movies: %d start-up screens taken out of the boot flow", removed);
 }
 
+// The press-start screen (UG_LS_Splash, React 0x4C5580) plays the opening as an attract movie after a while idle: it
+// points the boot flow (0x836488: +4 first link, +8 last link, +0xC current node; a node's link is at +4 and its
+// name at +0xC) at the UG_LS_IntroFMV node (0x4C5080) and shows that screen. When the movie ends or is skipped, the
+// IntroFMV screen's React (0x4C5330) moves the flow to the current node's next one (0x4C4F50), back to the splash.
+// With skip_intro_movies=opening that node is not in the flow, so the current node is null and the next screen is
+// read from address 0: a black screen. The current node is set to the splash's previous one, so the flow goes back
+// to the splash as it does in the retail game.
+const reg32 BootFlow = 0x00836488;
+const reg32 IntroFmvReact = 0x004C5330;      // vtable 0x7907D8 slot 2, thiscall (message, 3 more), ret 0x10
+win32::MethodPtr s_introFmvReact = nullptr;
+
+reg32 linkNode(reg32 link)
+{
+    return link ? link - 4 : 0;
+}
+
+std::string nodeName(reg32 node)
+{
+    std::string name;
+    for (reg32 p = node ? rc::ld32(node + 0xC) : 0; p && rc::ld8(p) && name.size() < 64; ++p)
+        name += char(rc::ld8(p));
+    return name;
+}
+
+void introFmvReact(win32::WinApplication* app, x86::CPU& cpu)
+{
+    const reg32 flow = rc::ld32(BootFlow);
+    if (flow && !rc::ld32(flow + 0xC))
+    {
+        reg32 previous = 0;
+        for (reg32 node = linkNode(rc::ld32(flow + 4)), i = 0; node && node != flow && i < 64; ++i)
+        {
+            if (nodeName(node) == "UG_LS_Splash.fng")
+            {
+                if (previous)
+                {
+                    rc::st32(flow + 0xC, previous);
+                    pf::logInfo("movies: attract movie: the boot flow goes back to the splash from %s",
+                                nodeName(previous).c_str());
+                }
+                break;
+            }
+            previous = node;
+            node = linkNode(rc::ld32(node + 4));
+        }
+    }
+    s_introFmvReact(app, cpu);
+}
+
 // A guest copy of the path with the movie's name (name, the path's last part without .vp6) replaced by to.
 reg32 replacedPath(reg32 path, const char* name, const std::string& to)
 {
@@ -879,7 +928,11 @@ void configure(win32::WinApplication& app)
     }
     static const char* const IntroSkips[] = { "off", "logos", "opening" };
     if (const int skip = pf::Config::getChoice("skip_intro_movies", IntroSkips, 3, 0))
+    {
         removeIntroScreens(skip);
+        if (skip >= 2 && !s_introFmvReact)
+            s_introFmvReact = app.replaceMethod(IntroFmvReact, introFmvReact);
+    }
     s_dir = pf::Config::getString("movies_dir", defaultDir);
     while (s_dir.size() > 1 && (s_dir.back() == '/' || s_dir.back() == '\\'))
         s_dir.pop_back();
