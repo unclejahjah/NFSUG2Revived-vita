@@ -2573,8 +2573,9 @@ static void push_pose(Slot *s, rc_pose *P, int64_t newest, int64_t rt, float dt)
 #define TAG_LB0         (TAG_QC0 + TAG_QCN)   /* and the race lobby's panel: title, race, a line a player, two of keys (lb_panel) */
 #define TAG_LBN         18
 #define TAG_DH0         (TAG_LB0 + TAG_LBN)   /* and drift mode's HUD, the drift event's texts (dh_draw) */
-#define TAG_DHN         9
-enum { DH_TITLE, DH_PTS, DH_BEST_L, DH_BEST, DH_TOT_L, DH_TOT, DH_MULT, DH_GAIN_L, DH_GAIN };   /* (TAG_DH0 + these) */
+#define TAG_DHN         17
+enum { DH_TITLE, DH_PTS, DH_BEST_L, DH_BEST, DH_TOT_L, DH_TOT, DH_MULT, DH_GAIN_L, DH_GAIN,
+       DH_TIME_L, DH_TIME, DH_ROW0 /* a drift battle's board: rank, name, points a row, two rows */ };   /* (TAG_DH0 + these) */
 #define DH_BIG_SOURCE   0x2da220aau   /* HUD_SingleRace's "+9999": Font_ConduitMdITCTT38bi, the drift event's points' */
 static inline int dh_big(int i){ return i == DH_PTS || i == DH_MULT; }
 #define TAG_ALL         (TAG_N + 1 + TAG_MPN + TAG_QCN + TAG_LBN + TAG_DHN)
@@ -2936,7 +2937,7 @@ static uint32_t flag_texture(CPU *c, int i){
 #define FL_TOP          (FL_LB + FL_LBN)   /* the line at the top's: panel, rule, glyph (du_hud) */
 #define FL_TOPN         18
 #define FL_DH           (FL_TOP + FL_TOPN) /* drift mode's HUD: the drift event's three backings (dh_draw) */
-#define FL_DHN          (3 + 7)       /* (the box: UI_PANEL_N pieces from FL_DH + 3) */
+#define FL_DHN          (3 + 7 + 7 + 4)   /* (3 unused, the scores' box and the battle's box: UI_PANEL_N each, 4 rules) */
 #define FL_ALL          (FL_DH + FL_DHN)
 typedef struct { uint32_t hud, like, obj[FL_ALL]; uint8_t looked[FL_ALL], shown[FL_ALL], alpha[FL_ALL]; uint32_t tex[FL_ALL]; int said;
                  uint32_t probe, probe_hash; } FlagSet;   /* (probe: the first image made, its hash: tags_live) */
@@ -5387,6 +5388,7 @@ static void db_over(int64_t host){
 }
 /* the page's scoreboard (db_panel, below): it shows, so the top line has only the countdown and the result */
 static int g_db_board;
+static int g_dh_battle;                  /* the Vita: drift mode's box shows the battle's clock and points (dh_draw) */
 static void db_panel(int64_t host);
 /* the line at the top while it runs and after */
 static void db_line(int64_t host, char *tx, int n){
@@ -5398,7 +5400,7 @@ static void db_line(int64_t host, char *tx, int n){
         return;
     }
     if (g_du.st == DU_RACE && host - g_du.db_go_at < DB_GO_US){ snprintf(tx, (size_t)n, "Drift battle with %s: go!", g_du.name); return; }
-    if (g_du.st == DU_RACE && g_db_board) return;                    /* the time and the points are the page's */
+    if (g_du.st == DU_RACE && (g_db_board || g_dh_battle)) return;   /* the time and the points are the page's (the Vita: its box's) */
     if (g_du.st == DU_RACE){
         int64_t l = g_du.db_end_at - host; int sec = l > 0 ? (int)((l + 999999) / 1000000) : 0;
         db_pts(a, sizeof a, g_du.db_mine); db_pts(b, sizeof b, g_du.db_theirs);
@@ -6031,6 +6033,10 @@ int roam_game_hud_up(void){ return roam_plat_now_us() - g_mp_hud_at < 250000; }
  * drift event's place.  The texts and when they show: drift.c drift_vita_hud. */
 #define DH_TEX_BEST     0x51052532u   /* DRIFT_STYLE_POINTS_BACKING (InGameFreeRoam's HUD textures) */
 #define DH_TEX_TOTAL    0x6fd193f6u   /* 3RDPERSON_BOXTIME (InGameCommon) */
+#define DH_RX           604.f         /* the right-hand boxes: their right edge (the Bank's figures end at about 603) */
+#define DH_W            176.f         /* ...their width (the browser's column) */
+#define DH_Y0           80.f          /* ...the first's top, under the Bank (its band ends at about 72) */
+#define DH_RULE_A       70            /* the rules between rows: white, faint */
 #define DH_LEFT_DY      156.f         /* the left panels moved down to sit just above the minimap (Jah, 2026-11-26): the
                                          * drift event's 39..140 to 195..296; the minimap's ring starts at about 304 */
 #define DH_LIME         0xcaf48au
@@ -6067,33 +6073,69 @@ static void dh_img(CPU *c, int k, uint32_t pkg, uint32_t tex, float x, float y, 
 static void dh_hide(CPU *c){
     for (int i = 0; i < TAG_DHN; i++) tag_hide(c, TAG_DH0 + i);
     ui_hide_imgs(c, FL_DH, FL_DHN);
+    g_dh_battle = 0;
     g_dh_drawn = 0;
 }
 static void dh_draw(CPU *c, uint32_t pkg){
     extern int drift_vita_hud(char *pts, char *mult, char *gain_txt, char *gain, char *total, char *best, int n);
     char pts[24], mult[24], gl[24], gn[24], tot[24], best[24];
     int on = drift_vita_hud(pts, mult, gl, gn, tot, best, 24);
-#ifdef ROAM_LOBBY_PANEL
-    if (g_lb_drawn) on = 0;                      /* a race lobby's panel has the top left */
+#if SAYS && defined(ROAM_SAY_TAGS)
+    if (g_qc_drawn) on = 0;                      /* quick chat's box has the right while its button is held */
 #endif
     if (!on){ if (g_dh_drawn) dh_hide(c); return; }
     int popup = (on & 2) != 0;
     g_ui_place = 0;                              /* under the rear view mirror */
     dh_text(c, DH_TITLE, pkg, popup ? "DRIFT" : "", DH_LIME, 255, 320.f, 87.f, 1.f, 1u);
     dh_text(c, DH_PTS, pkg, popup ? pts : "", on & 8 ? 0xcf3030u : on & 4 ? 0xff8020u : DH_LIME, 255, 320.f, 117.f, 1.f, 5u);   /* lost red, ending orange */
-    g_ui_place = 1;                              /* the left, above the minimap */
-    /* Best, the multiplier and Total in one translucent grey box with the game's menus' rounded corners (ui_panel's
-     * white pieces, tinted: Jah 2026-11-26, the three in a single box, corners as the native UI), round the texts'
-     * 39..186 and 201..286 */
+    /* Best, the multiplier and Total in one rounded box on the right under the Bank, and in a drift battle its clock
+     * and the two players' points in a second box under it (Jah 2026-11-26, from the browser's drift battle: its
+     * column under the Bank, its rows' sizes); the box black at a third, as the Bank's (DH_BOX_A), thin rules
+     * between the rows.  Right-hand place (widescreen place 2): x from DH_RX - DH_W to DH_RX */
+    g_ui_place = 2;
+    float L = DH_RX - DH_W, R = DH_RX, tl = L + 8.f, tr = R - 8.f;
     ui_hide_imgs(c, FL_DH, 3);
-    ui_panel(c, FL_DH + 3, pkg, 28.f, 192.f, 168.f, 102.f, 0, 0xffffffu, DH_BOX_A, 0.42f);
-    dh_text(c, DH_BEST_L, pkg, "Best:", DH_GREY, 255, 39.f, 47.f + DH_LEFT_DY, 0.9f, 0u);
-    dh_text(c, DH_BEST, pkg, best, DH_LIME, 255, 180.f, 45.f + DH_LEFT_DY, 1.f, 2u);
-    dh_text(c, DH_MULT, pkg, mult, 0x30cf30u, 255, 53.f, 95.f + DH_LEFT_DY, 0.9f, 5u);
-    dh_text(c, DH_GAIN_L, pkg, gl, 0xaaaaaau, 255, 186.f, 73.f + DH_LEFT_DY, 0.9f, 2u);
-    dh_text(c, DH_GAIN, pkg, gn, DH_LIME, 255, 182.f, 93.f + DH_LEFT_DY, 0.9f, 2u);
-    dh_text(c, DH_TOT_L, pkg, "Total:", DH_GREY, 255, 40.f, 116.f + DH_LEFT_DY, 0.9f, 0u);
-    dh_text(c, DH_TOT, pkg, tot, 0xcfe9f2u, 200, 179.f, 116.f + DH_LEFT_DY, 0.9f, 2u);
+    ui_panel(c, FL_DH + 3, pkg, L, DH_Y0, DH_W, 92.f, 0, 0xffffffu, DH_BOX_A, 0.42f);
+    dh_text(c, DH_BEST_L, pkg, "Best:", DH_GREY, 255, tl, DH_Y0 + 12.f, 0.9f, 4u);
+    dh_text(c, DH_BEST, pkg, best, DH_LIME, 255, tr, DH_Y0 + 12.f, 1.f, 6u);
+    ui_rect(c, FL_DH + 17, pkg, UI_BOX_W, L + 4.f, DH_Y0 + 24.f, DH_W - 8.f, 1.f, 0xffffffu, DH_RULE_A, 0.41f);
+    dh_text(c, DH_MULT, pkg, mult, 0x30cf30u, 255, L + 26.f, DH_Y0 + 45.f, 0.9f, 5u);
+    dh_text(c, DH_GAIN_L, pkg, gl, 0xaaaaaau, 255, tr, DH_Y0 + 36.f, 0.9f, 6u);
+    dh_text(c, DH_GAIN, pkg, gn, DH_LIME, 255, tr, DH_Y0 + 54.f, 0.9f, 6u);
+    ui_rect(c, FL_DH + 18, pkg, UI_BOX_W, L + 4.f, DH_Y0 + 66.f, DH_W - 8.f, 1.f, 0xffffffu, DH_RULE_A, 0.41f);
+    dh_text(c, DH_TOT_L, pkg, "Total:", DH_GREY, 255, tl, DH_Y0 + 79.f, 0.9f, 4u);
+    dh_text(c, DH_TOT, pkg, tot, 0xcfe9f2u, 200, tr, DH_Y0 + 79.f, 0.9f, 6u);
+    /* a drift battle under way: its clock, then the two of us by points */
+    int battle = 0;
+#if DUELS
+    if (g_du.drift && g_du.st == DU_RACE && g_du.db_go){
+        int64_t now = roam_plat_now_us(), left = g_du.db_end_at - now; int sec = left > 0 ? (int)((left + 999999) / 1000000) : 0;
+        char t[16], ma[16], tb[16]; snprintf(t, sizeof t, "%d:%02d", sec / 60, sec % 60);
+        db_pts(ma, sizeof ma, g_du.db_mine); db_pts(tb, sizeof tb, g_du.db_theirs);
+        int me_first = g_du.db_mine >= g_du.db_theirs;
+        const char *nm[2] = { me_first ? (O.name[0] ? O.name : "You") : g_du.name, me_first ? g_du.name : (O.name[0] ? O.name : "You") };
+        const char *pt[2] = { me_first ? ma : tb, me_first ? tb : ma };
+        float y = DH_Y0 + 96.f;
+        ui_panel(c, FL_DH + 10, pkg, L, y, DH_W, 76.f, 0, 0xffffffu, DH_BOX_A, 0.42f);
+        dh_text(c, DH_TIME_L, pkg, "Time:", DH_GREY, 255, tl, y + 12.f, 0.9f, 4u);
+        dh_text(c, DH_TIME, pkg, t, sec <= 10 ? 0xcf3030u : 0xffffffu, 255, tr, y + 12.f, 0.9f, 6u);
+        for (int r = 0; r < 2; r++){
+            float ry = y + 37.f + 25.f * (float)r;
+            int mine = (r == 0) == me_first;
+            ui_rect(c, FL_DH + 19 + r, pkg, UI_BOX_W, L + 4.f, ry - 13.f, DH_W - 8.f, 1.f, 0xffffffu, DH_RULE_A, 0.41f);
+            char rk[4]; snprintf(rk, sizeof rk, "%d:", r + 1);
+            dh_text(c, DH_ROW0 + 3 * r, pkg, rk, DH_GREY, 255, tl, ry, 0.8f, 4u);
+            dh_text(c, DH_ROW0 + 3 * r + 1, pkg, nm[r], mine ? DH_LIME : UI_TEXT, 255, tl + 18.f, ry, 0.9f, 4u);
+            dh_text(c, DH_ROW0 + 3 * r + 2, pkg, pt[r], DH_LIME, 255, tr, ry, 0.9f, 6u);
+        }
+        battle = 1;
+    }
+#endif
+    g_dh_battle = battle;
+    if (!battle){
+        ui_hide_imgs(c, FL_DH + 10, UI_PANEL_N); ui_hide_imgs(c, FL_DH + 19, 2);
+        for (int i = DH_TIME_L; i < TAG_DHN; i++) tag_hide(c, TAG_DH0 + i);
+    }
     g_ui_place = -1;
     if (!g_dh_drawn) rlog("[roam] f=%ld drift HUD: the drift event's panels up (best %s, total %s)\n", rh_frame(), best, tot);
     g_dh_drawn = 1;
