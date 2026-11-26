@@ -6079,22 +6079,17 @@ static void dh_draw(CPU *c, uint32_t pkg){
     dh_text(c, DH_TITLE, pkg, popup ? "DRIFT" : "", DH_LIME, 255, 320.f, 87.f, 1.f, 1u);
     dh_text(c, DH_PTS, pkg, popup ? pts : "", DH_LIME, 255, 320.f, 117.f, 1.f, 5u);
     g_ui_place = 1;                              /* the left, above the minimap */
-    dh_img(c, 0, pkg, DH_TEX_BEST, 68.f, 55.f + DH_LEFT_DY, 256.f, 32.f, 0xffffffu, 120);
+    /* Best, the multiplier and Total in one translucent box, the Total panel's (3rdperson_BoxTime, white at 200: Jah
+     * 2026-11-26, the three in a single box), round the texts' 39..186 and 201..286 */
+    ui_hide_imgs(c, FL_DH, 1); ui_hide_imgs(c, FL_DH + 2, 1);
+    dh_img(c, 1, pkg, DH_TEX_TOTAL, 112.f, 243.f, 168.f, 102.f, 0xffffffu, 200);
     dh_text(c, DH_BEST_L, pkg, "Best:", DH_GREY, 255, 39.f, 47.f + DH_LEFT_DY, 0.9f, 0u);
     dh_text(c, DH_BEST, pkg, best, DH_LIME, 255, 180.f, 45.f + DH_LEFT_DY, 1.f, 2u);
-    dh_img(c, 1, pkg, DH_TEX_TOTAL, 151.f, 124.f + DH_LEFT_DY, 256.f, 32.f, 0xffffffu, 200);
+    dh_text(c, DH_MULT, pkg, mult, 0x30cf30u, 255, 53.f, 95.f + DH_LEFT_DY, 0.9f, 5u);
+    dh_text(c, DH_GAIN_L, pkg, gl, 0xaaaaaau, 255, 186.f, 73.f + DH_LEFT_DY, 0.9f, 2u);
+    dh_text(c, DH_GAIN, pkg, gn, DH_LIME, 255, 182.f, 93.f + DH_LEFT_DY, 0.9f, 2u);
     dh_text(c, DH_TOT_L, pkg, "Total:", DH_GREY, 255, 40.f, 116.f + DH_LEFT_DY, 0.9f, 0u);
     dh_text(c, DH_TOT, pkg, tot, 0xcfe9f2u, 200, 179.f, 116.f + DH_LEFT_DY, 0.9f, 2u);
-    /* the multiplier's box while a drift is up (its group's FadeIn and fadeout) */
-    if (popup){
-        dh_img(c, 2, pkg, FLAG_TEMPLATE, 111.4f, 93.f + DH_LEFT_DY, 154.9f, 40.f, 0x000000u, 150);
-        dh_text(c, DH_MULT, pkg, mult, 0x30cf30u, 255, 53.f, 95.f + DH_LEFT_DY, 0.9f, 5u);
-        dh_text(c, DH_GAIN_L, pkg, gl, 0xaaaaaau, 255, 186.f, 73.f + DH_LEFT_DY, 0.9f, 2u);
-        dh_text(c, DH_GAIN, pkg, gn, DH_LIME, 255, 182.f, 93.f + DH_LEFT_DY, 0.9f, 2u);
-    } else {
-        ui_hide_imgs(c, FL_DH + 2, 1);
-        for (int i = DH_MULT; i <= DH_GAIN; i++) tag_hide(c, TAG_DH0 + i);
-    }
     g_ui_place = -1;
     if (!g_dh_drawn) rlog("[roam] f=%ld drift HUD: the drift event's panels up (best %s, total %s)\n", rh_frame(), best, tot);
     g_dh_drawn = 1;
