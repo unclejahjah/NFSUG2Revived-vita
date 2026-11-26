@@ -51,6 +51,8 @@ const Setting s_table[] =
     INT("garage_stick_deadzone", Controls, 30, 0, 70, 1, "Right stick dead zone in the garage and customisation menus, in percent; raise it if the car spins alone.", 0),
     INT("free_look_deadzone", Controls, FreeLookDeadZoneDefault, 0, 70, 1, "Dead zone of the right stick for free look, in percent; raise it if the camera moves by itself.", 0),
     INT("stick_cone_angle", Controls, 25, 0, 45, 1, "Steer/throttle stick: degrees off its axis that still count as a full push. 0 is the PC game's way.", 0),
+    BOOL("camera_stick", Controls, 1, "While driving the right stick turns the chase camera round the car (hood, bumper: down looks back); off: 0.9.0's free look.", 0),
+    INT("camera_stick_speed", Controls, 4, 1, 10, 1, "How fast the right stick camera turns to the stick and comes back: 1 slowest, 10 fastest.", 0),
     BOOL("free_look_ease_back", Controls, 1, "Free look: let go less than 120 degrees round and the camera eases back behind the car; further round it cuts back.", 0),
     ENUM("horn_button", Controls, 0, "dpad_left|dpad_right|rear_l3|rear_r3|off", "Free roam's horn: hold this to honk; the other players hear it. A short D-pad press is still the game's.", 0),
     ENUM("drift_button", Controls, 0, "dpad_right|dpad_left|rear_r3|rear_l3|off", "Free roam's drift mode: hold this to switch it on or off. A short D-pad press is still the game's.", 0),
@@ -352,9 +354,9 @@ const char* const s_retired[] = { "front_touch", "widescreen", "control_type", "
                                   "dpad_mode", "free_look",
                                   "left_stick_deadzone", "left_stick_saturation", "left_stick_sensitivity", "right_stick_deadzone",
                                   "right_stick_saturation", "right_stick_sensitivity",
-                                  // the fork's own, replaced by 0.9.0's stick rows and free look (stick_deadzone and
+                                  // the fork's own, replaced by 0.9.0's stick rows (stick_deadzone and
                                   // stick_response fill in the stick rows once: src/ug2/controlslink.cpp)
-                                  "stick_deadzone", "stick_response", "camera_stick", "camera_stick_speed" };
+                                  "stick_deadzone", "stick_response" };
 
 const SettingAlias s_aliases[] =
 {

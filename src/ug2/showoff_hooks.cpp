@@ -10,6 +10,9 @@
 // ...and drift mode's (nfsu2-web's drift.c), while its switch [0x890104] is ours (drift_music_hidden):
 //   0x56DDD0  the drift leaderboard, 0x4C85D0 the style points' drift branch, 0x4AC120 ShowNiftyDriftyMessage: skipped
 //   0x482180  the music manager's tick and 0x471970 the in-game mix: run without the switch, so free roam's songs play on
+// ...and roam_game.c's:
+//   0x42CD60  the race's end's new goals for the AI range's cars (no args): friends' cars left out for the call (their
+//             brains hold no goal, and deleting it through its vtable trapped at an outrun's end, 2026-11-26)
 // The game's drawing and the lights make no guest calls of ours; the heap's and the banks' do (roam_win_call, on this
 // CPU through freeroam::GuestScope).
 #include <freeroam.h>
@@ -33,6 +36,8 @@ void sub_004c85d0(CPU* c);
 void sub_004ac120(CPU* c);
 int drift_music_hidden(void);
 int roam_vita_on_game_thread(void);   // roam_vita.cpp
+void roam_game_goals(CPU* c, void (*orig)(CPU*));   // roam_game.c
+void sub_0042cd60_orig(CPU* c);
 }
 
 namespace ug2
@@ -49,6 +54,7 @@ void sub_4c85d0_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_4ac120_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_482180_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_471970_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_42cd60_guest(win32::WinApplication* app, x86::CPU& cpu);
 
 namespace
 {
@@ -207,6 +213,16 @@ void sub_471970(win32::WinApplication* app, x86::CPU& cpu)
     withoutDriftSwitch(app, cpu, sub_471970_guest);
 }
 
+static void goals(CPU* c)
+{
+    roam_game_goals(c, sub_0042cd60_orig);
+}
+
+void sub_42cd60(win32::WinApplication* app, x86::CPU& cpu)
+{
+    run(app, cpu, goals, true);
+}
+
 }
 
 }
@@ -223,5 +239,6 @@ void sub_006e2240(CPU* c) { ug2::guestFrom(c, ug2::sub_6e2240_guest); }
 void sub_0056ddd0_orig(CPU* c) { ug2::guestFrom(c, ug2::sub_56ddd0_guest); }
 void sub_004c85d0_orig(CPU* c) { ug2::guestFrom(c, ug2::sub_4c85d0_guest); }
 void sub_004ac120_orig(CPU* c) { ug2::guestFrom(c, ug2::sub_4ac120_guest); }
+void sub_0042cd60_orig(CPU* c) { ug2::guestFrom(c, ug2::sub_42cd60_guest); }
 
 }

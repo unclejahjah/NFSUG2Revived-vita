@@ -99,6 +99,9 @@ NATIVE_OVERRIDES = [
     # Free roam's drift mode (src/ug2/showoff_hooks.cpp, drift.c): the drift leaderboard, the style points' drift branch
     # and ShowNiftyDriftyMessage skipped while the switch is ours; the music manager's tick and the in-game mix without it
     0x56ddd0, 0x4c85d0, 0x4ac120, 0x482180, 0x471970,
+    # ... and the race's end's new goals for the AI cars, without friends' cars (roam_game.c roam_game_goals): the
+    # outrun win crash
+    0x42cd60,
     # Controls in registry.txt (src/ug2/controlslink.cpp): the profile's control load and save
     0x5b9570, 0x5b9420,
     # Customize's bind wait takes the PC pad capture's button, axis and hat (src/ug2/native/sub_5b8460.cpp, sub_5b8250.cpp,

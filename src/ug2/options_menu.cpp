@@ -76,6 +76,8 @@ const Option Delay[] = { { "", "Default (100 ms)" }, { "0", "0 ms" }, { "50", "5
                          { "150", "150 ms" }, { "200", "200 ms" }, { "300", "300 ms" } };
 const Option Extrap[] = { { "", "Default (250 ms)" }, { "0", "0 ms" }, { "100", "100 ms" }, { "250", "250 ms" },
                           { "500", "500 ms" }, { "1000", "1000 ms" } };
+const Option CameraSpeed[] = { { "1", "1" }, { "2", "2" }, { "3", "3" }, { "4", "4" }, { "5", "5" },
+                               { "6", "6" }, { "7", "7" }, { "8", "8" }, { "9", "9" }, { "10", "10" } };
 const Option FreeLookSpeed[] = { { "90", "Slow" }, { "135", "Steady" }, { "180", "Normal" }, { "270", "Quick" },
                                  { "360", "Fast" }, { "540", "Fastest" }, { "0", "Instant" } };
 const Option Steering[] = { { "analog", "Analog" }, { "digital", "Digital" } };
@@ -317,6 +319,12 @@ const Item Controller[] = {
       "The right stick turns the car in the garage and the customisation menus." },
     { "Camera stick dead zone", Cfg, "garage_stick_deadzone", Choice, OPTIONS(DeadZone), "30", 0, nullptr,
       "How far the right stick moves before the garage camera turns." },
+    { "Right stick camera", Cfg, "camera_stick", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "While driving, the right stick turns the chase camera round the car and it comes back when released. In the "
+      "hood and bumper views pushing it down looks back. Off: 0.9.0's free look instead." },
+    { "Camera stick speed", Cfg, "camera_stick_speed", Choice, OPTIONS(CameraSpeed), "4", 0, nullptr,
+      "How fast the right stick camera swings round to where the stick points, and back when released. "
+      "1 is the slowest, 10 the fastest." },
     { "Free look ease back", Cfg, "free_look_ease_back", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "Free look (the right stick, where the Control Type leaves it free): let go less than 120 degrees round and the "
       "camera eases back behind the car; further round it cuts straight back. Stick rows are in Options > Controls." },
@@ -987,7 +995,8 @@ bool applyLive(int g, int i)
 {
     // The settings read where they are used, rather than once at the start.
     static const char* const Live[] = { "log_info", "garage_stick", "garage_stick_deadzone", "steering", "fast_travel",
-                                        "free_look_ease_back", "free_look_swing", "quick_chat_button",
+                                        "free_look_ease_back", "free_look_swing", "camera_stick", "camera_stick_speed",
+                                        "quick_chat_button",
                                         "horn_button", "drift_button" };
     const Item& it = item(g, i);
     if (it.store != Cfg)
