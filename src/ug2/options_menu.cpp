@@ -274,7 +274,7 @@ const Item FreeRoam[] = {
 };
 
 
-// Audio & Video: the Sound, Display and Performance groups, each under its heading row.
+// System: the Sound, Display and Performance groups, each under its heading row.
 const Item AudioVideo[] = {
     { "Sound", Cfg, "", Heading, nullptr, 0, "", 0, nullptr, nullptr },
     { "Hardware music decoding", Cfg, "music_hw_decode", Choice, OPTIONS(OnOff), "on", 0, nullptr,
@@ -355,7 +355,7 @@ const Page Pages[] = {
     { "Multiplayer", OPTIONS(Multiplayer) },
     { "Free Roam", OPTIONS(FreeRoam) },
     { "Social", OPTIONS(Social) },
-    { "Audio & Video", OPTIONS(AudioVideo) },
+    { "System", OPTIONS(AudioVideo) },
     { "Controller", OPTIONS(Controller) },
     { "Game", OPTIONS(Game) },
     { "Saves", OPTIONS(Saves) },

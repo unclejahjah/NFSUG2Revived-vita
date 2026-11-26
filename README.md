@@ -129,7 +129,7 @@ only holding it does quick chat, the horn or drift.
 
 **Vita Settings**, the main menu icon where Online was (Online is not offered), opens the game's own Options screens
 with the settings of the browser version's Settings page that the Vita has, in the same groups: Multiplayer, Free
-Roam, Social (friends, crews and quick chat), Audio & Video (Sound, Display and Performance, each under its own
+Roam, Social (friends, crews and quick chat), System (Sound, Display and Performance, each under its own
 heading), Controller, Game, Saves and Mods (NFSU2 Revived, free roam and EU Car Content, each switched on or off). It is also the last icon in the game's Options, and Select + Up opens it
 from any front-end menu (not in a race). Pick a group, then change a setting with left and right as in the game's options; Cross on a text
 setting, such as a name or the passphrase, opens the Vita keyboard. Each change is saved at once to the same files as
