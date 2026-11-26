@@ -5,6 +5,7 @@
 
 #include <winapi/d3d9_internal.h>
 #include <winapi/d3d9_probe.h>
+#include <lib/heap.h>
 #include <platform/cached.h>
 #include <platform/config.h>
 #include <platform/gxm.h>
@@ -163,12 +164,21 @@ struct KeptLevels
         pf::perf::uploadCache(bytes, count);
     }
 
+    // Kept texture levels first, then the heap's kept track streamer block (lib/heap.cpp).
     static bool reclaim()
     {
         KeptLevels& k = get();
-        pf::LwLockGuard guard(k.mutex);
-        if (!k.oldest)
-            return false;
+        {
+            pf::LwLockGuard guard(k.mutex);
+            if (k.oldest)
+                return dropAll(k);
+        }
+        return heap::letGoKept();
+    }
+
+    // mutex held.
+    static bool dropAll(KeptLevels& k)
+    {
         pf::logInfo("d3d9: guest memory exhausted, %u kept texture levels (%u bytes) dropped", k.count, k.bytes);
         while (k.oldest)
             k.drop(k.oldest, true);

@@ -18,6 +18,9 @@ bool release(x86::reg32 address);
 // Sets aside one block for a later request of size bytes (or up to 64 fewer) (it is lent to that request and kept when
 // freed), while guest memory still has a range that large. False when it does not fit, or another size is reserved.
 bool reserve(x86::reg32 size);
+// Frees the block kept from the last track streamer pool (32 MB or more, released and not lent again), for guest
+// memory exhaustion. True when there was one. Any thread.
+bool letGoKept();
 // Requested size of a live block, or 0xffffffff.
 x86::reg32 size(x86::reg32 address);
 // Bytes the guest holds in live blocks (log statistics).

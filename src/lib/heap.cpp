@@ -19,6 +19,7 @@ const x86::reg32 ReserveSlack = 64;
 const x86::reg32 ChunkSize = 1024 * 1024;
 // Blocks up to this size come from size classes; larger ones are guest memory blocks of their own.
 const x86::reg32 LargeSize = 256 * 1024;
+const x86::reg32 KeepSize = 32 * 1024 * 1024;
 
 struct Block
 {
@@ -38,6 +39,12 @@ struct State
     MemMap*                                     reserved = nullptr;
     x86::reg32                                  reservedSize = 0;
     bool                                        reservedLent = false;
+    // A released block of KeepSize or more (the track streamer's pool, 36 to 60 MB) is kept for the next request of
+    // KeepSize or more that fits in it: the next track load gets the same range back. Between the two the guest heap
+    // is fragmented by what the menus and a hosted LAN server (17 MB) hold, and the 60 MB pool of a free-roam LAN
+    // race no longer fitted anywhere else (2026-11-26). Freed when another request finds no room.
+    MemMap*                                     kept = nullptr;
+    bool                                        keptLent = false;
     std::vector<MemMap*>                        chunks;
     x86::reg32                                  chunkNext = 0;  // next free byte of the last chunk
     x86::reg32                                  chunkEnd = 0;
@@ -120,6 +127,9 @@ void State::report()
                 "small); %u large blocks %u KB", s.used / 1024, unsigned(s.chunks.size()), chunkBytes / 1024,
                 freeBytes / 1024, (s.chunkEnd - s.chunkNext) / 1024, s.smallChunks, unsigned(s.large.size()),
                 largeBytes / 1024);
+    if (s.kept)
+        pf::logInfo("memory: heap keeps %u KB for the next track load (%s)", s.kept->getBlockSize() / 1024,
+                    s.keptLent ? "lent" : "idle");
 }
 
 }
@@ -151,9 +161,23 @@ x86::reg32 allocate(x86::reg32 size, bool zero)
                 address = s.carve(s.classSizes[sizeClass]);
             }
         }
+        else if (s.kept && !s.keptLent && rounded >= KeepSize && rounded <= s.kept->getBlockSize())
+        {
+            address = s.kept->getBlockStart();
+            s.keptLent = true;
+        }
         else
         {
-            MemMap* block = new MemMap(rounded, MemMap::Low, pf::perf::AllocHeapLarge);
+            MemMap* block = MemMap::tryCreate(rounded, MemMap::Low, pf::perf::AllocHeapLarge);
+            if (!block && s.kept && !s.keptLent)
+            {
+                pf::logInfo("memory: no room for %u KB: the kept %u KB block let go", rounded / 1024,
+                            s.kept->getBlockSize() / 1024);
+                delete s.kept;
+                s.kept = nullptr;
+            }
+            if (!block)
+                block = new MemMap(rounded, MemMap::Low, pf::perf::AllocHeapLarge);
             address = block->getBlockStart();
             s.large[address] = block;
         }
@@ -179,6 +203,10 @@ bool release(x86::reg32 address)
         {
             s.reservedLent = false;     // kept for the next request of its size
         }
+        else if (s.kept && address == s.kept->getBlockStart())
+        {
+            s.keptLent = false;
+        }
         else if (it->second.sizeClass >= 0)
         {
             s.freeLists[it->second.sizeClass].push_back(address);
@@ -188,10 +216,32 @@ bool release(x86::reg32 address)
             const auto block = s.large.find(address);
             large = block->second;
             s.large.erase(block);
+            if (!s.kept && large->getBlockSize() >= KeepSize)
+            {
+                s.kept = large;     // for the next track load
+                s.keptLent = false;
+                large = nullptr;
+            }
         }
         s.blocks.erase(it);
     }
     delete large;
+    return true;
+}
+
+bool letGoKept()
+{
+    State& s = state();
+    MemMap* kept = nullptr;
+    {
+        pf::LwLockGuard guard(s.mutex);
+        if (!s.kept || s.keptLent)
+            return false;
+        kept = s.kept;
+        s.kept = nullptr;
+    }
+    pf::logInfo("memory: the kept %u KB block let go", kept->getBlockSize() / 1024);
+    delete kept;
     return true;
 }
 
