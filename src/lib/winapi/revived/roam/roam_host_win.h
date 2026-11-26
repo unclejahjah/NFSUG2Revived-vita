@@ -38,7 +38,8 @@ int      roam_win_committed(uint32_t a);          /* inside the guest's address 
 /* ---- guest calls --------------------------------------------------------------- */
 uint32_t roam_win_call(uint32_t fn, uint32_t ecx, uint32_t edx, int n, const uint32_t *args);
 #define rh_call(c, fn, ecx, edx, n, args) ((void)(c), roam_win_call((fn), (ecx), (edx), (n), (args)))
-uint32_t roam_win_esp(void);                      /* the game thread's esp in the frame hook */
+uint32_t roam_win_esp(void);
+void roam_win_prefetch_car(const char *type);    /* a car type's files opened ahead (ROAM_PREFETCH) */                      /* the game thread's esp in the frame hook */
 
 /* ---- options, log, clocks ------------------------------------------------------- */
 const char *roam_opt(const char *name);           /* environment, then the .ini */

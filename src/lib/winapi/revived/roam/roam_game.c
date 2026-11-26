@@ -10640,6 +10640,11 @@ void roam_game_frame(CPU *c){
                 g_phorn[gi].id = p->id; g_phorn[gi].gen = p->cfg_gen;
                 g_phorn[gi].horn = p->cfg_len && rc_carcfg_decode(p->cfg, p->cfg_len, &hc) == RC_OK && hc.has_horn ? hc.horn : 0;
                 if (p->cfg_len && g_phorn[gi].horn) rlog("[roam] f=%ld %s's horn: %s\n", rh_frame(), p->name, rh_horn_name(g_phorn[gi].horn));
+#ifdef ROAM_PREFETCH
+                /* the car's own files opened now, off the game thread, so the car loader's opens of them later cost
+                 * nothing (the Vita, 2026-11-25: CarLoader::Load 20 to 50 ms a car, nearly all of it its opens) */
+                if (p->cfg_len && hc.type_name[0]) roam_win_prefetch_car(hc.type_name);
+#endif
             }
             v->horn = g_phorn[gi].horn;
             v->have_pose = 0;

@@ -26,6 +26,7 @@ extern "C"
 #include <recomp.h>
 
 #include <psp2/kernel/processmgr.h>
+#include <psp2/power.h>
 #include <psp2/kernel/threadmgr.h>
 
 #include <pthread.h>
@@ -806,6 +807,21 @@ uint32_t roam_win_call(uint32_t fn, uint32_t ecx, uint32_t edx, int n, const uin
     return result;
 }
 
+// A friend's car type's files opened ahead on the file worker (roam_game.c, ROAM_PREFETCH): the ones CarLoader opens
+// for its load, so those opens find them kept open (win32::File::prewarm).
+extern "C" void roam_win_prefetch_car(const char* type)
+{
+    if (!type || !*type || strlen(type) > 32 || strchr(type, '\\') || strchr(type, '/') || strstr(type, ".."))
+        return;
+    static const char* const files[] = { "GEOMETRY.BIN", "TEXTURES.BIN", "VINYLS.BIN", "PARTS_ANIMATIONS.BIN" };
+    for (const char* name : files)
+    {
+        char path[96];
+        snprintf(path, sizeof(path), "CARS\\%s\\%s", type, name);
+        win32::File::prewarm(path);
+    }
+}
+
 uint32_t roam_win_esp(void)
 {
     return s_cpu ? s_cpu->esp : 0;
@@ -893,6 +909,10 @@ void frame(win32::WinApplication* app, x86::CPU& cpu)
         return;
     if (!s_state)
     {
+        // the clocks as they are now, in the game: a plugin (PSVshell, oclockvita, vita_cpu_tweaks) that raises the
+        // CPU to 500 MHz does it after the start-up log's line, which shows the port's own 444
+        pf::logInfo("roam: clocks now: arm %d MHz, bus %d MHz, gpu %d MHz", scePowerGetArmClockFrequency(),
+                    scePowerGetBusClockFrequency(), scePowerGetGpuClockFrequency());
         loadIni();
         if (!s_haveIni || !optOn(roam_opt("NFSU2_ROAM")))
         {

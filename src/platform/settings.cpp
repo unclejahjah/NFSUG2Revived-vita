@@ -335,6 +335,7 @@ const Setting s_table[] =
     BOOL("save_atomic", Developer, 1, "Write saves to a temporary file and rename.", 0),
     BOOL("file_lazy_seek", Developer, 1, "Seek files only when needed.", 0),
     BOOL("file_handle_cache", Developer, 1, "Keep file handles open.", 0),
+    BOOL("texture_merge_native", Developer, 1, "Merge texture pack tables natively (car loads).", 0),
 
 };
 
