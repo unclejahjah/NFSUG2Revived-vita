@@ -6050,10 +6050,11 @@ static void du_hud(CPU *c, int64_t host){
     int g = ui_prompt(tx, line, (int)sizeof line);
     int len = (int)strlen(line);
     float sc = len > 60 ? 60.f / (float)len : 0.9f;                /* a long line (a race lobby's) smaller, to fit */
+    /* (the line near the screen's top edge, y 22: at 62 it sat too far down the screen, 2026-11-26) */
     float tw = tag_width(line) * sc, gs = 15.f, pad = 10.f;
     int glyph = g >= 0 && ui_glyph_ok(c, g);
     if (g >= 0 && !glyph){ char t[TAG_DUEL_MAX]; snprintf(t, sizeof t, "%s  %s", GL_SAY[g], line); snprintf(line, sizeof line, "%s", t); tw = tag_width(line) * sc; }
-    float w = tw + pad * 2.f + (glyph ? gs + 6.f : 0.f), x = 320.f - w * 0.5f, y = 62.f, h = 24.f;
+    float w = tw + pad * 2.f + (glyph ? gs + 6.f : 0.f), x = 320.f - w * 0.5f, y = 22.f, h = 24.f;
     g_ui_place = 0;
     ui_panel(c, FL_TOP, pkg, x, y, w, h, 0, 0xffffffu, 255, UI_Z);
     ui_hide_imgs(c, FL_TOP + UI_PANEL_N, 1);
