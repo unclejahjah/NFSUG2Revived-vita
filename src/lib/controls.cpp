@@ -218,6 +218,29 @@ int takeDriftPresses()
 
 static std::atomic<int> s_showoffPresses{0};
 
+// the race lobby panel's keys (setLobbyKeys)
+const uint64_t LobbyDownUs = 1000000;
+static std::atomic<uint64_t> s_lobbyLiveUs{0};
+static std::atomic<int> s_lobbyOffer{0};       // bit 0 Left, bit 1 Down
+static std::atomic<int> s_lobbyPresses{0};
+static std::atomic<uint64_t> s_lobbyDownHeld{0};
+
+void setLobbyKeys(uint64_t nowUs, bool left, bool down)
+{
+    s_lobbyOffer.store((left ? 1 : 0) | (down ? 2 : 0), std::memory_order_relaxed);
+    s_lobbyLiveUs.store(left || down ? nowUs : 0, std::memory_order_relaxed);
+}
+
+int takeLobbyPresses()
+{
+    return s_lobbyPresses.exchange(0, std::memory_order_relaxed);
+}
+
+uint64_t lobbyDownHeldUs()
+{
+    return s_lobbyDownHeld.load(std::memory_order_relaxed);
+}
+
 int takeShowoffPresses()
 {
     return s_showoffPresses.exchange(0, std::memory_order_relaxed);
@@ -777,7 +800,8 @@ Mapper::Mapper()
     ,   m_chatPulseEndUs(0)
     ,   m_steer(0.0f)
     ,   m_steerUs(0)
-    ,   m_hold{ {}, {} }
+    ,   m_hold{ {}, {}, {}, {} }
+    ,   m_lobbyDownFired(false)
     ,   m_flickArmed{ false, false }
     ,   m_shiftEndUs{ { 0, 0 }, { 0, 0 } }
 {
@@ -956,9 +980,54 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
         s_chatHeldSince.store(0, std::memory_order_relaxed);
     else if (!s_chatHeldSince.load(std::memory_order_relaxed))
         s_chatHeldSince.store(nowUs ? nowUs : 1, std::memory_order_relaxed);
-    // the horn: its button held in free roam proper (not while quick chat's is: Left and Right pick phrases then)
+    // the race lobby panel's keys (setLobbyKeys): Left held opens a lobby (the horn's button gives way to it), Down held
+    // switches Friends only; on quick chat's button, held on past LobbyDownUs with no phrase picked
+    const uint64_t lobbyAt = s_lobbyLiveUs.load(std::memory_order_relaxed);
+    const int lobbyOffer = lobbyAt && nowUs - lobbyAt < 250000 ? s_lobbyOffer.load(std::memory_order_relaxed) : 0;
+    uint32_t lobbyHidden = 0;
+    if ((lobbyOffer & 1) && !chatHeld && chatButton != DpadLeft && !(m_chorded & bit(DpadLeft)))
+    {
+        const bool wasFired = m_hold[2].fired;
+        if (held(m_hold[2], DpadLeft, inputs, pressed, nowUs, &lobbyHidden, &chatPulse) && !wasFired)
+            s_lobbyPresses.fetch_or(1, std::memory_order_relaxed);
+    }
+    else
+        m_hold[2] = {};
+    uint64_t downHeld = 0;
+    if (!(inputs & bit(DpadDown)))
+        m_lobbyDownFired = false;
+    if ((lobbyOffer & 2) && chatButton == DpadDown)
+    {
+        m_hold[3] = {};
+        if ((inputs & bit(DpadDown)) && !m_chatUsed && !m_lobbyDownFired)
+        {
+            downHeld = nowUs - m_chatSinceUs;
+            if (downHeld >= LobbyDownUs)
+            {
+                s_lobbyPresses.fetch_or(2, std::memory_order_relaxed);
+                m_lobbyDownFired = true;
+                m_chatUsed = true;          // (no tap to the game on release)
+                downHeld = 0;
+            }
+        }
+    }
+    else if ((lobbyOffer & 2) && !chatHeld && !(m_chorded & bit(DpadDown)))
+    {
+        const bool wasFired = m_hold[3].fired;
+        if (m_hold[3].sinceUs && !m_hold[3].fired && (inputs & bit(DpadDown)))
+            downHeld = nowUs - m_hold[3].sinceUs;
+        if (held(m_hold[3], DpadDown, inputs, pressed, nowUs, &lobbyHidden, &chatPulse) && !wasFired)
+            s_lobbyPresses.fetch_or(2, std::memory_order_relaxed);
+    }
+    else
+        m_hold[3] = {};
+    s_lobbyDownHeld.store(downHeld, std::memory_order_relaxed);
+    // the horn: its button held in free roam proper (not while quick chat's is: Left and Right pick phrases then; nor
+    // Left while the lobby panel has it)
     const uint64_t hornAt = s_hornLiveUs.load(std::memory_order_relaxed);
-    const int hornBtn = hornAt && nowUs - hornAt < 250000 && !chatHeld ? hornButton() : -1;
+    int hornBtn = hornAt && nowUs - hornAt < 250000 && !chatHeld ? hornButton() : -1;
+    if (hornBtn == DpadLeft && (lobbyOffer & 1))
+        hornBtn = -1;
     const bool hornOn = hornBtn >= 0 && hornBtn != chatButton && !(m_chorded & bit(Input(hornBtn)));
     uint32_t hornHidden = 0, holdPulse = 0;
     bool horn = false;
@@ -972,7 +1041,8 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
     const uint64_t driftAt = s_driftLiveUs.load(std::memory_order_relaxed);
     const int driftBtn = driftAt && nowUs - driftAt < 250000 && !chatHeld ? driftButton() : -1;
     uint32_t driftHidden = 0;
-    if (driftBtn >= 0 && driftBtn != chatButton && driftBtn != hornBtn && !(m_chorded & bit(Input(driftBtn))))
+    if (driftBtn >= 0 && driftBtn != chatButton && driftBtn != hornBtn && !((lobbyOffer & 1) && driftBtn == DpadLeft)
+        && !((lobbyOffer & 2) && driftBtn == DpadDown) && !(m_chorded & bit(Input(driftBtn))))
     {
         const bool wasFired = m_hold[1].fired;
         if (held(m_hold[1], Input(driftBtn), inputs, pressed, nowUs, &driftHidden, &holdPulse) && !wasFired)
@@ -980,7 +1050,7 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
     }
     else
         m_hold[1] = {};
-    const uint32_t normal = (inputs & ~m_chorded & ~chatHidden & ~m_chatSwallow & ~hornHidden & ~driftHidden) |
+    const uint32_t normal = (inputs & ~m_chorded & ~chatHidden & ~m_chatSwallow & ~hornHidden & ~driftHidden & ~lobbyHidden) |
                             chatPulse | holdPulse;
     // steering=digital: the left stick is left, centre or right, and its X axis ramps to full lock and back as a
     // keyboard's steering does (the D-pad is not involved).
