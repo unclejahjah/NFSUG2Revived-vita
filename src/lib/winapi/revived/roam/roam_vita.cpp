@@ -819,7 +819,7 @@ extern "C" int roam_host_horn_button(int* lit)
 {
     const char* kind = roam_opt("NFSU2_ROAM_HORN");
     *lit = 0;
-    if ((kind && !strcasecmp(kind, "off")) || !roam_game_hud_up())
+    if ((kind && !strcasecmp(kind, "off")) || !roam_game_hud_up() || !win32::controls::hornTouchOn())
         return 0;
     *lit = win32::controls::hornHeld() ? 1 : 0;
     return 1;

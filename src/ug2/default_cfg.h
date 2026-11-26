@@ -57,6 +57,8 @@ const char DefaultSettingsFile[] =
     "# Free roam's horn: the button held to honk: dpad_left, dpad_right, rear_l3 (rear touch, lower left), rear_r3\n"
     "# or off (the default: the HORN touch button above the N2O meter honks). A short D-pad press is still the game's.\n"
     "#horn_button=off\n"
+    "# Free roam's red horn button on the screen, above the N2O meter (touch and hold it to honk): on or off.\n"
+    "#horn_touch_button=on\n"
     "# Free roam's drift mode: the button held to switch it on or off: dpad_right, dpad_left, rear_r3, rear_l3 or off.\n"
     "#drift_button=dpad_right\n"
     "\n"

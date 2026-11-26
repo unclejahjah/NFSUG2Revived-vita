@@ -273,6 +273,8 @@ bool hornHeld();
 int takeShowoffPresses();
 // Free roam's world runs (driving, not paused) says so each frame, with pf::ticksUs(): only then is the horn taken.
 void setHornLive(uint64_t nowUs);
+// horn_touch_button: the red horn button on the screen (roam_game.c hb_draw) shown and touchable (the default)
+bool hornTouchOn();
 // Free roam's drift mode (drift_button: dpad_right by default, held; dpad_left, rear_r3, rear_l3 or off): the presses since
 // the last call, taken only while free roam's world says so (setDriftLive, each frame, with pf::ticksUs()).
 int takeDriftPresses();
