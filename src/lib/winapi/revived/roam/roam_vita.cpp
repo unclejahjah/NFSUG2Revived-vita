@@ -11,6 +11,7 @@
 #include <winapi/revived.h>
 #include <lib/memmap.h>
 #include <lib/guestmodule.h>
+#include <lib/heap.h>
 #include <lib/file.h>
 #include <lib/controls.h>
 extern "C"
@@ -838,6 +839,8 @@ void roam_vita_tap(unsigned dik)
 // Whether this game can host a lobby's race (roam_game.c mp_can_host): the game's LAN server, server.dll, translated
 // into this build and the same file next to SPEED2.EXE (src/lib/guestmodule.cpp), with its server.cfg from the PC game:
 // without it the server stops at "ServerConfig: config load failed" and never listens, so joiners are refused
+const uint32_t ServerStateBytes = 0x011651E0 + 32;   // (with room for a heap header of server.dll's CRT)
+
 int roam_vita_can_host(void)
 {
     if (!win32::guestmodule::available("server.dll"))
@@ -850,7 +853,20 @@ int roam_vita_can_host(void)
         pf::logInfo("server.cfg: %s", cfg > 0 ? "in the game folder" : "not in the game folder: no hosting of LAN "
                     "games (put the server.cfg of the PC game next to SPEED2.EXE)");
     }
-    return cfg > 0;
+    if (cfg < 0)
+        return 0;
+    // The server's state is one object of 0x11651E0 bytes (17 MB, server.dll 0x94CF4D: operator new at start). Later in
+    // free roam, with friends' cars loaded and unloaded, guest memory rarely keeps a range that large (combined-test11:
+    // "guest memory exhausted (requested 18239968 bytes)" when a lobby's server started). So it is set aside at the
+    // first look, early, and lent to the server each time it starts; without room for it this game does not host.
+    static int room;                // 0 not tried yet, 1 set aside, -1 no room
+    if (!room)
+    {
+        room = win32::heap::reserve(ServerStateBytes) ? 1 : -1;
+        pf::logInfo("server.dll: %u KB %s for its server state", ServerStateBytes / 1024,
+                    room > 0 ? "set aside" : "not available (guest memory too fragmented): this game does not host");
+    }
+    return room > 0;
 }
 
 // mod packs (runtime/modpacks.c): none on the Vita, every part is the game's own
@@ -894,6 +910,7 @@ void frame(win32::WinApplication* app, x86::CPU& cpu)
         if (!nfsu2_guest_base)
             nfsu2_guest_base = win32::g_guestBase;
         revived_link_ensure();
+        roam_vita_can_host();     // (sets the LAN server's memory aside now, before free roam fragments it)
         s_soundsLive = 1;   // horns and friends' car sounds from here on (roam_vita_audio_mix)
         // the names over the cars also need the game's own player-names option (0x8500C9, roam_game.c G_SHOW_NAMES)
         if (optOn(roam_opt("NFSU2_ROAM_LABELS")))

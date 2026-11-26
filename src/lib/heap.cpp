@@ -14,6 +14,8 @@ namespace
 {
 
 const x86::reg32 Granularity = 16;
+// reserve(): requests up to this much smaller than the reserved size are lent the block too (a CRT's own header).
+const x86::reg32 ReserveSlack = 64;
 const x86::reg32 ChunkSize = 1024 * 1024;
 // Blocks up to this size come from size classes; larger ones are guest memory blocks of their own.
 const x86::reg32 LargeSize = 256 * 1024;
@@ -31,6 +33,11 @@ struct State
     std::vector<std::vector<x86::reg32>>        freeLists;      // per class
     std::unordered_map<x86::reg32, Block>       blocks;         // live blocks by address
     std::unordered_map<x86::reg32, MemMap*>     large;
+    // reserve(): one large block kept for a request of reservedSize (less up to ReserveSlack) (the hosting server's state object), so
+    // that request still fits when guest memory is fragmented later. Lent out and given back, never released.
+    MemMap*                                     reserved = nullptr;
+    x86::reg32                                  reservedSize = 0;
+    bool                                        reservedLent = false;
     std::vector<MemMap*>                        chunks;
     x86::reg32                                  chunkNext = 0;  // next free byte of the last chunk
     x86::reg32                                  chunkEnd = 0;
@@ -125,7 +132,12 @@ x86::reg32 allocate(x86::reg32 size, bool zero)
     int sizeClass = -1;
     {
         pf::LwLockGuard guard(s.mutex);
-        if (rounded <= LargeSize)
+        if (s.reserved && !s.reservedLent && size <= s.reservedSize && size + ReserveSlack > s.reservedSize)
+        {
+            address = s.reserved->getBlockStart();
+            s.reservedLent = true;
+        }
+        else if (rounded <= LargeSize)
         {
             sizeClass = s.classOf(rounded);
             std::vector<x86::reg32>& list = s.freeLists[sizeClass];
@@ -163,7 +175,11 @@ bool release(x86::reg32 address)
         if (it == s.blocks.end())
             return false;
         s.used -= it->second.size;
-        if (it->second.sizeClass >= 0)
+        if (s.reserved && address == s.reserved->getBlockStart())
+        {
+            s.reservedLent = false;     // kept for the next request of its size
+        }
+        else if (it->second.sizeClass >= 0)
         {
             s.freeLists[it->second.sizeClass].push_back(address);
         }
@@ -176,6 +192,20 @@ bool release(x86::reg32 address)
         s.blocks.erase(it);
     }
     delete large;
+    return true;
+}
+
+bool reserve(x86::reg32 size)
+{
+    State& s = state();
+    pf::LwLockGuard guard(s.mutex);
+    if (s.reserved)
+        return s.reservedSize == size;
+    const x86::reg32 rounded = (size + Granularity - 1) & ~(Granularity - 1);
+    s.reserved = MemMap::tryCreate(rounded, MemMap::Low, pf::perf::AllocHeapLarge);
+    if (!s.reserved)
+        return false;
+    s.reservedSize = size;
     return true;
 }
 
