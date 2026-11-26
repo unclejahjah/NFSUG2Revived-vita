@@ -250,7 +250,11 @@ const Item FreeRoam[] = {
       "Other cars are drawn this far in the past, smoothed. Less is closer to live, more is smoother." },
     { "Prediction", Ini, "Extrap", Choice, OPTIONS(Extrap), "", 0, nullptr,
       "How far ahead a car is predicted when its updates are late." },
-    // NFSU2 Revived's other free-roam features
+};
+
+// NFSU2 Revived's other free-roam features, a page of their own: the game's options list drew no text for the rows
+// past about the 16th (Free Roam had 21; 2026-11-26 the last ones were invisible, but still changed with Left/Right).
+const Item FreeRoamExtras[] = {
     { "Player messages", Ini, "Messages", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "A line at the top of the screen when a player joins free roam, leaves, goes into a race or opens a race "
       "nearby. Never while you race." },
@@ -362,6 +366,7 @@ struct Page
 const Page Pages[] = {
     { "Multiplayer", OPTIONS(Multiplayer) },
     { "Free Roam", OPTIONS(FreeRoam) },
+    { "Free Roam extras", OPTIONS(FreeRoamExtras) },
     { "Social", OPTIONS(Social) },
     { "System", OPTIONS(AudioVideo) },
     { "Controller", OPTIONS(Controller) },
