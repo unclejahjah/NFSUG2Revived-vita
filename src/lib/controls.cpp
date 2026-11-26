@@ -166,8 +166,7 @@ int quickChatButton()
     return s_button.load(std::memory_order_relaxed);
 }
 
-// horn_button: off (the default, Jah 2026-11-26: the HORN touch button above the N2O meter; D-pad Left held is a race
-// lobby's New lobby), dpad_left (held: a short press is still the game's World Map), dpad_right, rear_l3, rear_r3. 0.9.0's Control Types put Hydraulics and Bounce on the rear touch pad's lower corners.
+// horn_button: off (the default, Jah 2026-11-26: the HORN touch button above the N2O meter), dpad_left (held: a short press is still the game's World Map), dpad_right, rear_l3, rear_r3. 0.9.0's Control Types put Hydraulics and Bounce on the rear touch pad's lower corners.
 static int hornButton()
 {
     static std::atomic<unsigned> s_generation{~0u};
@@ -983,15 +982,15 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
         s_chatHeldSince.store(0, std::memory_order_relaxed);
     else if (!s_chatHeldSince.load(std::memory_order_relaxed))
         s_chatHeldSince.store(nowUs ? nowUs : 1, std::memory_order_relaxed);
-    // the race lobby panel's keys (setLobbyKeys): Left held opens a lobby (the horn's button gives way to it), Down held
-    // switches Friends only; on quick chat's button, held on past LobbyDownUs with no phrase picked
+    // the race lobby panel's keys (setLobbyKeys): Up held opens a new lobby (Jah: even where one waits;
+    // a tap reaches the game after it, as Engage: join or open), Down held switches Friends only; on quick chat's button, held on past LobbyDownUs with no phrase picked
     const uint64_t lobbyAt = s_lobbyLiveUs.load(std::memory_order_relaxed);
     const int lobbyOffer = lobbyAt && nowUs - lobbyAt < 250000 ? s_lobbyOffer.load(std::memory_order_relaxed) : 0;
     uint32_t lobbyHidden = 0;
-    if ((lobbyOffer & 1) && !chatHeld && chatButton != DpadLeft && !(m_chorded & bit(DpadLeft)))
+    if ((lobbyOffer & 1) && !chatHeld && chatButton != DpadUp && !(m_chorded & bit(DpadUp)))
     {
         const bool wasFired = m_hold[2].fired;
-        if (held(m_hold[2], DpadLeft, inputs, pressed, nowUs, &lobbyHidden, &chatPulse) && !wasFired)
+        if (held(m_hold[2], DpadUp, inputs, pressed, nowUs, &lobbyHidden, &chatPulse) && !wasFired)
             s_lobbyPresses.fetch_or(1, std::memory_order_relaxed);
     }
     else
@@ -1029,7 +1028,7 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
     // Left while the lobby panel has it)
     const uint64_t hornAt = s_hornLiveUs.load(std::memory_order_relaxed);
     int hornBtn = hornAt && nowUs - hornAt < 250000 && !chatHeld ? hornButton() : -1;
-    if (hornBtn == DpadLeft && (lobbyOffer & 1))
+    if (hornBtn == DpadUp && (lobbyOffer & 1))
         hornBtn = -1;
     const bool hornOn = hornBtn >= 0 && hornBtn != chatButton && !(m_chorded & bit(Input(hornBtn)));
     uint32_t hornHidden = 0, holdPulse = 0;
@@ -1053,7 +1052,7 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
     const uint64_t driftAt = s_driftLiveUs.load(std::memory_order_relaxed);
     const int driftBtn = driftAt && nowUs - driftAt < 250000 && !chatHeld ? driftButton() : -1;
     uint32_t driftHidden = 0;
-    if (driftBtn >= 0 && driftBtn != chatButton && driftBtn != hornBtn && !((lobbyOffer & 1) && driftBtn == DpadLeft)
+    if (driftBtn >= 0 && driftBtn != chatButton && driftBtn != hornBtn && !((lobbyOffer & 1) && driftBtn == DpadUp)
         && !((lobbyOffer & 2) && driftBtn == DpadDown) && !(m_chorded & bit(Input(driftBtn))))
     {
         const bool wasFired = m_hold[1].fired;

@@ -277,8 +277,8 @@ void setHornLive(uint64_t nowUs);
 // the last call, taken only while free roam's world says so (setDriftLive, each frame, with pf::ticksUs()).
 int takeDriftPresses();
 void setDriftLive(uint64_t nowUs);
-// Free roam's race lobby panel (roam_game.c lb_panel) offers its keys each frame, with pf::ticksUs(): left, D-pad Left
-// held opens a new lobby (over the horn); down, D-pad Down held switches Friends only (over quick chat when it is on
+// Free roam's race lobby panel (roam_game.c lb_panel) offers its keys each frame, with pf::ticksUs(): bit 0, D-pad Up
+// held opens a new lobby (a tap still reaches the game, after it: Engage); down, D-pad Down held switches Friends only (over quick chat when it is on
 // Down: held on for LobbyDownUs with no phrase picked).  takeLobbyPresses: bit 0 Left fired, bit 1 Down, since the last
 // call.  lobbyDownHeldUs: how long Down has been held towards it now (0 none), for the quick chat box's bar.
 void setLobbyKeys(uint64_t nowUs, bool left, bool down);
