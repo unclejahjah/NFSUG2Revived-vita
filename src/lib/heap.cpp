@@ -229,6 +229,22 @@ bool release(x86::reg32 address)
     return true;
 }
 
+bool unreserve()
+{
+    State& s = state();
+    MemMap* reserved = nullptr;
+    {
+        pf::LwLockGuard guard(s.mutex);
+        if (!s.reserved || s.reservedLent)
+            return false;
+        reserved = s.reserved;
+        s.reserved = nullptr;
+        s.reservedSize = 0;
+    }
+    delete reserved;
+    return true;
+}
+
 bool letGoKept()
 {
     State& s = state();

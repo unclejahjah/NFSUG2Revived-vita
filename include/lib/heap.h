@@ -21,6 +21,8 @@ bool reserve(x86::reg32 size);
 // Frees the block kept from the last track streamer pool (32 MB or more, released and not lent again), for guest
 // memory exhaustion. True when there was one. Any thread.
 bool letGoKept();
+// Gives back the reserve() block while it is not lent; reserve() may be called again after. True when there was one.
+bool unreserve();
 // Requested size of a live block, or 0xffffffff.
 x86::reg32 size(x86::reg32 address);
 // Bytes the guest holds in live blocks (log statistics).

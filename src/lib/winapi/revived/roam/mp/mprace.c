@@ -101,6 +101,8 @@
 
 long autotest_frame(void);
 const char *autotest_top_fng(void);
+void roam_vita_host_room_release(void);   /* roam_vita.cpp */
+int roam_vita_can_host(void);
 int savegame_busy(void);                  /* savegame.c: the pause menu's Save at its save, or a save screen up */
 int career_fe_active(const char *name);
 
@@ -2010,6 +2012,7 @@ static void step_back(CPU *c, long f){
                          nodone = (e && *e == '1') || (p && *p == '1'); }
         if ((guest_rd32(G_GAMEMODE) & 1u) && guest_rd32(G_RACETYPE) == 0 && guest_rd32(guest_rd32(G_RACECO)) == 4u && on("HUD_SingleRace.fng") && !nodone){
             state_log("back in free roam"); to_phase(M.why[0] ? MPR_FAILED : MPR_DONE);
+            roam_vita_can_host();                                                  /* (the server's room set aside again) */
             M.owns = 0;
             return;
         }
@@ -2044,6 +2047,7 @@ static void step_back(CPU *c, long f){
          * report, the host's server gone on the way back): the career once more, until the way back's time is up */
         if (M.crib_go){ M.resumed = M.crib_go = 0; mlog("the main menu after the crib: the career again%s", ""); }
         state_log("in the main menu");
+        if (!guest_rd32(G_SRV_MOD)) roam_vita_host_room_release();               /* (the server gone: its room for the load) */
         params_reset(c);                                                          /* (a start that broke off) */
         uint32_t a[3] = { S_MAIN, gstr_tmp(c, "UI_StartCareer.fng"), 0 };
         call(c, FN_FE_SWITCH, 0, 3, a);

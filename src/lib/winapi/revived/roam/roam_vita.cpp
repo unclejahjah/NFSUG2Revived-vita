@@ -56,6 +56,7 @@ void showoff_frame(struct CPU* c);   // showoff.c: the hood, the trunk and the d
 void drift_frame(struct CPU* c);     // drift.c: drift mode (drift_button) and drift battles
 void roam_vita_tap(unsigned dik);
 int roam_vita_can_host(void);
+void roam_vita_host_room_release(void);
 int roam_host_hud_line(char* tx, int n);
 int roam_host_chat_menu(const char** keys, const char** texts, int max);
 int roam_game_chat_panel_drawn(void);
@@ -934,7 +935,8 @@ void roam_vita_tap(unsigned dik)
 // Whether this game can host a lobby's race (roam_game.c mp_can_host): the game's LAN server, server.dll, translated
 // into this build and the same file next to SPEED2.EXE (src/lib/guestmodule.cpp), with its server.cfg from the PC game:
 // without it the server stops at "ServerConfig: config load failed" and never listens, so joiners are refused
-const uint32_t ServerStateBytes = 0x011651E0 + 32;   // (with room for a heap header of server.dll's CRT)
+const uint32_t ServerStateBytes = 0x011651E0 + 32;
+static int s_hostRoom;              // 0 not set aside (yet, or again), 1 set aside, -1 no room   // (with room for a heap header of server.dll's CRT)
 
 int roam_vita_can_host(void)
 {
@@ -954,14 +956,25 @@ int roam_vita_can_host(void)
     // free roam, with friends' cars loaded and unloaded, guest memory rarely keeps a range that large (combined-test11:
     // "guest memory exhausted (requested 18239968 bytes)" when a lobby's server started). So it is set aside at the
     // first look, early, and lent to the server each time it starts; without room for it this game does not host.
-    static int room;                // 0 not tried yet, 1 set aside, -1 no room
-    if (!room)
+    if (!s_hostRoom)
     {
-        room = win32::heap::reserve(ServerStateBytes) ? 1 : -1;
+        s_hostRoom = win32::heap::reserve(ServerStateBytes) ? 1 : -1;
         pf::logInfo("server.dll: %u KB %s for its server state", ServerStateBytes / 1024,
-                    room > 0 ? "set aside" : "not available (guest memory too fragmented): this game does not host");
+                    s_hostRoom > 0 ? "set aside" : "not available (guest memory too fragmented): this game does not host");
     }
-    return room > 0;
+    return s_hostRoom > 0;
+}
+
+// After a hosted race, in the main menu with the server gone (mprace.c): its memory back for the menus and the city's
+// load (a 60000 KB stream pool that did not fit beside it, 2026-11-26), set aside again once free roam is back
+// (roam_vita_can_host from the trip's end).
+void roam_vita_host_room_release(void)
+{
+    if (s_hostRoom > 0 && win32::heap::unreserve())
+    {
+        s_hostRoom = 0;
+        pf::logInfo("server.dll: its %u KB given back until free roam is loaded again", ServerStateBytes / 1024);
+    }
 }
 
 // mod packs (runtime/modpacks.c): none on the Vita, every part is the game's own
