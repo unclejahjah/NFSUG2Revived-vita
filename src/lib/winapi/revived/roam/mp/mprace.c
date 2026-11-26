@@ -243,7 +243,7 @@ static struct {
     int      pre_ok, pre_used;                     /* ...it still ran when the host's name went in; its login's wait cut */
     int      quit_race, fee;                       /* the player quit the race (its pause menu); the fee the bank paid */
     int      paused, quit, lan, hosted, named, carset, created, settings, joined, started, left, career, resumed, crib_go, ndlg, host_gone;
-    int      ol_detours, ol_back;                  /* UI_OLMAIN's Enter took another icon than Lobby so often; just now */
+    int      ol_detours, ol_back, lobby_backs;                  /* UI_OLMAIN's Enter took another icon than Lobby so often; just now */
     int      logged_place, perf_logged;
     int      unloaded, again, redo_asked;          /* the results' world went (race_again); the races restarted so far;
                                                     * the host's Restart asked on these results (logged) */
@@ -300,19 +300,19 @@ static const char *ol_detour(void){
     for (int i = 0; i < OL_DETOURS_N; i++) if (on(OL_DETOURS[i])) return OL_DETOURS[i];
     return 0;
 }
-/* A key of the trip: the pad's message (Accept, Back, Left) to the top screen through 0x55DDA0, as the help bar's
- * buttons send theirs.  The Vita's synthesized keyboard taps never reached the front end (the game builds no
- * keyboard action map here, and the autosave's screen ignored them too, 2026-11-24), so the trip sat on UI_OLMAIN */
+/* A key of the trip: the pad's message (Accept, Back, Left) to the screen the step is on, by name, through 0x55DDA0,
+ * as the help bar's buttons send theirs.  The Vita's synthesized keyboard taps never reached the front end (the game
+ * builds no keyboard action map here, and the autosave's screen ignored them too, 2026-11-24).  Not to the top
+ * package: in the LAN menus that is GarageMain.fng, the garage behind them, and Create Game's Accept went there */
 static CPU *g_tap_cpu;
 static uint32_t gstr_tmp(CPU *c, const char *s);
-static void tap(unsigned dik, long frames){
-    (void)frames;
-    const char *top = autotest_top_fng();
-    if (!g_tap_cpu || !top) return;
+static void tap_to(const char *pkg, unsigned dik){
+    if (!pkg) pkg = M.scr;
+    if (!g_tap_cpu || !pkg) return;
     uint32_t msg = dik == K_LEFT ? MSG_PAD_LEFT : dik == K_ESC ? MSG_PAD_BACK : MSG_PAD_ACCEPT;
-    uint32_t a[2] = { msg, gstr_tmp(g_tap_cpu, top) };
+    uint32_t a[2] = { msg, gstr_tmp(g_tap_cpu, pkg) };
     if (!a[1]) return;
-    fprintf(stderr, "[mprace] f=%ld %s to %s\n", autotest_frame(), dik == K_LEFT ? "Left" : dik == K_ESC ? "Back" : "Accept", top);
+    fprintf(stderr, "[mprace] f=%ld %s to %s\n", autotest_frame(), dik == K_LEFT ? "Left" : dik == K_ESC ? "Back" : "Accept", pkg);
     call(g_tap_cpu, FN_FE_SEND, 0, 2, a);
 }
 static void keys(const char *k){ snprintf(M.keys, sizeof M.keys, "%s", k); M.nkeys = (int)strlen(M.keys); M.key_at = 0; }
@@ -320,7 +320,7 @@ static int keys_run(long f){
     if (!M.nkeys) return 0;
     if (f < M.key_at) return 1;
     char k = M.keys[0]; memmove(M.keys, M.keys + 1, sizeof M.keys - 1); M.nkeys--;
-    tap(k == 'L' ? K_LEFT : k == 'E' ? K_ESC : K_RET, 6);
+    tap_to(0, k == 'L' ? K_LEFT : k == 'E' ? K_ESC : K_RET);
     M.key_at = f + 20;
     return 1;
 }
@@ -1530,11 +1530,11 @@ static int step_between(long f){
         return 1;
     }
     M.wait_at = 0;
-    if (on("UI_PostRaceResults.fng")){ if (f - M.scr_tap >= 60 * 4 && !restart_asked()){ tap(K_RET, 6); acted(f); } return 1; }
+    if (on("UI_PostRaceResults.fng")){ if (f - M.scr_tap >= 60 * 4 && !restart_asked()){ tap_to("UI_PostRaceResults.fng", K_RET); acted(f); } return 1; }
     if (guest_rd32(G_FLOW) != 3u) return 1;                                               /* (the last heat's world going) */
     /* out of LAN (an error's OK, the host's game gone): the next heat cannot come, the series ends at once */
     if (on("UI_Main.fng")){ fail("the game left LAN between the heats"); return 1; }
-    if (cb == CB_ROOM){ if (act_ok("PC_OL_GameRoom.fng", f)){ tap(K_ESC, 6); acted(f); } return 1; }
+    if (cb == CB_ROOM){ if (act_ok("PC_OL_GameRoom.fng", f)){ tap_to("PC_OL_GameRoom.fng", K_ESC); acted(f); } return 1; }
     if (cb == CB_LOBBY || on("UI_OLMAIN.fng")){
         S.between = 0; M.scr = 0;
         mlog("between the heats: in the lobby again, the next heat's game%s", M.r.host ? " to create" : " to join");
@@ -1613,9 +1613,10 @@ static void step_race(CPU *c, long f){
             return;
         }
         /* the world map or a message open at the start (the world paused): closed first, as the player would */
-        if (flow == 6u && !M.paused && on("UI_InGame_WorldMap.fng")){ tap(K_ESC, 6); M.next = f + 60; return; }
+        if (flow == 6u && !M.paused && on("UI_InGame_WorldMap.fng")){ tap_to("UI_InGame_WorldMap.fng", K_ESC); M.next = f + 60; return; }
         if (flow == 6u && !M.paused && (on("UI_EngageMessageDialog.fng") || on("UI_SMS_Message.fng") || on("UI_SMS_Mailbox.fng"))){
-            tap(on("UI_EngageMessageDialog.fng") ? K_RET : K_ESC, 6); M.next = f + 60; return;
+            { const char *w = on("UI_EngageMessageDialog.fng") ? "UI_EngageMessageDialog.fng" : on("UI_SMS_Message.fng") ? "UI_SMS_Message.fng" : "UI_SMS_Mailbox.fng";
+              tap_to(w, on("UI_EngageMessageDialog.fng") ? K_RET : K_ESC); } M.next = f + 60; return;
         }
         if (flow == 6u && !M.paused){
             uint32_t co = guest_rd32(G_RACECO), pl = guest_rd32(G_PLAYER1);
@@ -1709,7 +1710,7 @@ static void step_race(CPU *c, long f){
                     M.ol_back = 1; M.ol_detours++;
                     fprintf(stderr, "[mprace] f=%ld UI_OLMAIN's Enter opened %s, not the Lobby: back (%d of %d)\n", autotest_frame(), d, M.ol_detours, OL_TRIES);
                 }
-                tap(K_ESC, 6); acted(f);
+                tap_to(d, K_ESC); acted(f);
             }
             return;
         }
@@ -1717,7 +1718,7 @@ static void step_race(CPU *c, long f){
     if (cb == CB_LOBBY && guest_ok(ctx, 0x110)){
         if (guest_rd32(G_LANSTATE) != 0x11u || guest_rd32(G_GAME_IDENT) != 0xffffffffu || guest_rd32(G_DLG)) return;
         if (M.r.host){
-            if (!M.created && act_ok("PC_OL_Lobby.fng", f)){ tap(K_RET, 6); M.created = 1; acted(f); mlog("create the game%s", ""); }   /* Create Game */
+            if (!M.created && act_ok("PC_OL_Lobby.fng", f)){ tap_to("PC_OL_Lobby.fng", K_RET); M.created = 1; acted(f); mlog("create the game%s", ""); }   /* Create Game */
             return;
         }
         /* the joiner: the list filtered as the host's game is, then the host's game by its HOST */
@@ -1748,7 +1749,7 @@ static void step_race(CPU *c, long f){
         if (s){
             if (!act_ok(s, f)) return;
             if (!strcmp(s, "UI_QRModeOptions.fng") && !M.settings){ write_settings(1); M.settings = 1; }
-            tap(K_RET, 6); acted(f);
+            tap_to(s, K_RET); acted(f);
             return;
         }
     }
@@ -1913,7 +1914,7 @@ static int step_racing(long f){
         if (restart_asked()){
             if (!M.redo_asked){ M.redo_asked = 1; mlog("the host asked to restart the race: the results wait for the game's countdown%s", ""); }
         } else if (f - M.results_at > 60 * (M.r.host ? 12 : 8)){
-            tap(K_RET, 6);
+            tap_to("UI_PostRaceResults.fng", K_RET);
             act_ok("UI_PostRaceResults.fng", f); acted(f);
             if (series_next(f)) return 1;                                         /* (the next heat) */
             M.goal = G_CAREER_GOAL; M.step = "Back to free roam"; to_phase(MPR_BACK);
@@ -2008,7 +2009,7 @@ static void step_back(CPU *c, long f){
     }
     M.wait_at = 0;
     /* (Continue missed: again after 4 s, not sooner; a second Enter on the room that comes next would do its own) */
-    if (on("UI_PostRaceResults.fng")){ if (f - M.scr_tap >= 60 * 4 && !restart_asked()){ tap(K_RET, 6); acted(f); } return; }
+    if (on("UI_PostRaceResults.fng")){ if (f - M.scr_tap >= 60 * 4 && !restart_asked()){ tap_to("UI_PostRaceResults.fng", K_RET); acted(f); } return; }
     if (flow == 6u){
         /* free roam again: done (the career's own free roam, not a LAN race's world); a test's
          * NFSU2_MPRACE_TEST_NODONE=1 misses it, as a trip that lost its way would (roam_game.c's MP_STALE_US) */
@@ -2023,15 +2024,28 @@ static void step_back(CPU *c, long f){
         /* still in the LAN race's world (the results went): its pause menu would leave it; wait for the game */
         return;
     }
-    if (cb == CB_ROOM){ if (act_ok("PC_OL_GameRoom.fng", f)){ tap(K_ESC, 6); acted(f); } return; }   /* "exit this game session?" next */
-    if (cb == CB_LOBBY){ if (act_ok("PC_OL_Lobby.fng", f)){ tap(K_ESC, 6); acted(f); } return; }      /* LAN Main */
+    if (cb == CB_ROOM){ if (act_ok("PC_OL_GameRoom.fng", f)){ tap_to("PC_OL_GameRoom.fng", K_ESC); acted(f); } return; }   /* "exit this game session?" next */
+    if (cb == CB_LOBBY){
+        /* LAN Main: the lobby's Back; should it not go (a 2026-11-26 trip sent its Backs to the garage behind the
+         * menus, 60 of them), the switch the Back would make, and UI_OLMAIN's leaving closes the lobby with the rest */
+        if (act_ok("PC_OL_Lobby.fng", f)){
+            if (++M.lobby_backs > 4){
+                uint32_t a[3] = { gstr_tmp(c, "PC_OL_Lobby.fng"), gstr_tmp(c, "UI_OLMAIN.fng"), 0 };
+                call(c, FN_FE_SWITCH, 0, 3, a);
+                M.lobby_backs = 0;
+                mlog("the lobby's Back did not go: to the LAN menu%s", "");
+            } else tap_to("PC_OL_Lobby.fng", K_ESC);
+            acted(f);
+        }
+        return;
+    }
     if (on("UI_OLMAIN.fng")){
         if (act_ok("UI_OLMAIN.fng", f)){ send_to(c, MSG_LAN_EXIT, gstr_tmp(c, "UI_OLMAIN.fng")); M.left = 1; acted(f); mlog("leave LAN%s", ""); }
         return;
     }
     static const char *const lan_screens[] = { "UI_PC_LAN.fng", "UI_PC_LAN_ServerSelect.fng", "UI_QRModeSelect.fng", "UI_QRTrackSelect.fng", "UI_QRModeOptions.fng" };
-    for (int i = 0; i < 5; i++) if (on(lan_screens[i])){ if (act_ok(lan_screens[i], f)){ tap(K_ESC, 6); acted(f); } return; }
-    { const char *d = ol_detour(); if (d){ if (act_ok(d, f)){ tap(K_ESC, 6); acted(f); } return; } }   /* (a detour of the way out) */
+    for (int i = 0; i < 5; i++) if (on(lan_screens[i])){ if (act_ok(lan_screens[i], f)){ tap_to(lan_screens[i], K_ESC); acted(f); } return; }
+    { const char *d = ol_detour(); if (d){ if (act_ok(d, f)){ tap_to(d, K_ESC); acted(f); } return; } }   /* (a detour of the way out) */
     if (on("UI_Main.fng")){
         if (!act_ok("UI_Main.fng", f)) return;
         /* the main menu again after the crib's Return to Explore (its save went there instead, unsaved: a 2026-10-27
