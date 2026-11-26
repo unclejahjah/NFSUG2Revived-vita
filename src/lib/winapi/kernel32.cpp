@@ -3301,7 +3301,9 @@ DWORD FormatMessageA(WinApplication* app, x86::CPU& cpu, DWORD dwFlags, x86::reg
     return length;
 }
 
-// STILL_ACTIVE (259) until the thread returned or called ExitThread.
+// STILL_ACTIVE (259) until the thread returned or called ExitThread. A thread still running gets a millisecond with the
+// execution lock let go: server.dll's StopServer polls this in a loop, holding the lock, for up to 10 s before
+// TerminateThread, and its server thread could not run to its end meanwhile (a 10 s freeze leaving LAN, 2026-11-26).
 BOOL GetExitCodeThread(WinApplication* app, x86::CPU& cpu, HANDLE hThread, LPDWORD lpExitCode)
 {
     static const DWORD STILL_ACTIVE = 259;
@@ -3322,6 +3324,12 @@ BOOL GetExitCodeThread(WinApplication* app, x86::CPU& cpu, HANDLE hThread, LPDWO
         return 0;
     }
     x86::reg32 code;
+    if (scheduler::exitCode(thread->threadId(), &code))
+    {
+        *lpExitCode = code;
+        return 1;
+    }
+    SleepEx(app, cpu, 1, 0);
     *lpExitCode = scheduler::exitCode(thread->threadId(), &code) ? code : STILL_ACTIVE;
     return 1;
 }
