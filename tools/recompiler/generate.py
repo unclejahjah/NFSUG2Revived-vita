@@ -59,8 +59,17 @@ start, may crash, or may run much slower. Changes inside functions the port repl
 
 
 # Warns about an untested executable, and asks when someone can answer.
+def find_binary(directory):
+    """The game file in directory, whatever its letter case (the game folder of a PC install), or None."""
+    if os.path.isdir(directory):
+        for name in os.listdir(directory):
+            if name.lower() == GAME.EXE_NAME.lower():
+                return os.path.join(directory, name)
+    return None
+
+
 def check_binary(directory):
-    path = os.path.join(directory, GAME.EXE_NAME)
+    path = find_binary(directory) or os.path.join(directory, GAME.EXE_NAME)
     if not os.path.isfile(path):
         sys.exit('missing %s' % path)
     with open(path, 'rb') as f:
@@ -76,7 +85,7 @@ def check_binary(directory):
                 sys.exit('stopped: nothing was generated')
         else:
             print('Continuing with it: there is no terminal to ask on.', flush=True)
-    return pe_image.Image(path, getattr(GAME, 'RELOCATION_SECTION', None))
+    return pe_image.Image(path, getattr(GAME, 'RELOCATION_SECTION', None), getattr(GAME, 'REBASE', None))
 
 
 def apply_patches(image):
@@ -90,6 +99,46 @@ def apply_patches(image):
             sys.exit('patch 0x%x: bytes %s, expected %s'
                      % (address, s.data[offset:offset + len(original)].hex(), original.hex()))
         s.data = s.data[:offset] + patched + s.data[offset + len(patched):]
+
+
+def mod_switches(image, cs, program):
+    """Instruction address -> (the mod's instruction, C++ flag) for GAME.MOD_SWITCHES; both must have equal effects."""
+    from disasm.codegen import ctx as C
+    switches = {}
+    for address, original, patched, flag in getattr(GAME, 'MOD_SWITCHES', []):
+        original, patched = bytes.fromhex(original), bytes.fromhex(patched)
+        if len(original) != len(patched) or image.read(address, len(original)) != original:
+            sys.exit('mod switch 0x%x: bytes %s, expected %s'
+                     % (address, image.read(address, len(original)).hex(), original.hex()))
+        sites = [(fn, i, ins) for fn in program.functions.values() for i, ins in enumerate(fn.instructions)
+                 if ins.size and ins.address <= address < ins.address + ins.size]
+        if not sites:
+            sys.exit('mod switch 0x%x: no generated instruction holds it' % address)
+        for fn, i, ins in sites:
+            offset = address - ins.address
+            data = image.read(ins.address, ins.size)
+            data = data[:offset] + patched + data[offset + len(patched):]
+            mod = next(cs.disasm(data, ins.address), None)
+            if mod is None or mod.size != ins.size or mod.mnemonic != ins.mnemonic or fn.exits[i] or \
+                    mnemonic_is_control(ins):
+                sys.exit('mod switch 0x%x: %s %s -> %s, only same-length operand edits of plain instructions'
+                         % (address, ins.mnemonic, ins.op_str, mod and '%s %s' % (mod.mnemonic, mod.op_str)))
+            effects = []
+            for candidate in (ins, mod):
+                ctx = C.Ctx(fn, {}, record=True)
+                ctx.begin(i)
+                ctx.ins = candidate
+                codegen.generate(ctx, candidate)
+                effects.append(tuple(getattr(ctx.effects, k) for k in C.Effects.__slots__))
+            if effects[0] != effects[1]:
+                sys.exit('mod switch 0x%x: the mod\'s instruction reads or writes other registers or flags' % address)
+            switches[ins.address] = (mod, flag)
+    return switches
+
+
+def mnemonic_is_control(ins):
+    return ins.mnemonic.split()[-1] in ('call', 'ret', 'jmp', 'loop', 'loope', 'loopne', 'jecxz') or \
+        ins.mnemonic.startswith('j')
 
 
 def simd_range(address):
@@ -267,6 +316,8 @@ def main():
     parser.add_argument('--binaries', required=True, help='directory with the game executable')
     parser.add_argument('--out', required=True, help='output directory for the generated sources')
     parser.add_argument('--analysis', help='also write the analysis summary (JSON) for test tools')
+    parser.add_argument('--missing-ok', action='store_true',
+                        help='a game DLL that is not in --binaries: write the module without code (not available)')
     parser.add_argument('--memory-x87', action='store_true',
                         help='keep the x87 stack in cpu.fpu instead of C++ locals (for comparisons)')
     parser.add_argument('--memory-registers', action='store_true',
@@ -309,6 +360,12 @@ def main():
     codegen.fpu.FLOAT_ALIGN = args.float_align
     codegen.fpu.FLOAT_ALIGN_CHECK = args.float_align_check
     started = time.time()
+    if args.missing_ok and getattr(GAME, 'LIBRARY', False) and not find_binary(args.binaries):
+        with tempfile.TemporaryDirectory(prefix='nfsugen-') as stage:
+            writer.write_library_stub(stage, GAME.MODULE, GAME.EXE_NAME, 'not in the game folder')
+            sync_output(stage, args.out)
+        print('%s: not in %s, so the module has no code' % (GAME.EXE_NAME, args.binaries))
+        return
     image = check_binary(args.binaries)
     apply_patches(image)
     print('%s: read, %d sections, %d relocations, %d imports, %d patches'
@@ -319,7 +376,10 @@ def main():
     cs.detail = True
     discovery = discover.Discovery(image, cs, no_return=GAME.NO_RETURN)
     discovery.discover(extra_entries=GAME.NATIVE_OVERRIDES + getattr(GAME, 'EXTRA_ENTRIES', [])
+                       + [a for _, a in image.exports if image.is_code(a)]
                        + ([GAME.SETJMP] if GAME.SETJMP is not None else []))
+    # A DLL's exports are called through GetProcAddress's pointers.
+    discovery.address_taken |= set(a for _, a in image.exports if a in discovery.entries)
     print('discovery took %.0f s' % (time.time() - started))
     subroutines = [discovery.subroutine(e) for e in sorted(discovery.entries)]
     module = GameModule(image, subroutines)
@@ -346,8 +406,10 @@ def main():
                          if x.kind in ('call', 'tail') and x.target not in program.functions))
     if missing:
         sys.exit('calls to addresses that are no function: %s' % ' '.join('0x%x' % a for a in missing[:20]))
+    from disasm import emit
+    emit.MOD_SWITCHES = mod_switches(image, cs, program)
     with tempfile.TemporaryDirectory(prefix='nfsugen-') as stage:
-        writer.Writer(module, program, stage).write()
+        writer.Writer(module, program, stage, library=getattr(GAME, 'LIBRARY', False)).write()
         if GAME.BANK_LIBRARY_TABLE is not None:
             bankcode.write(args.binaries, image, capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32), stage,
                            GAME.BANK_LIBRARY_TABLE, GAME.BANK_DIR, GAME.MODULE,

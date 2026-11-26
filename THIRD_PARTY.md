@@ -9,6 +9,13 @@ This project grew out of [UG1VITA](https://github.com/NDRWhun/UG1VITA) by NDRWhu
 Speed Underground, and still contains code from it. UG1VITA is MIT licensed; its copyright notice is kept in
 [LICENSE](LICENSE) beside this project's own, as that license requires.
 
+## PlayStation Vita illustration
+
+The Vita picture on the Joypad Configuration screen (`src/ug2/diagram_art.h`, made by `images/controls/make_diagrams.py`)
+uses "PlayStation Vita illustration.svg" by Tokyoship, <https://commons.wikimedia.org/wiki/File:PlayStation_Vita_illustration.svg>,
+licensed [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). Modified: the SONY, PS VITA and PS logos removed, a
+game screenshot in its screen and leader lines added. The modified illustration is `images/controls/vita_front_shaded.svg`.
+
 ## pefile
 
 `tools/recompiler/disasm/pefile.py` and `tools/recompiler/disasm/ordlookup/`, from the pefile project (Ero Carrera,
@@ -61,7 +68,7 @@ question moves the car to the chosen place. The port reimplements it natively on
 
 ## FFmpeg
 
-The optional native VP6 movie decoder (`movies=vp6`) links libavcodec and libavutil from FFmpeg 7.1.2
+The optional native VP6 movie decoder (`movies=vp6preferred` and `vp6only`) links libavcodec and libavutil from FFmpeg 7.1.2
 (https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz), under the GNU Lesser General Public License, version 2.1 or later.
 The build uses no GPL or nonfree options: `tools/vita/build_ffmpeg_vp6.py` downloads that release, checks its SHA-256,
 applies the port's changes to it and builds only the VP6 decoders as a static library. The changes are the patches in
@@ -89,6 +96,21 @@ EU Car Content's from the NFSU2 Extra Options readme, by the ExOpts Team.
 text is in `src/ug2/mini/LICENSE`. It reads and edits the mods' ini files. It is locally modified to add `//` comments
 (comment lines, and trailing comments at `;` or the last ` //`, which a changed value keeps); each change is marked
 `NFSU2VITA patch`.
+
+## Mod downloads
+
+The launcher can fetch a mod's files for the Mods tab (`src/launcher/mods_download.cpp`); only the launcher
+(eboot.bin) links the code and libraries below, the game links none of them. Archives are read with
+[libarchive](https://www.libarchive.org) 3.8.9, BSD 2-Clause License, with liblzma from XZ Utils 5.8.4 (BSD Zero Clause
+License) and bzip2 1.0.8 (its own BSD-style license) for 7z and zip compression. libarchive is not part of the
+repository: `tools/vita/build_libarchive.py` downloads that release, checks its SHA-256 and builds only its readers as a
+static library. Transfers use libcurl 8.22.0 built with Mbed TLS (curl license), Mbed TLS 3.6.5 (Apache License 2.0),
+Zstandard (BSD) and zlib (zlib License). These libraries and liblzma and bzip2 are VitaSDK packages that
+`tools/deps.py packages` downloads. The transfer options in `src/launcher/net_curl.cpp` come from the HTTP client of
+[PS Vita Alive](https://github.com/VegettoSan/PSVitaAlive) (Copyright (c) 2026 VegettoSan / PS Vita Alive Store
+contributors, MIT License). `src/launcher/cacert.pem` is the Mozilla CA bundle as published by the curl project on
+5 November 2026 (Mozilla Public License 2.0). The licence texts are in `src/launcher/LICENSES.txt`, which the VPK
+carries as `launcher/LICENSES.txt`.
 
 ## NFSU2 Extra Options
 

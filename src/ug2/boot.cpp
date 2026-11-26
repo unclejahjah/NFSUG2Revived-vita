@@ -5,6 +5,9 @@
 #include "bench.h"
 #include "drive.h"
 #include "frontend.h"
+#ifdef DEV_TOOLS
+#include "../dev/screenshot.h"
+#endif
 
 #include <platform/config.h>
 #include <platform/log.h>
@@ -512,43 +515,20 @@ const win32::MethodPtr StateHooks[StateCount] = {
     stateHook<5>, stateHook<6>, stateHook<7>, stateHook<8>,
 };
 
+#ifdef DEV_TOOLS
 // Writes the shown frame as BMP; returns its colour hash.
 uint64_t writeShown(const char* path)
 {
-    uint64_t hash = 0;
 #if defined(__vita__)
     SceDisplayFrameBuf shown;
     shown.size = sizeof(shown);
     if (sceDisplayGetFrameBuf(&shown, SCE_DISPLAY_SETBUF_NEXTFRAME) >= 0 && shown.base)
-    {
-        const uint32_t w = shown.width, h = shown.height, row = w * 3;
-        std::vector<uint8_t> bmp(54 + row * h);
-        const uint32_t header[13] = { uint32_t(bmp.size()), 0, 54, 40, w, h, 1 | 24 << 16, 0, row * h, 2835, 2835, 0, 0 };
-        bmp[0] = 'B';
-        bmp[1] = 'M';
-        memcpy(bmp.data() + 2, header, sizeof(header));
-        const uint32_t* pixels = static_cast<const uint32_t*>(shown.base);
-        hash = 1469598103934665603ull;
-        for (uint32_t y = 0; y < h; ++y)
-            for (uint32_t x = 0; x < w; ++x)
-            {
-                const uint32_t c = pixels[(h - 1 - y) * shown.pitch + x];
-                uint8_t* o = bmp.data() + 54 + y * row + x * 3;
-                o[0] = uint8_t(c >> 16);
-                o[1] = uint8_t(c >> 8);
-                o[2] = uint8_t(c);
-                hash = (hash ^ (c & 0xffffffu)) * 1099511628211ull;
-            }
-        if (FILE* f = fopen(path, "wb"))
-        {
-            fwrite(bmp.data(), 1, bmp.size(), f);
-            fclose(f);
-        }
-    }
+        return screenshot::write(path, static_cast<const uint32_t*>(shown.base), shown.width, shown.height,
+                                 shown.pitch);
 #else
     (void)path;
 #endif
-    return hash;
+    return 0;
 }
 
 // debug_hold_frame: keeps the shown frame on screen and writes it to hold.bmp.
@@ -600,6 +580,7 @@ void shotAt(int raceFrame, int frame, int afterLoad)
                     unsigned(hash));
     }
 }
+#endif
 
 // At a frame end: no world time passes while a race loads.
 void frameEnded()
@@ -621,6 +602,7 @@ void frameEnded()
         s_loadEnd = rc::ld32(FramesRendered);
     }
     s_frameState = state;
+#ifdef DEV_TOOLS
     static const int s_hold = pf::Config::getInt("debug_hold_frame", 0);
     shotAt(state == RacingState && s_raceStart ? int(rc::ld32(FramesRendered) - s_raceStart) : -1,
            int(rc::ld32(FramesRendered)), s_loadEnd ? int(rc::ld32(FramesRendered) - s_loadEnd) : -1);
@@ -629,6 +611,7 @@ void frameEnded()
         pf::logInfo("boot: holding the game thread at race frame %d", s_hold);
         holdForever();
     }
+#endif
 }
 
 // QueryPerformanceCounter, then 0x57EAD0's inputs for VirtualTicks per frame.
@@ -695,6 +678,8 @@ void configure(win32::WinApplication& app)
     }
     if (pf::Config::getBool("memory_log", false))
         frontend::hookFileOpens(app);
+    if (*pf::Config::getString("boot_steps", "") != 0)
+        frontend::configure(app);
     const std::string mode = pf::Config::getString("boot_mode", "race");
     s_settings.freeRoam = mode == "freeroam";
     s_settings.url = mode == "url";

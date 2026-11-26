@@ -41,6 +41,7 @@ private:
         for (const char* car : { "CORSA", "PEUGOT106" })
             for (const char* file : CarFiles)
             {
+                // ExtraOptions 5.1.0.1340 [Gameplay] UnlockRegionalCars: deviation: all four files, the mod checks two
                 const std::string path = std::string("CARS/") + car + "/" + file;
                 if (!exists(gameFolder + "/" + path, false))
                     gone.push_back(path);

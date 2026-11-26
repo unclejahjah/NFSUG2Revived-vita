@@ -114,11 +114,16 @@ static inline uint32_t coop_player(void){ return 0; }
 #endif
 
 /* ---- game addresses (v1.2 NA) ------------------------------------------------ */
-/* multiplayer races from free roam (mp_*, mprace.c): not in the Windows plugin */
-#ifdef ROAM_HOST_WIN
+/* multiplayer races from free roam (mp_*, mprace.c): not in the Windows plugin (the Vita build has them: ROAM_MPRACES) */
+#if defined(ROAM_HOST_WIN) && !defined(ROAM_MPRACES)
 #define MPRACES         0
 #else
 #define MPRACES         1
+#endif
+#if MPRACES
+/* multiplayer races switched on (NFSU2_ROAM_MPRACES, the Vita's .ini Races; on by default): off, this game takes no
+ * lobbies (its HELLO says so), shows no spots or lines, and leaves the race card to the game */
+static int g_mp_on = 1;
 #endif
 /* flags before the names over friends' cars (flag_*): not in the Windows plugin (the Vita build has them: ROAM_FLAGS) */
 #if defined(ROAM_HOST_WIN) && !defined(ROAM_FLAGS)
@@ -391,7 +396,7 @@ static int env_int(const char *k, int def, int lo, int hi){
     return (int)x;
 }
 static struct {
-    int on, test, collide, max_cars, rate, delay_ms, extrap_ms, carpool_kb, labels, spawn_m;
+    int on, test, collide, max_cars, rate, delay_ms, extrap_ms, carpool_kb, labels, flags_shown, rings, spawn_m;
     int ghost_all;                            /* NFSU2_ROAM_COLLIDE=none (Ghost mode: Everything): friends' cars are ghosts
                                                  (collide 0), and the game's traffic and tuners pass through the player's car
                                                  too (ghost_pair) */
@@ -464,6 +469,7 @@ typedef struct {
     uint32_t ride_new, ride_orig, rec;        /* guest buffers */
     uint32_t h_cur, h_new;                    /* CarLoader handles (on the car / loading) */
     int      want_load;                       /* its ride built, the loader asked the next frame (load_ask) */
+    int      want_begin;                      /* a car of our own just made: its friend's ride built the next frame */
     uint16_t want_parts, want_skin;           /* ...for its log line */
     uint32_t h_orig;                          /* a car of our own: its first ride (an opponent's copy) */
     int      have_orig, activated;
@@ -1645,7 +1651,7 @@ static void release(CPU *c, int k, const char *why){
     else rlog("[roam] f=%ld slot %d: %s's car removed (%s)\n", rh_frame(), k, s->name, why);
     g_releases++;
     if (s->h_new){ unload_later(s->h_new); s->h_new = 0; s->pending_cfg = 0; }
-    s->want_load = 0;
+    s->want_load = 0; s->want_begin = 0;
     /* not made yet: forget it.  A car made whose first look cannot load now
      * (begin_load right after finish_create: a friend's shop parts waiting
      * for part_packs) goes on below: it stays ours, parked on its first ride
@@ -2562,7 +2568,16 @@ static void push_pose(Slot *s, rc_pose *P, int64_t newest, int64_t rt, float dt)
 #define TAG_DUEL        TAG_N         /* one more: the outrun's line of text (du_hud) */
 #define TAG_MP0         (TAG_N + 1)   /* and eight: labels over race spots and lobbies, the lines of a start's stack (mp_labels) */
 #define TAG_MPN         8
-#define TAG_ALL         (TAG_N + 1 + TAG_MPN)
+#define TAG_QC0         (TAG_MP0 + TAG_MPN)   /* and quick chat's box: its title and a line for each choice (qc_panel) */
+#define TAG_QCN         9
+#define TAG_LB0         (TAG_QC0 + TAG_QCN)   /* and the race lobby's panel: title, race, a line a player, two of keys (lb_panel) */
+#define TAG_LBN         18
+#define TAG_DH0         (TAG_LB0 + TAG_LBN)   /* and drift mode's HUD, the drift event's texts (dh_draw) */
+#define TAG_DHN         9
+enum { DH_TITLE, DH_PTS, DH_BEST_L, DH_BEST, DH_TOT_L, DH_TOT, DH_MULT, DH_GAIN_L, DH_GAIN };   /* (TAG_DH0 + these) */
+#define DH_BIG_SOURCE   0x2da220aau   /* HUD_SingleRace's "+9999": Font_ConduitMdITCTT38bi, the drift event's points' */
+static inline int dh_big(int i){ return i == DH_PTS || i == DH_MULT; }
+#define TAG_ALL         (TAG_N + 1 + TAG_MPN + TAG_QCN + TAG_LBN + TAG_DHN)
 #define TAG_DUEL_MAX    120
 /* the names' objects in a HUD; co-op free roam has a set for each player's (its half of the screen) */
 typedef struct { uint32_t hud, obj[TAG_ALL]; uint8_t looked[TAG_ALL], shown[TAG_ALL], alpha[TAG_ALL]; char text[TAG_ALL][TAG_DUEL_MAX]; uint32_t rgb[TAG_ALL];
@@ -2709,8 +2724,17 @@ static uint32_t tag_obj(CPU *c, int k, uint32_t pkg){
     g_tag.looked[k] = 1;
     if (k >= TAG_GAME){
         uint32_t o1 = tag_obj(c, 0, pkg);
-        char nm[24]; snprintf(nm, sizeof nm, k == TAG_DUEL ? "ROAM_OUTRUN" : k >= TAG_MP0 ? "ROAM_RACE_%d" : "ROAM_PLAYER_%d",
-                              k >= TAG_MP0 ? k - TAG_MP0 + 1 : k + 1);   /* past the HUD's six: copies of the first */
+#ifdef ROAM_VITA_DRIFT
+        /* drift mode's points and multiplier in the drift event's big font (Font_ConduitMdITCTT38bi): copies of the
+         * HUD's own "+9999" (0x2DA220AA, in it), the rest the names' (ConduitMdITC_TT14i, the drift event's small) */
+        if (k >= TAG_DH0 && dh_big(k - TAG_DH0)){
+            uint32_t a[2] = { pkg, DH_BIG_SOURCE }, b = rh_call(c, FN_FE_FIND, 0, 0, 2, a);
+            if (ok(b, 0x70) && rd32(b + 0x18u) == 2u) o1 = b;
+            else rlog("[roam] f=%ld drift HUD: no big-font text in the HUD: the small font for the points\n", rh_frame());
+        }
+#endif
+        char nm[24]; snprintf(nm, sizeof nm, k == TAG_DUEL ? "ROAM_OUTRUN" : k >= TAG_DH0 ? "ROAM_DRIFT_%d" : k >= TAG_LB0 ? "ROAM_LOBBY_%d" : k >= TAG_QC0 ? "ROAM_CHAT_%d" : k >= TAG_MP0 ? "ROAM_RACE_%d" : "ROAM_PLAYER_%d",
+                              k >= TAG_DH0 ? k - TAG_DH0 + 1 : k >= TAG_LB0 ? k - TAG_LB0 + 1 : k >= TAG_QC0 ? k - TAG_QC0 + 1 : k >= TAG_MP0 ? k - TAG_MP0 + 1 : k + 1);   /* past the HUD's six: copies of the first */
         g_tag.obj[k] = o1 ? fe_clone(c, pkg, o1, nm) : 0;
         if (g_tag.obj[k] && !g_tag.probe){ g_tag.probe = g_tag.obj[k]; g_tag.probe_hash = MR32(g_tag.obj[k] + 0x10u); }
         if (!g_tag.obj[k] && k == TAG_DUEL) rlog("[roam] f=%ld no copy of ONLINE_PLAYER_1 for the outrun's line of text\n", rh_frame());
@@ -2905,7 +2929,16 @@ static uint32_t flag_texture(CPU *c, int i){
 }
 /* each name's image for its flag, made (or looked up) once per HUD: a copy of the package's first image, which is
  * off the screen and not in a group, its turn, pivot and texture corners as a flag needs them */
-typedef struct { uint32_t hud, like, obj[TAG_N]; uint8_t looked[TAG_N], shown[TAG_N], alpha[TAG_N]; uint32_t tex[TAG_N]; int said;
+#define FL_QC           TAG_N         /* more images: quick chat's panel, its rule and glyphs (qc_panel, ui_panel) */
+#define FL_QCN          24
+#define FL_LB           (FL_QC + FL_QCN)   /* the race lobby's: panel, rule, highlight, value boxes, glyph (lb_panel) */
+#define FL_LBN          40
+#define FL_TOP          (FL_LB + FL_LBN)   /* the line at the top's: panel, rule, glyph (du_hud) */
+#define FL_TOPN         18
+#define FL_DH           (FL_TOP + FL_TOPN) /* drift mode's HUD: the drift event's three backings (dh_draw) */
+#define FL_DHN          (3 + 7)       /* (the box: UI_PANEL_N pieces from FL_DH + 3) */
+#define FL_ALL          (FL_DH + FL_DHN)
+typedef struct { uint32_t hud, like, obj[FL_ALL]; uint8_t looked[FL_ALL], shown[FL_ALL], alpha[FL_ALL]; uint32_t tex[FL_ALL]; int said;
                  uint32_t probe, probe_hash; } FlagSet;   /* (probe: the first image made, its hash: tags_live) */
 static FlagSet g_fls[2], *g_flp = &g_fls[0];
 #define g_fl (*g_flp)
@@ -3196,7 +3229,7 @@ static void tags_update_seat(CPU *c){
         /* the flag (its texture there: else none, not a gap) and its gap left of the name, the two centred on hx */
         float fw = 0.f;
 #if FLAGS
-        int fi = t[q].k == NSLOT ? O.flag : s->flagcode[0] ? s->flag : -1;
+        int fi = !O.flags_shown ? -1 : t[q].k == NSLOT ? O.flag : s->flagcode[0] ? s->flag : -1;
         if (fi >= 0 && !flag_texture(c, fi)) fi = -1;
         if (fi >= 0) fw = (FLAG_CAP * 4.f / 3.f + FLAG_GAP) * sc;
 #endif
@@ -3647,6 +3680,7 @@ static int wm_dress(CPU *c, uint32_t map, uint32_t pkg, int max){
 }
 #if MPRACES
 static int mp_map_icons(CPU *c, uint32_t map, uint32_t pkg, uint32_t room, int hub);   /* lobbies on the map */
+static int mp_map_spots(CPU *c, uint32_t map, uint32_t pkg, uint32_t room);            /* and the race spots */
 static void mp_map_labels(CPU *c, uint32_t map);
 static uint32_t meet_icon(CPU *c, uint32_t pkg);                                        /* car meets on the map */
 static int meet_update(CPU *c, uint32_t map, uint32_t pkg, uint32_t pk, uint32_t w, int64_t host);
@@ -4173,6 +4207,7 @@ static void map_update(CPU *c, uint32_t w, int64_t host){
         wmf_begin(map);
 #if MPRACES
         mp_map_icons(c, map, pkg, (uint32_t)wm_room(pk), 0);                   /* (before the cars take the room) */
+        if (g_mp_on) mp_map_spots(c, map, pkg, (uint32_t)wm_room(pk));
 #endif
         for (int k = NOPP; k < NSLOT; k++){
             Slot *s = &g_sl[k];
@@ -4582,6 +4617,16 @@ static void near_update(CPU *c, uint32_t w, int64_t host, int in_roam){
         g_nr.ncopy = 0; g_nr.n = 0; g_nr.orig = 0; g_nr.stop = 0;
     }
     if (icons != g_nr.icons || !nr_icons_live(icons)){                  /* the icons made again (0x4F92A0): ours went with them */
+        /* ...or only some did (leaving a shop, 2026-11-26): the ones still in the list, forgotten, stayed shown where
+         * their stand-in last was, an arrow stuck on the minimap.  Every icon naming a stand-in of ours is hidden now
+         * (the ones made from here on are shown or hidden by the loop below) */
+        int stuck = 0;
+        for (uint32_t n = g_nr.blk ? rd32(icons) : 0, m = 0; n && n != icons && m < MM_POOL && ok(n, 0x20); n = rd32(n), m++){
+            uint32_t num = rd32(n + 8u);
+            if (num >= nr_num(0) && num < nr_num(0) + (uint32_t)NEAR_SLOTS * (NEAR_BLK >> 2) && !(MR32(n + 0x18u) & MM_HIDE)){
+                MR32(n + 0x18u) |= MM_HIDE; stuck++; }
+        }
+        if (stuck) rlog("[roam] f=%ld minimap: %d arrow(s) of ours left from before the icons were made again, hidden\n", rh_frame(), stuck);
         g_nr.n = 0; g_nr.icons = icons; g_nr.stop = 0;
     }
     if (!in_roam){                                                      /* (a shop, a race, the menus: none, and no questions) */
@@ -4954,11 +4999,14 @@ static int64_t render_delay(int i, const rc_peer *p, int64_t frame_dt){
  * friends still see the two.  Messages: RC_MSG_DUEL (roam_core.h), each
  * repeated until answered (a datagram lost on a LAN).  Not in the Windows
  * plugin (DUELS): its players are not offered one. */
-#ifdef ROAM_HOST_WIN
+#if defined(ROAM_HOST_WIN) && !defined(ROAM_DUELS)
 #define DUELS           0
 #else
 #define DUELS           1
 #endif
+/* outruns between players switched on (NFSU2_ROAM_DUELS, the Vita's .ini Outruns; on by default): off, this game's
+ * HELLO says it takes none, so nobody is offered one with us, and we are offered none */
+static int g_du_on = 1;
 #define DRIFTS          (DUELS && ROAM_HOST_DRIFT)   /* drift battles (below): drift mode is drift.c's */
 #define G_ACTIONS       0x0086eaf0u   /* the joystick actions held this frame, a bit per action, 0 = held (0x5CFD60) */
 #define ACT_ENGAGE      15u           /* Engage */
@@ -5517,7 +5565,7 @@ static void du_recv(CPU *c, int64_t host, uint32_t from, uint8_t op, uint8_t arg
 }
 /* per frame, after the slots (the friends' cars are where they are drawn) */
 static void du_frame(CPU *c, int64_t host, int in_roam, int world_runs, const uint32_t *in, int nin){
-    if (!DUELS) return;
+    if (!DUELS || !g_du_on) return;
     for (int i = 0; i < nin; i++) du_recv(c, host, in[5 * i], (uint8_t)in[5 * i + 1], (uint8_t)in[5 * i + 2], in[5 * i + 3], in[5 * i + 4], in_roam, world_runs);
     uint32_t race = rd32(G_RACE), me = player_car();
     int eng = in_roam && world_runs && !(rd32(G_ACTIONS) & (1u << ACT_ENGAGE));
@@ -5703,19 +5751,388 @@ static void gh_frame(void){
     }
 }
 
+/* ---- our HUD panels in the look of the game's own menus (the pause menu, Vita Settings) ------------------ *
+ * Quick chat's choices, the race lobby's panel and the line of text at the top are drawn as the pause menu's
+ * panels are: GlobalB's U2_MENU_BOX (black, 60 %) with U2_MENU_ROUNDEDCORNER at each corner (its round is the
+ * texture's bottom right: the other three corners flip its texture corners), a lit rule under the title, a row
+ * picked out as Vita Settings' highlighted one, values in dark boxes, and the Vita's buttons as PlayStation glyphs
+ * (VITA_GLYPH_*, which tools/vita/ps_glyphs.py adds to GlobalB.lzc with the PC key icons swapped for them).  Each
+ * picture is a copy of the HUD's first image (flag_obj), its texture set by hash; the texts are copies of
+ * ONLINE_PLAYER_1 (tag_obj).  A texture GlobalB has not (a GlobalB without ps_glyphs.py's): the glyph's button
+ * said in text instead, the corners square. */
+#define UI_BOX          0xa67c3fe2u   /* U2_MENU_BOX: black at 60 %, the pause menu's panel */
+#define UI_CORNER       0xd253b8f3u   /* U2_MENU_ROUNDEDCORNER: its corner, round at the bottom right */
+#define UI_BOX_W        0x014245e2u   /* U2_MENU_BOX_WHITE: white at 60 % (tinted: the highlight, the rule) */
+#define UI_CORNER_W     0xad749e02u   /* U2_MENU_CORNER_WHITE: its corner */
+#define UI_BOX_K        0xffc8509eu   /* U2_MENU_BOX_BLACK: black, solid (a value's box) */
+#define UI_R            16.f          /* a panel's corner pieces: HUD units (640 x 480); the round is 6/16 of it */
+#define UI_HL_CORNER    0xd5873d85u   /* U2_HIGHLIGHT_CORNER: the official menus' outline corner (white line, top left) */
+#define UI_LIME         0xc8f07au     /* the menus' lit colour (titles, rules, the highlight's edge) */
+#define UI_TEXT         0xe6e6e6u
+#define UI_DIM          0x8a8a8au
+#define UI_GOLD         0xffd24au
+#define UI_Z            0.42f         /* panels' depth: behind their texts (0.4) */
+/* the glyphs' textures (ps_glyphs.py ADD) and the buttons they are */
+enum { GL_CROSS, GL_CIRCLE, GL_TRIANGLE, GL_SQUARE, GL_L, GL_R, GL_START, GL_SELECT, GL_UP, GL_DOWN, GL_LEFT, GL_RIGHT, GL_N };
+static const char *const GL_NAMES[GL_N] = { "VITA_GLYPH_CROSS", "VITA_GLYPH_CIRCLE", "VITA_GLYPH_TRIANGLE", "VITA_GLYPH_SQUARE",
+    "VITA_GLYPH_L", "VITA_GLYPH_R", "VITA_GLYPH_START", "VITA_GLYPH_SELECT", "VITA_GLYPH_UP", "VITA_GLYPH_DOWN",
+    "VITA_GLYPH_LEFT", "VITA_GLYPH_RIGHT" };
+static const char *const GL_SAY[GL_N] = { "X", "O", "Triangle", "Square", "L", "R", "Start", "Select", "Up", "Down", "Left", "Right" };
+static int8_t g_gl_have[GL_N];                  /* 0 not looked, 1 GlobalB has it, -1 not */
+static int8_t g_ui_box_have;                    /* the same for the panel's corner */
+/* a texture by hash is loaded (FN_TEXINFO with no default) */
+static int ui_tex_loaded(CPU *c, uint32_t h){ uint32_t a[3] = { h, 0, 0 }; return ok(rh_call(c, FN_TEXINFO, 0, 0, 3, a), 0x50); }
+static int ui_glyph_ok(CPU *c, int g){
+    if (g < 0 || g >= GL_N) return 0;
+    if (!g_gl_have[g]){
+        g_gl_have[g] = ui_tex_loaded(c, bhash(GL_NAMES[g])) ? 1 : -1;
+        if (g_gl_have[g] < 0) rlog("[roam] f=%ld ui: no %s in GlobalB (tools/vita/ps_glyphs.py): its button in text\n", rh_frame(), GL_NAMES[g]);
+    }
+    return g_gl_have[g] > 0;
+}
+/* a button's glyph by the name roam_vita.cpp's inputName gives it ("X", "O", "Square", "Up", ...), -1 none */
+__attribute__((unused)) static int ui_glyph_of(const char *key){
+    static const char *const by[][2] = { { "X", "0" }, { "O", "1" }, { "Triangle", "2" }, { "Square", "3" }, { "L", "4" }, { "R", "5" },
+        { "Start", "6" }, { "Select", "7" }, { "Up", "8" }, { "Down", "9" }, { "Left", ":" }, { "Right", ";" } };
+    for (unsigned i = 0; key && i < sizeof by / sizeof by[0]; i++) if (!strcmp(key, by[i][0])) return by[i][1][0] - '0';
+    return -1;
+}
+/* widescreen (src/ug2/widescreen.cpp, the Vita's): the game moves each HUD object on its own to the screen's left or
+ * right edge, or keeps it centred, by where it is; a panel's pieces are objects of their own, so a panel's would part
+ * (its corners and edges to the edges, its middle and texts not).  While a panel draws, g_ui_place is the place all of
+ * its pieces take (0 centre, 1 left, 2 right); -1: each its own, as before */
+__attribute__((weak)) void ug2_widescreen_place(uint32_t object, int place);
+static int g_ui_place = -1;
+static void ui_place(uint32_t obj){ if (ug2_widescreen_place && obj) ug2_widescreen_place(obj, g_ui_place); }
+#if FLAGS
+/* image k: texture tex over x0..x1, y0..y1 (HUD units from the top left), its texture's corners u0,v0 (top left) and
+ * u1,v1, colour rgb (0xRRGGBB) at strength a */
+static void ui_img(CPU *c, int k, uint32_t pkg, uint32_t tex, float x0, float y0, float x1, float y1,
+                   float u0, float v0, float u1, float v1, uint32_t rgb, uint8_t a, float z){
+    if (!(x1 - x0 > 0.05f) || !(y1 - y0 > 0.05f)){ flag_hide(c, k); return; }   /* (a piece with no room: hidden, not left where it was) */
+    uint32_t o = flag_obj(c, k, pkg), d = o ? rd32(o + 0x2cu) : 0;
+    if (!o || !ok(d, 0x54)) return;
+    ui_place(o);
+    /* no pivot and no turn, whatever had them (a ring's segments turn theirs) */
+    if (MRF32(d + 0x10u) != 0.f || MRF32(d + 0x14u) != 0.f || MRF32(d + 0x28u) != 0.f || MRF32(d + 0x2cu) != 0.f || MRF32(d + 0x30u) != 0.f || MRF32(d + 0x34u) != 1.f){
+        MRF32(d + 0x10u) = 0.f; MRF32(d + 0x14u) = 0.f; MRF32(d + 0x18u) = 0.f;
+        MRF32(d + 0x28u) = 0.f; MRF32(d + 0x2cu) = 0.f; MRF32(d + 0x30u) = 0.f; MRF32(d + 0x34u) = 1.f;
+        MR32(o + 0x1cu) |= 0x400000u;
+    }
+    if (g_fl.tex[k] != tex){ uint32_t av[2] = { o, tex }; rh_call(c, FN_FE_SETTEX, 0, 0, 2, av); g_fl.tex[k] = tex; }
+    fe_colour_set(c, o, (int32_t)(rgb & 0xffu), (int32_t)(rgb >> 8 & 0xffu), (int32_t)(rgb >> 16 & 0xffu), a);
+    g_fl.alpha[k] = a;
+    if (MRF32(d + 0x44u) != u0 || MRF32(d + 0x48u) != v0 || MRF32(d + 0x4cu) != u1 || MRF32(d + 0x50u) != v1){
+        MRF32(d + 0x44u) = u0; MRF32(d + 0x48u) = v0; MRF32(d + 0x4cu) = u1; MRF32(d + 0x50u) = v1;
+        MR32(o + 0x1cu) |= 0x400000u;
+    }
+    uint32_t ap[2] = { gvec(g_gmem + TAG_SCR + 0x20u, (x0 + x1) * 0.5f - 320.f, (y0 + y1) * 0.5f - 240.f, z), 0 };
+    rh_call(c, FN_FE_POS, o, 0, 2, ap);
+    uint32_t as[2] = { gvec(g_gmem + TAG_SCR + 0x30u, x1 - x0, y1 - y0, 1.f), 0 };
+    rh_call(c, FN_FE_SCALE, o, 0, 2, as);
+    if (!g_fl.shown[k]) gcall1(c, FN_FE_SHOW, 0, o);
+    g_fl.shown[k] = 1;
+}
+#endif
+/* a panel with the pause menu's rounded corners over x, y, w, h: images k .. k+6 (UI_PANEL_N).  white: the white
+ * box (tinted rgb: a highlight), else the black one (rgb white: as the pause menu has it) */
+#define UI_PANEL_N      7
+static void ui_panel(CPU *c, int k, uint32_t pkg, float x, float y, float w, float h, int white, uint32_t rgb, uint8_t a, float z){
+#if FLAGS
+    uint32_t box = white ? UI_BOX_W : UI_BOX, cor = white ? UI_CORNER_W : UI_CORNER;
+    if (!g_ui_box_have) g_ui_box_have = ui_tex_loaded(c, UI_CORNER) && ui_tex_loaded(c, UI_BOX) ? 1 : -1;
+    float r = UI_R < h * 0.5f ? UI_R : h * 0.5f;
+    if (g_ui_box_have < 0){ box = FLAG_TEMPLATE; cor = FLAG_TEMPLATE; if (!white){ rgb = 0x101010u; a = 150; } }
+    ui_img(c, k,     pkg, cor, x,         y,         x + r, y + r,     1.f, 1.f, 0.f, 0.f, rgb, a, z);   /* top left: flipped both ways */
+    ui_img(c, k + 1, pkg, cor, x + w - r, y,         x + w, y + r,     0.f, 1.f, 1.f, 0.f, rgb, a, z);   /* top right: upside down */
+    ui_img(c, k + 2, pkg, cor, x,         y + h - r, x + r, y + h,     1.f, 0.f, 0.f, 1.f, rgb, a, z);   /* bottom left: mirrored */
+    ui_img(c, k + 3, pkg, cor, x + w - r, y + h - r, x + w, y + h,     0.f, 0.f, 1.f, 1.f, rgb, a, z);   /* bottom right: as it is */
+    ui_img(c, k + 4, pkg, box, x + r,     y,         x + w - r, y + h, 0.f, 0.f, 1.f, 1.f, rgb, a, z);   /* the middle, top to bottom */
+    ui_img(c, k + 5, pkg, box, x,         y + r,     x + r, y + h - r, 0.f, 0.f, 1.f, 1.f, rgb, a, z);   /* the left and right edges */
+    ui_img(c, k + 6, pkg, box, x + w - r, y + r,     x + w, y + h - r, 0.f, 0.f, 1.f, 1.f, rgb, a, z);
+#else
+    (void)c; (void)k; (void)pkg; (void)x; (void)y; (void)w; (void)h; (void)white; (void)rgb; (void)a; (void)z;
+#endif
+}
+/* the official menus' lit outline round a panel of ui_panel's over x, y, w, h: images k .. k+7 (UI_OUTLINE_N).
+ * Corners: U2_HIGHLIGHT_CORNER (its line 2/16 thick, its middle 5/16 in from the left and 6/16 down from the top,
+ * round over the rest), sized so its round is the panel's (6/16 of r); the sides plain lines between them */
+#define UI_OUTLINE_N    8
+static void ui_hide_imgs(CPU *c, int k, int n);
+static void ui_outline(CPU *c, int k, uint32_t pkg, float x, float y, float w, float h, float r, uint32_t rgb, uint8_t a, float z){
+#if FLAGS
+    static int8_t have;
+    if (!have) have = ui_tex_loaded(c, UI_HL_CORNER) && ui_tex_loaded(c, UI_BOX_W) ? 1 : -1;
+    if (have < 0){ ui_hide_imgs(c, k, UI_OUTLINE_N); return; }
+    if (r > h * 0.5f) r = h * 0.5f;
+    float S = r * 0.63f, t = S * 2.f / 16.f, a0 = S * 5.f / 16.f, b0 = S * 6.f / 16.f, a1 = S - a0, b1 = S - b0;
+    if (t < 1.2f) t = 1.2f;
+    ui_img(c, k,     pkg, UI_HL_CORNER, x - a0,     y - b0,     x - a0 + S, y - b0 + S, 0.f, 0.f, 1.f, 1.f, rgb, a, z);   /* top left */
+    ui_img(c, k + 1, pkg, UI_HL_CORNER, x + w - a1, y - b0,     x + w + a0, y - b0 + S, 1.f, 0.f, 0.f, 1.f, rgb, a, z);   /* top right */
+    ui_img(c, k + 2, pkg, UI_HL_CORNER, x - a0,     y + h - b1, x - a0 + S, y + h + b0, 0.f, 1.f, 1.f, 0.f, rgb, a, z);   /* bottom left */
+    ui_img(c, k + 3, pkg, UI_HL_CORNER, x + w - a1, y + h - b1, x + w + a0, y + h + b0, 1.f, 1.f, 0.f, 0.f, rgb, a, z);   /* bottom right */
+    ui_img(c, k + 4, pkg, UI_BOX_W, x + a1, y - t * 0.5f,     x + w - a1, y + t * 0.5f,     0.f, 0.f, 1.f, 1.f, rgb, a, z);   /* top */
+    ui_img(c, k + 5, pkg, UI_BOX_W, x + a1, y + h - t * 0.5f, x + w - a1, y + h + t * 0.5f, 0.f, 0.f, 1.f, 1.f, rgb, a, z);   /* bottom */
+    ui_img(c, k + 6, pkg, UI_BOX_W, x - t * 0.5f,     y + b1, x + t * 0.5f,     y + h - b1, 0.f, 0.f, 1.f, 1.f, rgb, a, z);   /* left */
+    ui_img(c, k + 7, pkg, UI_BOX_W, x + w - t * 0.5f, y + b1, x + w + t * 0.5f, y + h - b1, 0.f, 0.f, 1.f, 1.f, rgb, a, z);   /* right */
+#else
+    (void)c; (void)k; (void)pkg; (void)x; (void)y; (void)w; (void)h; (void)r; (void)rgb; (void)a; (void)z;
+#endif
+}
+/* a plain rectangle (a rule, a value's box): image k */
+static void ui_rect(CPU *c, int k, uint32_t pkg, uint32_t tex, float x, float y, float w, float h, uint32_t rgb, uint8_t a, float z){
+#if FLAGS
+    if (!g_ui_box_have) g_ui_box_have = ui_tex_loaded(c, UI_CORNER) && ui_tex_loaded(c, UI_BOX) ? 1 : -1;
+    if (g_ui_box_have < 0){ if (tex == UI_BOX_K){ rgb = 0x080808u; a = 230; } tex = FLAG_TEMPLATE; }
+    ui_img(c, k, pkg, tex, x, y, x + w, y + h, 0.f, 0.f, 1.f, 1.f, rgb, a, z);
+#else
+    (void)c; (void)k; (void)pkg; (void)tex; (void)x; (void)y; (void)w; (void)h; (void)rgb; (void)a; (void)z;
+#endif
+}
+/* glyph g (GL_*) as image k, its middle at x, y, s tall; 1 when drawn (0: GlobalB has it not, say its name) */
+static int ui_glyph(CPU *c, int k, uint32_t pkg, int g, float x, float y, float s){
+#if FLAGS
+    if (!ui_glyph_ok(c, g)){ flag_hide(c, k); return 0; }
+    ui_img(c, k, pkg, bhash(GL_NAMES[g]), x - s * 0.5f, y - s * 0.5f, x + s * 0.5f, y + s * 0.5f, 0.f, 0.f, 1.f, 1.f, 0xffffffu, 255, 0.4f);
+    return 1;
+#else
+    (void)c; (void)k; (void)pkg; (void)g; (void)x; (void)y; (void)s; return 0;
+#endif
+}
+static void ui_hide_imgs(CPU *c, int k, int n){
+#if FLAGS
+    for (int i = 0; i < n; i++) flag_hide(c, k + i);
+#else
+    (void)c; (void)k; (void)n;
+#endif
+}
+/* text k: tx in colour rgb (0 white) at scale sc, from x (align 0: its left; 1: its middle; 2: its right), its
+ * middle at y */
+static void ui_text(CPU *c, int k, uint32_t pkg, const char *tx, uint32_t rgb, float x, float y, float sc, int align){
+    uint32_t obj = tag_obj(c, k, pkg);
+    if (!obj) return;
+    ui_place(obj);
+    tag_text_rgb(c, k, obj, tx, rgb);
+    if ((MR32(obj + 0x6cu) & 0xfu) != 4u){ MR32(obj + 0x6cu) = (MR32(obj + 0x6cu) & ~0xfu) | 4u; MR32(obj + 0x1cu) |= 0x400002u; }   /* from its left */
+    float w = tag_width(tx) * sc;
+    if (align == 1) x -= w * 0.5f; else if (align == 2) x -= w;
+    uint32_t ap[2] = { gvec(g_gmem + TAG_SCR + 0x20u, x - 320.f, y - 240.f, 0.4f), 0 };
+    rh_call(c, FN_FE_POS, obj, 0, 2, ap);
+    uint32_t as[2] = { gvec(g_gmem + TAG_SCR + 0x30u, sc, sc, 1.f), 0 };
+    rh_call(c, FN_FE_SCALE, obj, 0, 2, as);
+    if (!g_tag.shown[k]) gcall1(c, FN_FE_SHOW, 0, obj);
+    g_tag.shown[k] = 1;
+}
+/* a line that says "press Enter to <do>": the glyph for it and the line as "<Do>", or "<Do> - <the rest>".  Enter in
+ * free roam is the game's Engage (ACT_ENGAGE), which the Vita's pad has on the D-pad's Up (pad_defaults.cpp) */
+#define UI_ENGAGE_GL    GL_UP
+/* (as above:)
+ * when something comes before it; -1 and the line as it is when it says no button */
+static int ui_prompt(const char *in, char *out, int n){
+    const char *p = strstr(in, "ress Enter to ");
+    if (!p || p == in || (p[-1] != 'P' && p[-1] != 'p')){ snprintf(out, (size_t)n, "%s", in); return -1; }
+    const char *pre_end = p - 1;                                   /* the 'P' or 'p' */
+    const char *rest = p + 14;
+    while (pre_end > in && (pre_end[-1] == ' ' || pre_end[-1] == ':' || pre_end[-1] == '.' || pre_end[-1] == ',')) pre_end--;
+    int k = snprintf(out, (size_t)n, "%s", rest);
+    if (k > 0 && out[0] >= 'a' && out[0] <= 'z') out[0] = (char)(out[0] - 32);
+    if (pre_end > in && k < n) snprintf(out + k, (size_t)(n - k), " - %.*s", (int)(pre_end - in), in);
+    return UI_ENGAGE_GL;
+}
+#if SAYS && defined(ROAM_SAY_TAGS)
+/* Quick chat's choices while its button is held (the Vita: roam_host_chat_menu): a panel on the right of the screen
+ * in the pause menu's look (ui_panel), its title over a lit rule and a row a choice, the button's glyph and the
+ * phrase, and a hint under them.  1 when drawn */
+int roam_host_chat_menu(const char **keys, const char **texts, int max);
+#define QC_X            448.f         /* the panel: its left, HUD units (640 x 480) */
+#define QC_W            180.f
+#define QC_TOP          150.f
+#define QC_HEAD         24.f          /* the title's band */
+#define QC_LINE         17.f          /* a row */
+#define QC_SC           0.78f         /* the rows' text */
+#define QC_GL           13.f          /* a glyph's size */
+static int g_qc_drawn;
+static void qc_hide(CPU *c){
+    for (int i = 0; i < TAG_QCN; i++) tag_hide(c, TAG_QC0 + i);
+    ui_hide_imgs(c, FL_QC, FL_QCN);
+    g_qc_drawn = 0;
+}
+static int qc_panel(CPU *c, uint32_t pkg){
+    const char *keys[TAG_QCN - 2], *texts[TAG_QCN - 2];
+    int n = roam_host_chat_menu(keys, texts, TAG_QCN - 2);
+    if (n <= 0){ if (g_qc_drawn) qc_hide(c); return 0; }
+    if (!tag_obj(c, TAG_QC0, pkg)) return 0;
+    float h = QC_HEAD + QC_LINE * (float)n + 22.f;
+    ui_panel(c, FL_QC, pkg, QC_X, QC_TOP, QC_W, h, 0, 0xffffffu, 255, UI_Z);
+    ui_outline(c, FL_QC + 15, pkg, QC_X, QC_TOP, QC_W, h, UI_R, UI_LIME, 255, 0.41f);
+    ui_rect(c, FL_QC + UI_PANEL_N, pkg, UI_BOX_W, QC_X + 8.f, QC_TOP + QC_HEAD - 2.f, QC_W - 16.f, 1.5f, UI_LIME, 255, 0.41f);
+    ui_text(c, TAG_QC0, pkg, "QUICK CHAT", UI_LIME, QC_X + 10.f, QC_TOP + QC_HEAD * 0.5f - 1.f, 0.95f, 0);
+    for (int i = 0; i < n; i++){
+        float y = QC_TOP + QC_HEAD + 4.f + QC_LINE * ((float)i + 0.5f);
+        int g = ui_glyph_of(keys[i]);
+        char tx[TAG_DUEL_MAX];
+        if (ui_glyph(c, FL_QC + UI_PANEL_N + 1 + i, pkg, g, QC_X + 10.f + QC_GL * 0.5f, y, QC_GL)) snprintf(tx, sizeof tx, "%s", texts[i]);
+        else snprintf(tx, sizeof tx, "%s  %s", keys[i], texts[i]);
+        ui_text(c, TAG_QC0 + 1 + i, pkg, tx, UI_TEXT, QC_X + 16.f + QC_GL, y, QC_SC, 0);
+    }
+    for (int i = n; i < TAG_QCN - 2; i++){ tag_hide(c, TAG_QC0 + 1 + i); ui_hide_imgs(c, FL_QC + UI_PANEL_N + 1 + i, 1); }
+    ui_text(c, TAG_QC0 + TAG_QCN - 1, pkg, "Let go to close", UI_LIME, QC_X + 10.f, QC_TOP + h - 10.f, 0.62f, 0);
+    g_qc_drawn = 1;
+    return 1;
+}
+int roam_game_chat_panel_drawn(void){ return g_qc_drawn; }
+#endif
+/* The HUD's own key icon for Engage: the PC's HUD shows GlobalB's PC_ENTER_ICON by the D-pad widget when a race, shop
+ * or outrun can be engaged; ps_glyphs.py makes that picture Cross (the menus' Enter), but Engage is the D-pad's Up on
+ * the Vita, so the HUD's copies of it get VITA_GLYPH_UP.  Looked for when the HUD is new and every 30 frames after (an
+ * object the HUD makes later) */
+#define PC_ENTER_ICON   0x7f8282d7u
+static uint32_t g_hk_hud; static long g_hk_frame; static int g_hk_said;
+static int hk_walk(CPU *c, uint32_t first, uint32_t to, int depth){
+    int n = 0, k = 0;
+    for (uint32_t o = rd32(first); ok(o, 0x5c) && k < FE_WALK; o = rd32(o + 4u), k++){
+        uint32_t t = rd32(o + 0x18u);
+        if (t == 5u){ if (depth < 8) n += hk_walk(c, o + 0x64u, to, depth + 1); continue; }
+        if (t != 1u || gcall1(c, FN_FE_TEX, 0, o) != PC_ENTER_ICON) continue;
+        uint32_t av[2] = { o, to }; rh_call(c, FN_FE_SETTEX, 0, 0, 2, av);
+        n++;
+    }
+    return n;
+}
+static void hud_key_glyphs(CPU *c, uint32_t hud, uint32_t pkg){
+    long f = rh_frame();
+    if (hud == g_hk_hud && f - g_hk_frame < 30 && f >= g_hk_frame) return;
+    g_hk_hud = hud; g_hk_frame = f;
+    if (!ui_glyph_ok(c, UI_ENGAGE_GL)) return;
+    uint32_t pk = gcall1(c, FN_FE_PACKAGE, 0, pkg);
+    if (!ok(pk, 0x54)) return;
+    int n = hk_walk(c, pk + 0x4cu, bhash(GL_NAMES[UI_ENGAGE_GL]), 0);
+    if (n && g_hk_said < 8){ g_hk_said++; rlog("[roam] f=%ld ui: the HUD's Enter key icon (%d) shows the D-pad's Up\n", f, n); }
+}
 /* the line of text, top centre, after the HUD's update (roam_game_hud) */
 #if MPRACES
 static int mp_line(int64_t host, char *tx, int n);
+#ifdef ROAM_LOBBY_PANEL
+static int g_lb_drawn;
+static int lb_panel(CPU *c, uint32_t pkg, int64_t host);
+static void lb_hide(CPU *c);
+#endif
 static int64_t g_mp_hud_at;                   /* free roam's HUD was up, no dialog over it (the lobby's panel shows) */
+/* the host's free-roam buttons (horn, drift: roam_vita.cpp) are taken only while it is */
+int roam_game_hud_up(void){ return roam_plat_now_us() - g_mp_hud_at < 250000; }
+#endif
+#if FLAGS && defined(ROAM_VITA_DRIFT)
+/* ---- drift mode's HUD, as a drift event's -------------------------------------------------------------------------
+ * Free roam's HUD (HUD_SingleRace) has none of the drift event's objects, so drift mode draws copies of its own texts
+ * and images where HUD_Drift.fng (GLOBAL\InGameDrift.bun) has them, in its fonts, colours and sizes.  From the package
+ * (positions there are from the screen's middle, 640 x 480; here from the top left; a group's added to its objects'):
+ *  - under the rear view mirror: SP_Drift_Title "DRIFT" (0, -153): ConduitMdITC_TT14i, scale 1, (202,244,138), centred
+ *    across, from its top; SP_Drift_Point (0, -123): Font_ConduitMdITCTT38bi, scale 1, the same colour, centred;
+ *  - top left, its group at (-196, -185): "Best:" (-85, -8) TT14i 0.9 (192,192,192) from its left; BestDrift (56, -10)
+ *    TT14i 1.0 (202,244,138) to its right; BestDriftBacking (-56, 0) 256 x 32 Drift_Style_Points_Backing, white at 120;
+ *  - its group at (-224, -117): "Total:" (-56, -7) TT14i 0.9 (192,192,192); SP_DRIFT_TOTAL (83, -7) TT14i 0.9
+ *    (207,233,242) at 200, to its right; Style_Point_Backing_03 (55, 1) 256 x 32 3rdperson_BoxTime, white at 200;
+ *  - the multiplier's group at (-185, -66): drift_multiplier_text (-82, -79) Font38bi 0.9 (48,207,48) centred;
+ *    NextSpeeed_Trap_Indicator "GAIN X2 WITH" (51, -101) TT14i 0.9 (170,170,170) to its right; its points
+ *    SpeedTrap_Speed_DATA (47, -81) TT14i 0.9 (202,244,138) to its right; CurrentSpeed_Trap_Backing_01 (-23.6, -81)
+ *    154.9 x 40 White16x16, black at 150.
+ * The left ones keep to the screen's left edge (widescreen place 1), the drift to the middle (0).  The left ones sit
+ * lower than the drift event's, just above the minimap (DH_LEFT_DY), clear of free roam's D-pad widget, which has the
+ * drift event's place.  The texts and when they show: drift.c drift_vita_hud. */
+#define DH_TEX_BEST     0x51052532u   /* DRIFT_STYLE_POINTS_BACKING (InGameFreeRoam's HUD textures) */
+#define DH_TEX_TOTAL    0x6fd193f6u   /* 3RDPERSON_BOXTIME (InGameCommon) */
+#define DH_LEFT_DY      156.f         /* the left panels moved down to sit just above the minimap (Jah, 2026-11-26): the
+                                         * drift event's 39..140 to 195..296; the minimap's ring starts at about 304 */
+#define DH_LIME         0xcaf48au
+#define DH_BOX_A        140           /* the box: as the Bank's box top right, black at about a third (measured on the Vita's
+                                         * screenshots: what is behind it at 0.67 in each channel); ui_panel's black
+                                         * pieces (60 %) at 0.6 x 140/255 = 33 % */
+#define DH_GREY         0xc0c0c0u
+static int g_dh_drawn;
+static void dh_text(CPU *c, int i, uint32_t pkg, const char *tx, uint32_t rgb, uint8_t a, float x, float y, float sc, uint32_t just){
+    int k = TAG_DH0 + i;
+    if (!tx || !tx[0]){ tag_hide(c, k); return; }
+    uint32_t obj = tag_obj(c, k, pkg);
+    if (!obj) return;
+    ui_place(obj);
+    tag_text_rgba(c, k, obj, tx, rgb, a);
+    if ((MR32(obj + 0x6cu) & 0xfu) != just){ MR32(obj + 0x6cu) = (MR32(obj + 0x6cu) & ~0xfu) | just; MR32(obj + 0x1cu) |= 0x400002u; }   /* the package's Sj */
+    uint32_t ap[2] = { gvec(g_gmem + TAG_SCR + 0x20u, x - 320.f, y - 240.f, 0.4f), 0 };
+    rh_call(c, FN_FE_POS, obj, 0, 2, ap);
+    uint32_t as[2] = { gvec(g_gmem + TAG_SCR + 0x30u, sc, sc, 1.f), 0 };
+    rh_call(c, FN_FE_SCALE, obj, 0, 2, as);
+    if (!g_tag.shown[k]) gcall1(c, FN_FE_SHOW, 0, obj);
+    g_tag.shown[k] = 1;
+}
+/* an image of the package's: its middle at x, y, w x h */
+static void dh_img(CPU *c, int k, uint32_t pkg, uint32_t tex, float x, float y, float w, float h, uint32_t rgb, uint8_t a){
+    static uint32_t seen[4]; static int8_t have[4];   /* (looked up once each) */
+    int j = 0;
+    while (j < 4 && seen[j] && seen[j] != tex) j++;
+    if (j < 4 && seen[j] != tex){ seen[j] = tex; have[j] = ui_tex_loaded(c, tex) ? 1 : -1;
+        if (have[j] < 0) rlog("[roam] f=%ld drift HUD: texture %08x not loaded: a plain backing\n", rh_frame(), tex); }
+    if (j >= 4 || have[j] < 0){ tex = FLAG_TEMPLATE; if (rgb) rgb = 0x202020u; }
+    ui_img(c, FL_DH + k, pkg, tex, x - w * 0.5f, y - h * 0.5f, x + w * 0.5f, y + h * 0.5f, 0.f, 0.f, 1.f, 1.f, rgb, a, 0.42f);
+}
+static void dh_hide(CPU *c){
+    for (int i = 0; i < TAG_DHN; i++) tag_hide(c, TAG_DH0 + i);
+    ui_hide_imgs(c, FL_DH, FL_DHN);
+    g_dh_drawn = 0;
+}
+static void dh_draw(CPU *c, uint32_t pkg){
+    extern int drift_vita_hud(char *pts, char *mult, char *gain_txt, char *gain, char *total, char *best, int n);
+    char pts[24], mult[24], gl[24], gn[24], tot[24], best[24];
+    int on = drift_vita_hud(pts, mult, gl, gn, tot, best, 24);
+#ifdef ROAM_LOBBY_PANEL
+    if (g_lb_drawn) on = 0;                      /* a race lobby's panel has the top left */
+#endif
+    if (!on){ if (g_dh_drawn) dh_hide(c); return; }
+    int popup = (on & 2) != 0;
+    g_ui_place = 0;                              /* under the rear view mirror */
+    dh_text(c, DH_TITLE, pkg, popup ? "DRIFT" : "", DH_LIME, 255, 320.f, 87.f, 1.f, 1u);
+    dh_text(c, DH_PTS, pkg, popup ? pts : "", on & 8 ? 0xcf3030u : on & 4 ? 0xff8020u : DH_LIME, 255, 320.f, 117.f, 1.f, 5u);   /* lost red, ending orange */
+    g_ui_place = 1;                              /* the left, above the minimap */
+    /* Best, the multiplier and Total in one translucent grey box with the game's menus' rounded corners (ui_panel's
+     * white pieces, tinted: Jah 2026-11-26, the three in a single box, corners as the native UI), round the texts'
+     * 39..186 and 201..286 */
+    ui_hide_imgs(c, FL_DH, 3);
+    ui_panel(c, FL_DH + 3, pkg, 28.f, 192.f, 168.f, 102.f, 0, 0xffffffu, DH_BOX_A, 0.42f);
+    dh_text(c, DH_BEST_L, pkg, "Best:", DH_GREY, 255, 39.f, 47.f + DH_LEFT_DY, 0.9f, 0u);
+    dh_text(c, DH_BEST, pkg, best, DH_LIME, 255, 180.f, 45.f + DH_LEFT_DY, 1.f, 2u);
+    dh_text(c, DH_MULT, pkg, mult, 0x30cf30u, 255, 53.f, 95.f + DH_LEFT_DY, 0.9f, 5u);
+    dh_text(c, DH_GAIN_L, pkg, gl, 0xaaaaaau, 255, 186.f, 73.f + DH_LEFT_DY, 0.9f, 2u);
+    dh_text(c, DH_GAIN, pkg, gn, DH_LIME, 255, 182.f, 93.f + DH_LEFT_DY, 0.9f, 2u);
+    dh_text(c, DH_TOT_L, pkg, "Total:", DH_GREY, 255, 40.f, 116.f + DH_LEFT_DY, 0.9f, 0u);
+    dh_text(c, DH_TOT, pkg, tot, 0xcfe9f2u, 200, 179.f, 116.f + DH_LEFT_DY, 0.9f, 2u);
+    g_ui_place = -1;
+    if (!g_dh_drawn) rlog("[roam] f=%ld drift HUD: the drift event's panels up (best %s, total %s)\n", rh_frame(), best, tot);
+    g_dh_drawn = 1;
+}
 #endif
 static void du_hud(CPU *c, int64_t host){
     uint32_t pl = rd32(G_PLAYER1), hud = pl && ok(pl, PL_HUD + 4u) ? rd32(pl + PL_HUD) : 0;
     uint32_t pkg = hud && ok(hud, 0x14) ? rd32(hud + 0x10u) : 0;
     if (!hud || hud != g_tag.hud || !ok(pkg, 0x20) || !g_gmem) return;
+    hud_key_glyphs(c, hud, pkg);
+#if FLAGS && defined(ROAM_VITA_DRIFT)
+    /* drift mode's own panels, the drift event's (dh_draw) */
+    if (g_in_roam && hud_on_top(pkg) && !rd32(0x00838974u /* a dialog up */)) dh_draw(c, pkg);
+    else if (g_dh_drawn) dh_hide(c);
+#endif
     char tx[TAG_DUEL_MAX] = {0};
 #if MPRACES
     if (g_in_roam && hud_on_top(pkg) && !rd32(0x00838974u /* a dialog up */)) g_mp_hud_at = host;
-    if (g_in_roam && hud_on_top(pkg) && g_du.st == DU_IDLE && !g_du.icon && !rd32(0x00838974u /* a dialog up */)) mp_line(host, tx, sizeof tx);   /* the race lobby's, else the outrun's */
+#ifdef ROAM_SAY_TAGS
+    /* quick chat's choices while its button is held, and the phrase just said, over the race lobby's line (the
+     * player is picking one now); the line comes back once the button is let go */
+    if (g_in_roam && hud_on_top(pkg)){ extern int roam_host_hud_line(char *tx, int n); roam_host_hud_line(tx, (int)sizeof tx); }
+#endif
+#ifdef ROAM_LOBBY_PANEL
+    /* a race lobby of ours, or one we are in: its panel on the left, the players and what Enter does (no top line) */
+    if (g_in_roam && hud_on_top(pkg) && !rd32(0x00838974u /* a dialog up */)){ g_ui_place = 1; lb_panel(c, pkg, host); g_ui_place = -1; }
+    else if (g_lb_drawn) lb_hide(c);
+#endif
+    if (!tx[0] && g_in_roam && hud_on_top(pkg) && g_du.st == DU_IDLE && !g_du.icon && !rd32(0x00838974u /* a dialog up */)) mp_line(host, tx, sizeof tx);   /* the race lobby's, else the outrun's */
     if (!tx[0] && g_in_roam && hud_on_top(pkg)){
 #else
     if (g_in_roam && hud_on_top(pkg)){
@@ -5733,24 +6150,55 @@ static void du_hud(CPU *c, int64_t host){
         if (!tx[0] && g_du.note[0] && host < g_du.note_until && g_du.st != DU_RACE && g_du.st != DU_OVER) snprintf(tx, sizeof tx, "%s", g_du.note);
     }
 #ifdef ROAM_SAY_TAGS
-    /* the host's line when there is none of ours: quick chat's choices while its button is held (roam_vita.cpp) */
+    /* quick chat's choices while its button is held: their box on the right (qc_panel) */
+    if (g_in_roam && hud_on_top(pkg)){ g_ui_place = 2; qc_panel(c, pkg); g_ui_place = -1; }
+    else if (g_qc_drawn) qc_hide(c);
+    /* the host's line when there is none of ours: the phrase just said (roam_vita.cpp) */
     if (!tx[0] && g_in_roam && hud_on_top(pkg)){ extern int roam_host_hud_line(char *tx, int n); roam_host_hud_line(tx, (int)sizeof tx); }
+    /* ...else the next of the page's notices (a player joined, left...: nfsu2.xyz's log on the left) */
+    if (!tx[0] && g_in_roam && hud_on_top(pkg) && !rd32(0x00838974u /* a dialog up */)){ extern int roam_host_notice_line(char *tx, int n); roam_host_notice_line(tx, (int)sizeof tx); }
 #endif
-    if (!tx[0]){ tag_hide(c, TAG_DUEL); return; }
+#ifdef ROAM_VITA_DRIFT
+    /* ...else drift mode's: a press's answer (drift.c; its points are the drift event's panels: dh_draw) */
+    if (!tx[0] && g_in_roam && hud_on_top(pkg)){ extern int drift_vita_line(char *tx, int n); drift_vita_line(tx, (int)sizeof tx); }
+#endif
+    if (!tx[0]){ if (g_tag.shown[TAG_DUEL]) tag_hide(c, TAG_DUEL); ui_hide_imgs(c, FL_TOP, FL_TOPN); return; }
     uint32_t obj = tag_obj(c, TAG_DUEL, pkg);
     if (!obj) return;
-    tag_text(c, TAG_DUEL, obj, tx);
-    /* above the top of the HUD's middle (the prologue's arrow), in front
-     * (the names over cars come with their depth, about 0.99; 1 is not drawn) */
-    uint32_t ap[2] = { gvec(g_gmem + TAG_SCR + 0x20u, 0.f, -165.f, 0.5f), 0 };
-    rh_call(c, FN_FE_POS, obj, 0, 2, ap);
-    /* a long line (a race lobby's) smaller, so that it fits the screen */
-    int len = (int)strlen(tx);
-    float sc = len > 66 ? 66.f / (float)len : 1.f;
-    uint32_t as[2] = { gvec(g_gmem + TAG_SCR + 0x30u, sc, sc, 1.f), 0 };
-    rh_call(c, FN_FE_SCALE, obj, 0, 2, as);
-    gcall1(c, FN_FE_SHOW, 0, obj);
-    g_tag.shown[TAG_DUEL] = 1;
+    /* in a panel at the top in the pause menu's look (ui_panel), a lit rule under it, a button's glyph first where
+     * the line says one ("press Enter to ...": Cross) */
+    char line[TAG_DUEL_MAX];
+    int g = ui_prompt(tx, line, (int)sizeof line);
+    int len = (int)strlen(line);
+    float sc = len > 60 ? 60.f / (float)len : 0.9f;                /* a long line (a race lobby's) smaller, to fit */
+    /* (the line above the rear view mirror, which spans about y 35 to 65: y 8 to 32; at 62 it sat under the mirror, 2026-11-26) */
+    float tw = tag_width(line) * sc, gs = 15.f, pad = 10.f;
+    int glyph = g >= 0 && ui_glyph_ok(c, g);
+    if (g >= 0 && !glyph){ char t[TAG_DUEL_MAX]; snprintf(t, sizeof t, "%s  %s", GL_SAY[g], line); snprintf(line, sizeof line, "%s", t); tw = tag_width(line) * sc; }
+    float w = tw + pad * 2.f + (glyph ? gs + 6.f : 0.f), x = 320.f - w * 0.5f, y = 8.f, h = 24.f;
+    g_ui_place = 0;
+    ui_panel(c, FL_TOP, pkg, x, y, w, h, 0, 0xffffffu, 255, UI_Z);
+    ui_hide_imgs(c, FL_TOP + UI_PANEL_N, 1);
+    ui_outline(c, FL_TOP + 9, pkg, x, y, w, h, UI_R, UI_LIME, 255, 0.41f);
+    if (glyph) ui_glyph(c, FL_TOP + UI_PANEL_N + 1, pkg, g, x + pad + gs * 0.5f, y + h * 0.5f, gs);
+    else ui_hide_imgs(c, FL_TOP + UI_PANEL_N + 1, 1);
+    ui_text(c, TAG_DUEL, pkg, line, 0xffffffu, x + pad + (glyph ? gs + 6.f : 0.f), y + h * 0.5f, sc, 0);
+    g_ui_place = -1;
+#if FLAGS
+    /* once a line: where its pieces are (the Vita showed a stray dark bar the panel's height away from it, 11-25) */
+    static char said[TAG_DUEL_MAX];
+    if (strcmp(said, line)){
+        snprintf(said, sizeof said, "%s", line);
+        char ps[400]; int at = 0;
+        for (int i = 0; i < FL_TOPN && at < (int)sizeof ps - 40; i++){
+            uint32_t o = g_fl.obj[FL_TOP + i], d = o ? rd32(o + 0x2cu) : 0;
+            if (!g_fl.shown[FL_TOP + i] || !ok(d, 0x54)) continue;
+            at += snprintf(ps + at, sizeof ps - (size_t)at, " %d:%.0f,%.0f %.0fx%.0f", i, MRF32(d + 0x1cu) + 320.f, MRF32(d + 0x20u) + 240.f, MRF32(d + 0x38u), MRF32(d + 0x3cu));
+        }
+        rlog("[roam] f=%ld ui: top line panel x %.0f w %.0f (corners %s, outline %s, glyph %d):%s\n", rh_frame(), x, w,
+             g_ui_box_have > 0 ? "the game's" : "square", ui_tex_loaded(c, UI_HL_CORNER) ? "the game's" : "none", glyph, ps);
+    }
+#endif
 }
 
 /* ---- multiplayer races from free roam: the race spots ------------------------------------------- */
@@ -5845,6 +6293,11 @@ static const char *mp_test_env(const char *name){ const char *s = getenv("NFSU2_
  * only in an SUV.  Never a race of a later stage, a story race (no LAN race)
  * or one already won; none in the prologue or while a story step runs */
 static int mp_counts(uint32_t r){
+#ifdef ROAM_MPRACE_NO_CREDIT
+    /* the Vita build has no career credit (mpcredit.c): a race pays its prize money only */
+    (void)r;
+    return 0;
+#endif
     uint32_t stage = rd32(G_CAREER + C_STAGE);
     if (!r || !ok(r, RACE_SZ) || !race_lan(r) || !stage || rd32(G_CAREER + C_GUIDED) || race_won(r)) return 0;
     {   /* test aid: NFSU2_MPRACE_TEST_COUNTS, race names (comma-separated) that count whatever their gates (a URL race
@@ -5955,8 +6408,8 @@ static void spots_read(CPU *c, int64_t host){
  * (the world map), JOIN and LEAVE to the host, START and CLOSE from it.
  * Lobbies are within a room, as everything in free roam. */
 #if MPRACES
-#include "mprace.h"
-#include "mpcredit.h"
+#include "mp/mprace.h"
+#include "mp/mpcredit.h"
 /* the car-look record's rating (car_cfg): the car as the game rates it, which the others' games cannot (RC_EXT_RATING) */
 static void cfg_rating(uint32_t car, rc_carcfg *c){
     CarPerf pf;
@@ -6315,8 +6768,20 @@ static void mp_report(void){
     }
 }
 /* we open a lobby for race r */
+/* this game can host a lobby's race: it runs the game's LAN server (server.dll).  On the Vita that needs the PC
+ * game's own server.dll next to SPEED2.EXE, the file the build translated (ROAM_MPRACE_HOST_CHECK: roam_vita.cpp asks
+ * src/lib/guestmodule.cpp); without it the Vita joins the lobbies others open, and opens none */
+#ifdef ROAM_MPRACE_HOST_CHECK
+int roam_vita_can_host(void);
+static int mp_can_host(void){ return roam_vita_can_host(); }
+#define MP_NO_HOST "Hosting a race needs server.dll and server.cfg from the PC game (patch 1.2) next to SPEED2.EXE: join a lobby another player opens here"
+#else
+static int mp_can_host(void){ return 1; }
+#define MP_NO_HOST ""
+#endif
 static int mp_open(int64_t host, uint32_t r){
     if (g_mp.st != MP_IDLE || !r) return 0;
+    if (!mp_can_host()){ mp_note(host, MP_NO_HOST); return 0; }
     memset(&g_mp.l, 0, sizeof g_mp.l);
     roam_plat_lock(); do g_mp.l.id = roam_plat_random(); while (!g_mp.l.id); roam_plat_unlock();
     g_mp.l.host = g_s.conf.self_id; g_mp.l.race = r; g_mp.l.max = (uint8_t)race_max(r); g_mp.l.state = RC_LS_OPEN;
@@ -6814,7 +7279,7 @@ static void mp_pad(int64_t host, int in_roam){
     if (in_roam && host - g_mp_hud_at < 250000 && !mp_cannot()){
         if (g_mp.st == MP_IDLE){
             MpLobby *h[MP_SEEN]; int n = mp_here(h);
-            if (n >= 1 && mp_new_page(mp_spot_here(), n)) l = ROAM_LB_NEW;      /* (a start with no lobby: the game's Engage) */
+            if (n >= 1 && mp_new_page(mp_spot_here(), n) && mp_can_host()) l = ROAM_LB_NEW;      /* (a start with no lobby: the game's Engage) */
             if (n >= 2) r = ROAM_LB_NEXT;
         } else if (g_mp.st == MP_HOST) l = ROAM_LB_PRIVATE;
         else if ((g_mp.st == MP_IN || g_mp.st == MP_ASKED) && g_mp.far) l = ROAM_LB_LEAVE;
@@ -6985,7 +7450,11 @@ static void mp_frame(CPU *c, int64_t host, int in_roam, int world_runs, const ui
 static int g_mp_panel = -1;                   /* the platform's panel: 1 the page shows it, 0 none, -1 not known yet */
 static int mp_line(int64_t host, char *tx, int n){
     char nm[24];
+    if (!g_mp_on) return 0;
     if (g_mp_panel == 1) return 0;
+#ifdef ROAM_LOBBY_PANEL
+    if (g_lb_drawn) return 0;                    /* (the lobby's panel says it) */
+#endif
     switch (g_mp.st){
     case MP_HOST:
         if (g_mp.l.n < 2) snprintf(tx, (size_t)n, "Multiplayer %s: waiting for players (drive away to call it off)", race_kind(g_mp.l.race));
@@ -7018,6 +7487,10 @@ static int mp_line(int64_t host, char *tx, int n){
                           l->race && mprace_evened(race_net_mode(l->race)) ? ". The cars are evened out" : "");
             return 1;
         }
+        if (sp && sp->kind == MPS_ONLY && !mp_can_host()){
+            snprintf(tx, (size_t)n, "Multiplayer %s here: no lobby open yet (hosting one needs server.dll next to SPEED2.EXE)", race_kind(sp->race));
+            return 1;
+        }
         if (sp && sp->kind == MPS_ONLY){
             snprintf(tx, (size_t)n, "Multiplayer %s here (%s): press Enter to open a lobby", race_kind(sp->race),
                      mp_counts(sp->race) ? "a win counts in your career" : mpw_text[sp->why]);
@@ -7031,9 +7504,10 @@ static int mp_line(int64_t host, char *tx, int n){
 /* no outrun in a lobby, at a multiplayer-only spot or by a lobby to join:
  * Enter there is for the race (as at the game's own markers, du_free) */
 static int mp_busy(void){
+    if (!g_mp_on) return 0;
     if (g_mp.st != MP_IDLE) return 1;
     const MpSpot *sp = mp_spot_here();
-    return (sp && sp->kind == MPS_ONLY) || mp_joinable();
+    return (sp && sp->kind == MPS_ONLY && mp_can_host()) || mp_joinable();
 }
 
 /* The lobby's panel over the game (the page's, roam_plat_lobby): what the
@@ -7117,6 +7591,113 @@ static void js_race(MpJs *j, uint32_t r){
     uint8_t ty = MR8(r + 0xfu); int laps = MR8(r + 0x1bu), lo = ty == 2 ? 4 : 2;
     if (MR8(r + 0x34u) != 2u && (ty == 0 || ty == 2 || ty == 5) && laps > 1) js_int(j, "laps", laps < lo ? lo : laps > 10 ? 10 : laps);
 }
+
+#ifdef ROAM_LOBBY_PANEL
+/* The race lobby's panel in the game, for a platform with no page around it (the Vita): while we host a lobby or are
+ * in one, a panel on the left in the pause menu's look (ui_panel), as Vita Settings' lists: the race's kind over a
+ * lit rule (the players' count at its right), the race, a row a player (the host first, ours picked out as Settings'
+ * highlighted row) with a value box (Host, You, Ready; open places dim), what is going on, and the button bar
+ * (Cross: start, for the host).  mp_line's top line gives way to it */
+#define LB_X            12.f          /* the panel: its left, HUD units (640 x 480) */
+#define LB_W            236.f
+#define LB_TOP          70.f
+#define LB_HEAD         24.f
+#define LB_ROW          18.f
+#define LB_VW           70.f          /* a value's box */
+#define LB_ROWS         6
+static void lb_hide(CPU *c){
+    for (int i = 0; i < TAG_LBN; i++) tag_hide(c, TAG_LB0 + i);
+    ui_hide_imgs(c, FL_LB, FL_LBN);
+    g_lb_drawn = 0;
+}
+static int lb_panel(CPU *c, uint32_t pkg, int64_t host){
+    if (!g_mp_on || g_mp.st == MP_IDLE || g_mp.st == MP_TRIP){ if (g_lb_drawn) lb_hide(c); return 0; }
+    if (!tag_obj(c, TAG_LB0, pkg)) return 0;
+    static uint32_t cr; static char tn[64];
+    const MpLobby *l = &g_mp.l;
+    if (l->race != cr){ cr = l->race; tn[0] = 0; if (l->race) track_name(MR16(l->race + 0x18u), MR8(l->race + 0x1au) & 1, tn, sizeof tn); }
+    const char *kind = race_kind(l->race);
+    char title[TAG_DUEL_MAX], count[32], race[TAG_DUEL_MAX];
+    snprintf(title, sizeof title, "%s LOBBY", kind);
+    for (char *q = title; *q; q++) if (*q >= 'a' && *q <= 'z') *q -= 32;
+    snprintf(count, sizeof count, "%d of %d", l->n, l->max);
+    {
+        int k = snprintf(race, sizeof race, "%s", tn[0] ? tn : kind);
+        int laps = l->race ? MR8(l->race + 0x1bu) : 0; uint8_t ty = l->race ? MR8(l->race + 0xfu) : 0;
+        if (l->race && MR8(l->race + 0x34u) != 2u && (ty == 0 || ty == 2 || ty == 5) && laps > 1 && k < (int)sizeof race)
+            k += snprintf(race + k, sizeof race - (size_t)k, "  -  %d laps", laps);
+        int sg = l->race ? MR8(l->race + 0x37u) : 0;
+        if (sg >= 1 && sg <= 9 && k < (int)sizeof race) snprintf(race + k, sizeof race - (size_t)k, "  -  stage %d", sg);
+    }
+    /* the rows: the players, then the open places */
+    char nm[LB_ROWS][TAG_DUEL_MAX], val[LB_ROWS][16]; uint32_t nrgb[LB_ROWS], vrgb[LB_ROWS]; int me_row = -1, rows = 0;
+    int np = l->n < RC_LOBBY_MAX ? l->n : RC_LOBBY_MAX;
+    for (int i = 0; i < np && rows < LB_ROWS; i++, rows++){
+        int me = l->ids[i] == g_s.conf.self_id;
+        snprintf(nm[rows], sizeof nm[rows], "%d   %s", i + 1, mp_name(l->ids[i]));
+        snprintf(val[rows], sizeof val[rows], "%s", i == 0 ? (me ? "Host - You" : "Host") : me ? "You" : "Ready");
+        nrgb[rows] = me ? 0xffffffu : UI_TEXT; vrgb[rows] = i == 0 ? UI_GOLD : UI_LIME;
+        if (me) me_row = rows;
+    }
+    for (int i = rows; i < l->max && rows < LB_ROWS; i++, rows++){
+        snprintf(nm[rows], sizeof nm[rows], "%d   open", i + 1); snprintf(val[rows], sizeof val[rows], "-");
+        nrgb[rows] = UI_DIM; vrgb[rows] = UI_DIM;
+    }
+    /* what is going on, and the button bar */
+    char hn[24]; snprintf(hn, sizeof hn, "%s", mp_name(l->host));
+    char ta[TAG_DUEL_MAX] = "", tb[TAG_DUEL_MAX] = "", btn[32] = "";
+    switch (g_mp.st){
+    case MP_HOST:
+        if (l->away_s){ snprintf(ta, sizeof ta, "You seem away: it closes in %d s", l->away_s); snprintf(tb, sizeof tb, "unless you press a button"); }
+        else if (l->n < 2){ snprintf(ta, sizeof ta, "Waiting for players"); snprintf(tb, sizeof tb, "Drive away to call it off"); }
+        else { snprintf(btn, sizeof btn, "Start race"); snprintf(ta, sizeof ta, "Drive away to call it off"); }
+        break;
+    case MP_ASKED: snprintf(ta, sizeof ta, "Joining %s's race...", hn); break;
+    case MP_IN:
+        if (l->away_s){ snprintf(ta, sizeof ta, "%s seems away", hn); snprintf(tb, sizeof tb, "the lobby closes in %d s", l->away_s); }
+        else { snprintf(ta, sizeof ta, "Waiting for %s to start", hn); if (!g_mp.far) snprintf(tb, sizeof tb, "Drive away to leave"); }
+        break;
+    case MP_COUNT: {
+        int64_t s = (g_mp.start_at - host + 999999) / 1000000;
+        snprintf(ta, sizeof ta, "Starting the race... %d", (int)(s < 0 ? 0 : s)); break; }
+    }
+    float y = LB_TOP, rows_top = LB_TOP + LB_HEAD + 16.f;
+    float foot = rows_top + LB_ROW * (float)rows + 4.f;
+    float h = foot - LB_TOP + (ta[0] ? 14.f : 0.f) + (tb[0] ? 12.f : 0.f) + (btn[0] ? 22.f : 0.f) + 8.f;
+    ui_panel(c, FL_LB, pkg, LB_X, y, LB_W, h, 0, 0xffffffu, 255, UI_Z);
+    ui_outline(c, FL_LB + 22, pkg, LB_X, y, LB_W, h, UI_R, UI_LIME, 255, 0.41f);
+    ui_rect(c, FL_LB + 7, pkg, UI_BOX_W, LB_X + 8.f, y + LB_HEAD - 2.f, LB_W - 16.f, 1.5f, UI_LIME, 255, 0.41f);
+    ui_text(c, TAG_LB0, pkg, title, UI_LIME, LB_X + 10.f, y + LB_HEAD * 0.5f - 1.f, 0.95f, 0);
+    ui_text(c, TAG_LB0 + 1, pkg, count, UI_TEXT, LB_X + LB_W - 10.f, y + LB_HEAD * 0.5f - 1.f, 0.62f, 2);
+    ui_text(c, TAG_LB0 + 2, pkg, race, 0xa9c3d8u, LB_X + 10.f, y + LB_HEAD + 8.f, 0.62f, 0);
+    if (me_row >= 0){
+        float ry = rows_top + LB_ROW * (float)me_row;
+        ui_panel(c, FL_LB + 8, pkg, LB_X + 5.f, ry, LB_W - 10.f, LB_ROW - 1.f, 1, 0x50583cu, 255, 0.415f);
+        ui_outline(c, FL_LB + 30, pkg, LB_X + 5.f, ry, LB_W - 10.f, LB_ROW - 1.f, LB_ROW - 1.f, UI_LIME, 255, 0.405f);
+    }
+    else { ui_hide_imgs(c, FL_LB + 8, UI_PANEL_N); ui_hide_imgs(c, FL_LB + 30, UI_OUTLINE_N); }
+    for (int i = 0; i < LB_ROWS; i++){
+        if (i >= rows){ tag_hide(c, TAG_LB0 + 3 + i); tag_hide(c, TAG_LB0 + 9 + i); ui_hide_imgs(c, FL_LB + 15 + i, 1); continue; }
+        float ry = rows_top + LB_ROW * ((float)i + 0.5f);
+        ui_text(c, TAG_LB0 + 3 + i, pkg, nm[i], nrgb[i], LB_X + 12.f, ry, 0.78f, 0);
+        ui_rect(c, FL_LB + 15 + i, pkg, UI_BOX_K, LB_X + LB_W - 12.f - LB_VW, ry - 6.5f, LB_VW, 13.f, 0xffffffu, 255, 0.41f);
+        ui_text(c, TAG_LB0 + 9 + i, pkg, val[i], vrgb[i], LB_X + LB_W - 12.f - LB_VW * 0.5f, ry, 0.66f, 1);
+    }
+    float fy = foot + 6.f;
+    if (ta[0]){ ui_text(c, TAG_LB0 + 15, pkg, ta, UI_TEXT, LB_X + 10.f, fy, 0.7f, 0); fy += 14.f; } else tag_hide(c, TAG_LB0 + 15);
+    if (tb[0]){ ui_text(c, TAG_LB0 + 16, pkg, tb, 0xa9c3d8u, LB_X + 10.f, fy - 2.f, 0.62f, 0); fy += 12.f; } else tag_hide(c, TAG_LB0 + 16);
+    if (btn[0]){
+        float bx = LB_X + LB_W - 12.f - tag_width(btn) * 0.8f;
+        if (ui_glyph(c, FL_LB + 21, pkg, UI_ENGAGE_GL, bx - 11.f, fy + 6.f, 14.f))
+            ui_text(c, TAG_LB0 + 17, pkg, btn, 0xffffffu, bx, fy + 6.f, 0.8f, 0);
+        else { char t[48]; snprintf(t, sizeof t, "%s  %s", GL_SAY[UI_ENGAGE_GL], btn); ui_text(c, TAG_LB0 + 17, pkg, t, 0xffffffu, LB_X + LB_W - 12.f, fy + 6.f, 0.8f, 2); }
+    }
+    else { tag_hide(c, TAG_LB0 + 17); ui_hide_imgs(c, FL_LB + 21, 1); }
+    if (!g_lb_drawn) rlog("[roam] f=%ld race lobby %08x: its panel shows (%d of %d players)\n", rh_frame(), l->id, l->n, l->max);
+    g_lb_drawn = 1;
+    return 1;
+}
+#endif
 /* on the trip of a URL race's heats (mprace_series): heat, the one raced now or last (1 ..), and its track; fin: the
  * last heat's results are in (res is the standing then); stand: the points after the heats raced so far, the leader
  * first, each {n: the player's name, p: its points, me: 1 ours} */
@@ -7223,6 +7804,9 @@ static void js_results(MpJs *j){
 }
 static void mp_panel(int64_t host, int in_roam){
     static char last[1200];
+#ifdef ROAM_LOBBY_PANEL
+    g_mp_panel = 0; (void)last; return;          /* no page around the game: lb_panel draws the lobby in it */
+#endif
     if (!g_mp_panel) return;
     char buf[1200]; MpJs j = { buf, 0, sizeof buf };
     js_raw(&j, "{");
@@ -7508,6 +8092,7 @@ static void mp_card(CPU *c){
         uint32_t r = rd32(G_ENGAGED_RACE);
         if (!r || !race_lan(r)){ sub_00499c00(c); return; }                        /* a race no LAN race can be: as before */
         MpLobby *l = mp_joinable();                                                /* (the lobby card's page: else a new lobby) */
+        if (!l && !mp_can_host()){ sub_00499c00(c); return; }                     /* (no lobby to join, none to open: Solo) */
         char t[320];
         /* (with others a win counts too where it counts with Solo: mp_counts; a friend's win too); in the game's
          * language, in its letters */
@@ -7622,10 +8207,12 @@ static void mp_labels(CPU *c){
         else snprintf(L[n].t, sizeof L[n].t, "%s's %s (%d/%d)%s", mp_name(l->host), race_kind(l->race), l->n, l->max, cr);
         n++;
     }
-    /* the multiplayer-only spots near, but those with a lobby */
+    /* the multiplayer-only spots near, but those with a lobby and the one the player is in (the game's prompt in
+     * the HUD's icon box says it there, mp_prompt; its words over the start went up into the HUD's top left) */
+    const MpSpot *here = on ? mp_spot_here() : 0;
     for (int i = 0; on && i < g_spot.n && n < MP_SEEN + 8; i++){
         const MpSpot *sp = &g_spot.s[i];
-        if (sp->kind != MPS_ONLY) continue;
+        if (sp->kind != MPS_ONLY || sp == here) continue;
         float x = (sp->box[0] + sp->box[2]) / 2, y = (sp->box[1] + sp->box[3]) / 2, dx = x - mx, dy = y - my, d2 = dx * dx + dy * dy;
         if (d2 > MP_SEE_ONLY_M * MP_SEE_ONLY_M) continue;
         int taken = 0;
@@ -7701,6 +8288,156 @@ static void mp_labels(CPU *c){
 }
 #endif
 
+/* ---- multiplayer races from free roam: the game's own rings at the spots -------------------- */
+/* The game's ring on the ground at a race's start is an effect of the
+ * track's (an emitter group, "XEE_EVENT_DRIFT" and so on): its marker
+ * manager ([0x890130], 12 slots of 0x30 bytes, made at the track's load by
+ * 0x605680, freed at its unload by 0x605740) plays each type's at the
+ * nearest open race of the type within 200 m (0x605780: the slot's
+ * 0x6054B0 at the trigger's x y (+4, +8) and height (+0x14), 0x602220 to
+ * stop).  Where a race's career marker is gone (a multiplayer-only spot,
+ * MPS_ONLY) we play the same rings with slots of our own (made as the
+ * game's: 0x605410, then 0x48B8B0 fills +0x20 with the group's emitters):
+ * the RING_N nearest within RING_SEE_M, the race type's own ring while
+ * nobody hosts there, and RING_LOBBY's group (the .ini's RingLobby, a
+ * different colour) while a lobby is open there.  Ours are stopped whenever
+ * the player is not in free roam (before a track unloads: a race trip, a
+ * shop, the menus) and forgotten when the game's manager is made again */
+#define RING_SEE_M      200.f         /* as the game's (0x7A5734) */
+#define RING_N          2
+#define RING_POOL       8             /* our slots: one per effect group in use */
+#define RING_LOBBY_M    25.f          /* a lobby this near a spot's middle (or of its race) is that spot's */
+#define G_XEE_MGR       0x00890130u   /* the game's marker effect slots (0 while no track) */
+#define FN_XEE_CTOR     0x00605410u   /* thiscall slot () */
+#define FN_XEE_FILL     0x0048b8b0u   /* cdecl (slot + 0x20, group hash): the group's emitters on its list */
+#define FN_XEE_PLAY     0x006054b0u   /* thiscall slot (float xyz*), callee pops: played there (again only when moved) */
+#define FN_XEE_STOP     0x00602220u   /* thiscall slot (): stopped */
+#define XEE_SLOT_SZ     0x30u
+static const char *const ring_group[] = { "XEE_EVENT_CIRCUIT", "XEE_EVENT_DRAG", "XEE_EVENT_STREET", "XEE_EVENT_DRIFT",
+                                          "XEE_EVENT_SPRINT", "XEE_EVENT_URL", "XEE_EVENT_SUV" };
+static struct {
+    uint32_t mgr;                                 /* the game's manager ours were made beside */
+    struct { uint32_t slot, hash; uint8_t on, used; } p[RING_POOL];
+    uint32_t lobby_hash, said_race[RING_N]; uint8_t said_gold[RING_N];
+} g_ring;
+static char g_ring_lobby[32] = "XEE_WORLD_CHALLENGE";
+/* a race's own ring: its map type as the game's (0x5002E0: SUV, URL, else by +0xF: 0 and 3 circuit, 1 sprint,
+ * 2 Street X, 4 drag, 5 drift) */
+static const char *ring_of(uint32_t r){
+    if (MR8(r + 0xdu) == 1u) return ring_group[6];
+    if (MR8(r + 0x34u) == 2u) return ring_group[5];
+    switch (MR8(r + 0xfu)){ case 1: return ring_group[4]; case 2: return ring_group[2]; case 4: return ring_group[1];
+                            case 5: return ring_group[3]; }
+    return ring_group[0];
+}
+static void mp_rings_stop(CPU *c){
+    uint32_t mgr = rd32(G_XEE_MGR);
+    for (int i = 0; i < RING_POOL; i++){
+        if (g_ring.p[i].on && mgr && mgr == g_ring.mgr && ok(g_ring.p[i].slot, XEE_SLOT_SZ)) gcall0(c, FN_XEE_STOP, g_ring.p[i].slot);
+        g_ring.p[i].on = 0;
+    }
+}
+/* our slot for effect group `name`, made once per track */
+static uint32_t ring_slot(CPU *c, const char *name){
+    uint32_t h = bhash(name);
+    for (int i = 0; i < RING_POOL; i++) if (g_ring.p[i].slot && g_ring.p[i].hash == h && !g_ring.p[i].used){ g_ring.p[i].used = 1; return (uint32_t)i + 1u; }
+    for (int i = 0; i < RING_POOL; i++){
+        if (g_ring.p[i].slot) continue;
+        uint32_t sz = XEE_SLOT_SZ, sl = rh_call(c, FN_MALLOC, 0, 0, 1, &sz);
+        if (!ok(sl, XEE_SLOT_SZ)) return 0;
+        gcall0(c, FN_XEE_CTOR, sl);
+        uint32_t a[2] = { sl + 0x20u, h };
+        rh_call(c, FN_XEE_FILL, 0, 0, 2, a);
+        int n = 0;
+        for (uint32_t it = rd32(sl + 0x20u); it && it != sl + 0x20u && n < 64; it = rd32(it)) n++;
+        rlog("[roam] f=%ld race rings: a slot of our own for %s (%d emitters)\n", rh_frame(), name, n);
+        g_ring.p[i].slot = sl; g_ring.p[i].hash = h; g_ring.p[i].on = 0; g_ring.p[i].used = 1;
+        return (uint32_t)i + 1u;
+    }
+    return 0;
+}
+/* a spot's lobby: ours or one heard of, open, at its middle (or of its race near it) */
+static int ring_lobby(const MpSpot *sp, float x, float y){
+    for (int i = -1; i < g_mp.nseen; i++){
+        const MpLobby *l = i < 0 ? &g_mp.l : &g_mp.seen[i];
+        if (!l->race || (i < 0 && g_mp.st == MP_IDLE) || l->state != RC_LS_OPEN) continue;
+        float dx = l->x - x, dy = l->y - y, d2 = dx * dx + dy * dy;
+        if (d2 < RING_LOBBY_M * RING_LOBBY_M || (l->race == sp->race && d2 < 4.f * RING_LOBBY_M * RING_LOBBY_M)) return 1;
+    }
+    return 0;
+}
+static void mp_rings(CPU *c){
+    uint32_t mgr = rd32(G_XEE_MGR), me = player_car();
+    if (mgr != g_ring.mgr){ memset(g_ring.p, 0, sizeof g_ring.p); g_ring.mgr = mgr; }   /* a new track: ours went with the old */
+    if (!mgr || !g_mp_on || !O.rings || !g_in_roam || !me || g_mp.st == MP_TRIP){ mp_rings_stop(c); return; }
+    for (int i = 0; i < RING_POOL; i++) g_ring.p[i].used = 0;
+    float mx = MRF32(me + 0x60u), my = MRF32(me + 0x64u);
+    int pick[RING_N], np = 0; float pd[RING_N];
+    for (int i = 0; i < g_spot.n; i++){
+        const MpSpot *sp = &g_spot.s[i];
+        if (sp->kind != MPS_ONLY || !ok(sp->trig, 0x44) || !ok(sp->race, RACE_SZ)) continue;
+        float dx = MRF32(sp->trig + 4u) - mx, dy = MRF32(sp->trig + 8u) - my, d2 = dx * dx + dy * dy;
+        if (!(d2 <= RING_SEE_M * RING_SEE_M)) continue;
+        int j = np < RING_N ? np++ : RING_N;
+        if (j == RING_N){ if (d2 >= pd[RING_N - 1]) continue; j = RING_N - 1; }
+        for (; j > 0 && pd[j - 1] > d2; j--){ pick[j] = pick[j - 1]; pd[j] = pd[j - 1]; }
+        pick[j] = i; pd[j] = d2;
+    }
+    for (int q = 0; q < np; q++){
+        const MpSpot *sp = &g_spot.s[pick[q]];
+        float x = MRF32(sp->trig + 4u), y = MRF32(sp->trig + 8u), z = MRF32(sp->trig + 0x14u);
+        float cx = (sp->box[0] + sp->box[2]) / 2, cy = (sp->box[1] + sp->box[3]) / 2;
+        int gold = ring_lobby(sp, cx, cy);
+        const char *grp = gold && g_ring_lobby[0] ? g_ring_lobby : ring_of(sp->race);
+        uint32_t k = ring_slot(c, grp);
+        if (!k) continue;
+        uint32_t sl = g_ring.p[k - 1].slot, pos = gvec(g_gmem + TAG_SCR, x, y, z);
+        int okp = (int)(rh_call(c, FN_XEE_PLAY, sl, 0, 1, &pos) & 0xffu);
+        g_ring.p[k - 1].on = 1;
+        if (g_ring.said_race[q] != sp->race || g_ring.said_gold[q] != (uint8_t)gold){
+            char nm[32]; race_name(sp->race, nm, sizeof nm);
+            rlog("[roam] f=%ld race ring %d: %s at %.0f %.0f z %.1f, %.0f m away, %s with %s%s\n", rh_frame(), q + 1, nm, (double)x, (double)y,
+                 (double)z, (double)rc_sqrtf(pd[q]), gold ? "a lobby open" : "nobody hosting", grp, okp ? "" : " (not played: no ground there)");
+            g_ring.said_race[q] = sp->race; g_ring.said_gold[q] = (uint8_t)gold;
+        }
+    }
+    for (int i = 0; i < RING_POOL; i++)
+        if (g_ring.p[i].on && !g_ring.p[i].used){ gcall0(c, FN_XEE_STOP, g_ring.p[i].slot); g_ring.p[i].on = 0; }
+    for (int q = np; q < RING_N; q++) g_ring.said_race[q] = 0;
+}
+
+/* ---- multiplayer races from free roam: the game's own prompt at a multiplayer-only spot -------- */
+/* At a career race's marker the game puts its race type's icon in the
+ * HUD's icon box on the left (Player 0x5EAFB0 -> HUD 0x4CA020: the icon
+ * list's show, 0x4C9170, of 0x4ABF70's icon for the race), as the outrun's
+ * (icon 9, FN_HUD_OUTRUN); it takes it off on the way out (0x4DB820 ->
+ * 0x4DAB80).  At a multiplayer-only spot (a ring's) the same icon is put up
+ * while the player is in the spot's box, idle (no lobby of ours: the lobby's
+ * panel says what Enter does then), and taken off when they leave it */
+#define FN_ICON_SHOW    0x004c9170u   /* thiscall icons (HUD +0x58) (icon, 0), callee pops */
+#define FN_ICON_HIDE    0x004dab80u   /* thiscall icons (icon), callee pops */
+#define FN_RACE_ICON    0x004abf70u   /* thiscall race () -> its icon: 1-5 by type, 7 URL, 8 SUV */
+static struct { uint32_t hud, race, icon; } g_mpi;
+static void mp_prompt(CPU *c){
+    uint32_t pl = rd32(G_PLAYER1), hud = pl && ok(pl, PL_HUD + 4u) ? rd32(pl + PL_HUD) : 0;
+    uint32_t pkg = hud && ok(hud, 0x14) ? rd32(hud + 0x10u) : 0, il = hud && ok(hud, 0x5c) ? rd32(hud + 0x58u) : 0;
+    if (hud != g_mpi.hud){ g_mpi.hud = hud; g_mpi.race = 0; g_mpi.icon = 0; }     /* a new HUD: nothing of ours on it */
+    if (!hud || !ok(il, 0x60u + 8u * 0x14u)) return;
+    const MpSpot *sp = g_mp_on && g_in_roam && ok(pkg, 0x20) && g_mp.st == MP_IDLE && !rd32(pl + PL_MARKER) ? mp_spot_here() : 0;
+    uint32_t race = sp && sp->kind == MPS_ONLY && ok(sp->race, RACE_SZ) ? sp->race : 0;
+    if (race == g_mpi.race) return;
+    if (g_mpi.icon){ gcall1(c, FN_ICON_HIDE, il, g_mpi.icon); g_mpi.icon = 0; }
+    g_mpi.race = race;
+    if (!race) return;
+    uint32_t icon = gcall0(c, FN_RACE_ICON, race) & 0xffu;
+    if (icon < 1u || icon > 8u) return;
+    uint32_t a[2] = { icon, 0 };
+    rh_call(c, FN_ICON_SHOW, il, 0, 2, a);
+    g_mpi.icon = icon;
+    char nm[32]; race_name(race, nm, sizeof nm);
+    rlog("[roam] f=%ld race prompt: the game's icon %u for %s (multiplayer only) in the left box\n", rh_frame(), icon, nm);
+}
+
 /* ---- multiplayer races from free roam: lobbies on the world map ------------------------------- */
 /* A lobby gets the game's own icon of its race's type on the world map (M):
  * a marker on the map's list (WorldMap +4, as wm_mark adds the cars') of the
@@ -7715,7 +8452,8 @@ static void mp_labels(CPU *c){
 #if MPRACES
 #define G_WM_PREFIX     0x007f4348u   /* char *[type]: the map's icon names ("CIRCUITEVENTINDICATOR_") */
 #define WM_ICON_SZ      0x2cu         /* a marker: +8 type, +0xC FE object, +0x10/+0x14 x y, +0x18 heading, +0x28 1 (an event) */
-#define WM_LOBBIES      24
+#define WM_LOBBIES      36            /* lobbies and multiplayer-only spots (WM_SPOTS of them) */
+#define WM_SPOTS        12            /* the nearest multiplayer-only spots on the map: their race's icon, light blue */
 #define WM_LABELS       4             /* lobbies with their words beside the icon: the nearest, none over another */
 #define WM_CHAR_W       6.4f          /* a character of the legend's text in the map's units, at its own size (measured: 6.2, and a margin) */
 #define WM_TEXT_H       15.f          /* its line's height */
@@ -7733,7 +8471,7 @@ static int race_icon(uint32_t r){
     if (MR8(r + 0x34u) == 2u) return 5;
     switch (MR8(r + 0xfu)){ case 1: return 4; case 2: return 2; case 4: return 1; case 5: return 3; default: return 0; }
 }
-static int mp_map_icon(CPU *c, uint32_t map, uint32_t pkg, uint32_t room, uint32_t r, float x, float y, const char *text){
+static int mp_map_icon(CPU *c, uint32_t map, uint32_t pkg, uint32_t room, uint32_t r, float x, float y, const char *text, uint32_t rgb){
     if (g_wml.map != map){ memset(&g_wml, 0, sizeof g_wml); g_wml.map = map; }
     for (int i = 0; i < g_wml.n; i++) if ((g_wml.x[i] - x) * (g_wml.x[i] - x) + (g_wml.y[i] - y) * (g_wml.y[i] - y) < 15.f * 15.f) return 0;
     if (g_wml.n >= WM_LOBBIES || !r) return 0;
@@ -7758,6 +8496,12 @@ static int mp_map_icon(CPU *c, uint32_t map, uint32_t pkg, uint32_t room, uint32
     g_wml.used[type] = 1; g_wml.x[g_wml.n] = x; g_wml.y[g_wml.n] = y; g_wml.m[g_wml.n] = m; g_wml.lbl[g_wml.n] = 0;
     g_wml.d[g_wml.n] = g_mp.st != MP_IDLE && x == g_mp.l.x && y == g_mp.l.y ? -1.f : mp_dist(x, y);     /* (ours first) */
     if (g_wml.d[g_wml.n] >= 0.f) wmf_track(map, m, WMF_RACES);          /* (the legend's Players' races: not ours) */
+    if (rgb != MP_RGB_LOBBY){
+        /* a multiplayer-only spot: its icon in the spots' colour, its label after every lobby's (mp_map_labels) */
+        int32_t ic[4];
+        if (fe_colour_get(obj, ic)) fe_colour_set(c, obj, (int32_t)(rgb & 0xffu), (int32_t)(rgb >> 8 & 0xffu), (int32_t)(rgb >> 16 & 0xffu), ic[3]);
+        g_wml.d[g_wml.n] += 1e6f;
+    }
     /* its label: a copy of the legend's string, in front of the map (a smaller z), gold */
     uint32_t base = room > 1 ? wm_find(c, pkg, WM_TEXT_BASE) : 0;
     char ln[24]; snprintf(ln, sizeof ln, "ROAM_LOBBYTXT_%d", g_wml.n);
@@ -7770,7 +8514,7 @@ static int mp_map_icon(CPU *c, uint32_t map, uint32_t pkg, uint32_t room, uint32
         g_wml.len[g_wml.n] = (uint8_t)(strlen(text) < 255 ? strlen(text) : 255);   /* (the size: each frame, mp_map_labels) */
         uint32_t d0 = rd32(base + 0x2cu);
         if (ok(d0, 0x40) && MRF32(d0 + 0x38u) > 0.f && MRF32(d0 + 0x38u) < 4.f) g_wml_s0 = MRF32(d0 + 0x38u);
-        MR32(col) = MP_RGB_LOBBY & 0xffu; MR32(col + 4u) = MP_RGB_LOBBY >> 8 & 0xffu; MR32(col + 8u) = MP_RGB_LOBBY >> 16 & 0xffu; MR32(col + 12u) = 0xffu;
+        MR32(col) = rgb & 0xffu; MR32(col + 4u) = rgb >> 8 & 0xffu; MR32(col + 8u) = rgb >> 16 & 0xffu; MR32(col + 12u) = 0xffu;
         uint32_t ac[2] = { col, 0 }; rh_call(c, FN_FE_COLOR, lbl, 0, 2, ac);
         gcall1(c, FN_FE_HIDE, 0, lbl);
         g_wml.lbl[g_wml.n] = lbl;
@@ -7857,13 +8601,13 @@ static int mp_map_icons(CPU *c, uint32_t map, uint32_t pkg, uint32_t room, int h
             const char *cr = mp_counts(g_mp.l.race) ? MP_COUNTS_TAG : "";
             if (g_mp.l.host == g_s.conf.self_id) snprintf(t, sizeof t, "Your %s %d/%d%s", race_kind(g_mp.l.race), g_mp.l.n, g_mp.l.max, cr);
             else snprintf(t, sizeof t, "%s's %s %d/%d%s", mp_name(g_mp.l.host), race_kind(g_mp.l.race), g_mp.l.n, g_mp.l.max, cr);
-            n += mp_map_icon(c, map, pkg, room, g_mp.l.race, g_mp.l.x, g_mp.l.y, t);
+            n += mp_map_icon(c, map, pkg, room, g_mp.l.race, g_mp.l.x, g_mp.l.y, t, MP_RGB_LOBBY);
         }
         for (int i = 0; i < g_mp.nseen; i++){
             const MpLobby *l = &g_mp.seen[i];
             if (!mp_shown(l)) continue;
             snprintf(t, sizeof t, "%s's %s %d/%d%s", mp_name(l->host), race_kind(l->race), l->n, l->max, mp_counts(l->race) ? MP_COUNTS_TAG : "");
-            n += mp_map_icon(c, map, pkg, room, l->race, l->x, l->y, t);
+            n += mp_map_icon(c, map, pkg, room, l->race, l->x, l->y, t, MP_RGB_LOBBY);
         }
     } else {
         /* (as mp_shown: open, with room, not one that keeps out our stage, but a friend's or crew-mate's;
@@ -7881,11 +8625,44 @@ static int mp_map_icons(CPU *c, uint32_t map, uint32_t pkg, uint32_t room, int h
             if (e[i].state != RC_LS_OPEN || e[i].n >= e[i].max || (cap && (int)rd32(G_CAREER + C_STAGE) > cap && !(e[i].flags & RC_LOBBIES_MATE))) continue;
             char t[64]; snprintf(t, sizeof t, "%s %d/%d%s", race_kind(r), e[i].n, e[i].max, mp_counts(r) ? MP_COUNTS_TAG : "");
             if (t[0] >= 'a' && t[0] <= 'z') t[0] = (char)(t[0] - 32);
-            n += mp_map_icon(c, map, pkg, room, r, e[i].x, e[i].y, t);
+            n += mp_map_icon(c, map, pkg, room, r, e[i].x, e[i].y, t, MP_RGB_LOBBY);
         }
     }
     rlog("[roam] f=%ld world map: %d race lobbies marked%s (%d heard of, the hub's %d)\n", rh_frame(), n, hub ? " (the hub's)" : "",
          g_mp.nseen + (g_mp.st != MP_IDLE), g_s.lobbies_n);
+    return n;
+}
+
+/* The multiplayer-only race spots (no ring of the game's there: their race is not open in the career), the WM_SPOTS
+ * nearest the player's car, with their race's icon in the spots' light blue and "Drift (multiplayer)" beside it as
+ * over the spot itself (mp_labels); none where a lobby's icon is (mp_map_icon).  Under the legend's Players' races */
+static int mp_map_spots(CPU *c, uint32_t map, uint32_t pkg, uint32_t room){
+    int idx[WM_SPOTS], k = 0;
+    float dd[WM_SPOTS];
+    for (int i = 0; i < g_spot.n; i++){
+        const MpSpot *sp = &g_spot.s[i];
+        if (sp->kind != MPS_ONLY || !sp->race) continue;
+        float x = (sp->box[0] + sp->box[2]) / 2, y = (sp->box[1] + sp->box[3]) / 2, d = mp_dist(x, y);
+        /* (a lobby of the hub's there, its icon still to come with the map's answer: the lobby's, gold) */
+        int lob = 0;
+        roam_plat_lock();
+        for (int e = 0; e < g_s.lobbies_n && e < RC_LOBBIES_MAX && !lob; e++)
+            lob = (g_s.lobbies_e[e].x - x) * (g_s.lobbies_e[e].x - x) + (g_s.lobbies_e[e].y - y) * (g_s.lobbies_e[e].y - y) < 20.f * 20.f;
+        roam_plat_unlock();
+        if (lob) continue;
+        if (k == WM_SPOTS && d >= dd[k - 1]) continue;                  /* (the nearest WM_SPOTS, nearest first) */
+        int j = k < WM_SPOTS ? k++ : WM_SPOTS - 1;
+        for (; j > 0 && dd[j - 1] > d; j--){ dd[j] = dd[j - 1]; idx[j] = idx[j - 1]; }
+        dd[j] = d; idx[j] = i;
+    }
+    int n = 0;
+    for (int q = 0; q < k; q++){
+        const MpSpot *sp = &g_spot.s[idx[q]];
+        char t[48], kd[16]; snprintf(kd, sizeof kd, "%s", race_kind(sp->race)); kd[0] = (char)(kd[0] >= 'a' && kd[0] <= 'z' ? kd[0] - 32 : kd[0]);
+        snprintf(t, sizeof t, "%s (multiplayer)", kd);
+        n += mp_map_icon(c, map, pkg, room, sp->race, (sp->box[0] + sp->box[2]) / 2, (sp->box[1] + sp->box[3]) / 2, t, MP_RGB_ONLY);
+    }
+    rlog("[roam] f=%ld world map: %d multiplayer-only race spots marked (of %d known)\n", rh_frame(), n, g_spot.n);
     return n;
 }
 
@@ -8449,7 +9226,13 @@ static void say_frame(int64_t host, int in_roam, uint8_t st){
     g_say.nocount = no;
 #ifdef ROAM_SAY_TAGS
     extern void roam_host_say_live(int live);
+#if MPRACES
+    /* (the HUD up, no menu or dialog over it: on the World Map the chat button is the game's, 2026-11-26 Triangle
+     * there set no route) */
+    roam_host_say_live(in_roam && st == RC_ST_ROAM && !g_racing && host - g_mp_hud_at < 250000);
+#else
     roam_host_say_live(in_roam && st == RC_ST_ROAM && !g_racing);
+#endif
 #endif
     int pick = roam_plat_say_pick();
     if (g_say.test_pick >= 0){ pick = g_say.test_pick; g_say.test_pick = -1; }
@@ -8731,6 +9514,12 @@ static void init_once(CPU *c){
     O.collide = O.ghost_all ? 0 : env_int("NFSU2_ROAM_COLLIDE", 1, 0, 1);
 #endif
     O.labels = env_int("NFSU2_ROAM_LABELS", 1, 0, 1);
+    O.flags_shown = env_int("NFSU2_ROAM_SHOW_FLAGS", 1, 0, 1);   /* the flags before the names drawn here (1) or not */
+    O.rings = env_int("NFSU2_ROAM_RACE_RINGS", 1, 0, 1);         /* rings on the ground at multiplayer-only race spots */
+#if MPRACES
+    {   const char *rl = opt("NFSU2_ROAM_RING_LOBBY");                  /* the lobby's ring: an effect group's name, empty: the race's own */
+        if (rl) snprintf(g_ring_lobby, sizeof g_ring_lobby, "%s", rl); }
+#endif
     O.spawn_m = env_int("NFSU2_ROAM_SPAWN_M", SPAWN_M, 0, 1000);
     O.hit_share = env_int("NFSU2_ROAM_HIT_SHARE", -1, -1, 100);
     O.test_mass = env_int("NFSU2_ROAM_TEST_MASS", 0, 0, 20000);
@@ -8821,7 +9610,11 @@ static void init_once(CPU *c){
 #else
     cf.platform = RC_PLAT_MAC;
 #endif
-    cf.test_mode = O.test; cf.max_players = maxp; cf.rate_hz = O.rate; cf.duels = DUELS; cf.drifts = DRIFTS; cf.lobbies = MPRACES;
+    cf.test_mode = O.test; cf.max_players = maxp; cf.rate_hz = O.rate; g_du_on = env_int("NFSU2_ROAM_DUELS", 1, 0, 1); cf.duels = DUELS && g_du_on; cf.drifts = DRIFTS && g_du_on; cf.lobbies = MPRACES;
+#if MPRACES
+    g_mp_on = env_int("NFSU2_ROAM_MPRACES", 1, 0, 1);
+    cf.lobbies = g_mp_on;
+#endif
 #ifndef ROAM_HOST_WIN
     /* the hub links us with as many players as we show cars (a hub before version 10 gives 32; 0 shown: not said, 32
      * for quick chat and the lobbies); the Windows plugin's 5 cars say nothing */
@@ -8883,7 +9676,11 @@ static void init_once(CPU *c){
  * another, each a block from the server, leave a slow line mostly idle, and 4 at once got 90 % of a meet's cars in
  * the first time on 20 Mbit/s with an empty cache after 28 s, not 34; with the data in, 4 at once made a meet of 31
  * car types slower to show (each load 2 to 3 times as long): 2 then, and always on a phone or a tablet) */
+#ifdef ROAM_LOADS_AHEAD
+#define LOADS_AHEAD     ROAM_LOADS_AHEAD   /* (the Vita: one, so the streamer waits for one car's reads at the most) */
+#else
 #define LOADS_AHEAD     (O.max_cars >= 32 && __builtin_popcount(g_slow_loads) >= 2 ? 4 : 2)
+#endif
 #define STREAM_HOLD_US  5000000
 static struct { int64_t t0, us, max; int n, gone; } g_shold;    /* cars held for the streamer: since, in all, the longest, times, let go */
 static int loads_in_loader(CPU *c){
@@ -8909,7 +9706,20 @@ static int load_may_start(CPU *c){
     if (rd32(G_TRACKSTREAMER + 0x168u)){
         if (!g_shold.t0){ g_shold.t0 = now; g_shold.n++; }
         if (now - g_shold.t0 < STREAM_HOLD_US) return 0;
+#ifdef ROAM_STREAM_REARM
+        /* one car's step goes, and only with the loader empty; then the hold starts again: a streamer that stays busy
+         * (driving on across the city) let every car waiting go at once after 5 s before, each car's reads queued
+         * with the sections' and the world stopped for them (the Vita, 2026-11-23: one frame of 3.3 s as a friend's
+         * car came in while STREAML4RA.BUN streamed) */
+        if (loads_in_loader(c)) return 0;
         g_shold.gone++;
+        stream_hold_end(now);
+        g_shold.t0 = now; g_shold.n++;
+        rlog("[roam] f=%ld the city's sections still loading after %.0f s: one friend's car step goes\n", rh_frame(), STREAM_HOLD_US / 1e6);
+        return 1;
+#else
+        g_shold.gone++;
+#endif
     }
     stream_hold_end(now);
     return loads_in_loader(c) < LOADS_AHEAD;
@@ -8947,8 +9757,16 @@ static void ph_mark(const char *what){
     if (g_phn < 16){ g_ph[g_phn].what = what; g_ph[g_phn].ns = t - g_ph_t; g_ph[g_phn].run_us = r - g_ph_run; g_phn++; }
     g_ph_t = t; g_ph_run = r;
 }
+/* each part's time over the stats' window (periodic_log: the parts' means, the most first), for the steady cost */
+static struct { const char *what; uint64_t ns; } g_pa[24]; static int g_pan;
 static void ph_report(uint64_t ns){
     { char none[8]; roam_probe_end(none, (int)sizeof none); }   /* (probing ends with the frame) */
+    for (int i = 0; i < g_phn; i++){
+        int j = 0;
+        while (j < g_pan && g_pa[j].what != g_ph[i].what) j++;
+        if (j == g_pan){ if (g_pan >= 24) continue; g_pa[g_pan].what = g_ph[i].what; g_pa[g_pan].ns = 0; g_pan++; }
+        g_pa[j].ns += g_ph[i].ns;
+    }
     if (ns >= PH_SLOW_US * 1000ull){
         char b[384]; int at = 0;
         for (int i = 0; i < g_phn && at < (int)sizeof b - 48; i++)
@@ -9016,6 +9834,18 @@ static void periodic_log(int64_t host){
                 (unsigned long long)m->n_dup, (unsigned long long)m->n_stale, (unsigned long long)m->n_snap, (double)m->err_max, (unsigned long long)m->n_epoch);
     }
     roam_plat_unlock();
+    if (g_pan && g_cost_win_n){
+        char b[320]; int at = 0;
+        for (int shown = 0; shown < 8 && at < (int)sizeof b - 40; shown++){
+            int best = -1;
+            for (int j = 0; j < g_pan; j++) if (g_pa[j].ns && (best < 0 || g_pa[j].ns > g_pa[best].ns)) best = j;
+            if (best < 0) break;
+            at += snprintf(b + at, sizeof b - (size_t)at, "%s %s %.0f", shown ? "," : "", g_pa[best].what, g_pa[best].ns / 1e3 / (double)g_cost_win_n);
+            g_pa[best].ns = 0;
+        }
+        rlog("[roam]   frame cost by part, mean us:%s\n", b);
+    }
+    g_pan = 0;
     g_cost_win_t0 = host; g_cost_win_sum = g_cost_win_n = g_cost_win_max = 0;
 }
 
@@ -9056,7 +9886,7 @@ static void load_service(CPU *c){
 
 static int loads_waiting(void){
     int n = 0;
-    for (int k = 0; k < NSLOT; k++) n += (g_sl[k].st == SL_CREATING) + (g_sl[k].h_new != 0 || g_sl[k].want_load);
+    for (int k = 0; k < NSLOT; k++) n += (g_sl[k].st == SL_CREATING) + (g_sl[k].h_new != 0 || g_sl[k].want_load || g_sl[k].want_begin);
     return n;
 }
 /* What costs a frame time: a car of our own made (its paint textures, its
@@ -9097,6 +9927,10 @@ static int heavy_take(void){
  * parked car already wears, or one with a car that fits, is not kept
  * waiting behind him (int3a review: a nearest friend without memory hid
  * every other friend until he left) */
+#ifdef ROAM_SWAP_CALM
+#define SWAP_NEAR_M   250.f         /* a friend nearer than this may take a shown friend's slot */
+#define SWAP_HOLD_US  30000000LL    /* ...from a car shown at least this long */
+#endif
 static void assign(CPU *c, int64_t host){
     int nslots = O.max_cars;
     uint8_t tried[PV_MAX] = {0};               /* g_pv indices refused this frame */
@@ -9144,6 +9978,14 @@ static void assign(CPU *c, int64_t host){
         /* 3. a parked car with another look: the new ride replaces it */
         for (int j = 0; j < nslots && k < 0; j++) if (g_sl[j].st == SL_PARKED && ok(g_sl[j].car, 0x9e0)) k = j;
         if (k < 0){
+#ifdef ROAM_SWAP_CALM
+            /* (the Vita: each car swapped in costs 2 or 3 frames of 50 to 100 ms; with 15 players and 5 slots
+             * cars were swapped 54 times in 16 minutes, for friends 300 to 900 m away that the game does not draw
+             * anyway, 2026-11-26.  A friend farther than SWAP_NEAR_M takes no shown friend's slot, and a car
+             * shown less than SWAP_HOLD_US stays unless out of sight.  v is the nearest friend without a slot:
+             * none after it is nearer) */
+            if (v->rank > SWAP_NEAR_M) return;
+#endif
             /* 4. a friend out of sight: the one unseen the longest gives way */
             int far = -1;
             for (int j = 0; j < nslots; j++)
@@ -9168,6 +10010,9 @@ static void assign(CPU *c, int64_t host){
                 float fd = 0.f; int fj = -1;
                 for (int j = 0; j < nslots; j++){
                     if (g_sl[j].st != SL_ACTIVE || du_keeps(j) || (g_sl[j].crew && (pass == 0 || !v->crew))) continue;
+#ifdef ROAM_SWAP_CALM
+                    if (roam_plat_now_us() - g_sl[j].acq_us < SWAP_HOLD_US) continue;
+#endif
                     for (int i = 0; i < g_npv; i++)
                         if (g_pv[i].idx == g_sl[j].peer && g_pv[i].id == g_sl[j].peer_id && g_pv[i].rank > fd){ fd = g_pv[i].rank; fj = j; }
                 }
@@ -9834,6 +10679,9 @@ void roam_game_frame(CPU *c){
         g_sync_paused = 0;
     }
     g_in_roam = in_roam;
+#if MPRACES
+    if (!in_roam) mp_rings_stop(c);          /* ours off before anything unloads the track's effects */
+#endif
     g_last_host = host;
     /* the player's name: the profile's, unless NFSU2_ROAM_NAME */
     if (!O.name[0] && ok(G_PROFILE_NAME, 16) && MR8(G_PROFILE_NAME) >= 0x20){
@@ -9966,6 +10814,11 @@ void roam_game_frame(CPU *c){
                 g_phorn[gi].id = p->id; g_phorn[gi].gen = p->cfg_gen;
                 g_phorn[gi].horn = p->cfg_len && rc_carcfg_decode(p->cfg, p->cfg_len, &hc) == RC_OK && hc.has_horn ? hc.horn : 0;
                 if (p->cfg_len && g_phorn[gi].horn) rlog("[roam] f=%ld %s's horn: %s\n", rh_frame(), p->name, rh_horn_name(g_phorn[gi].horn));
+#ifdef ROAM_PREFETCH
+                /* the car's own files opened now, off the game thread, so the car loader's opens of them later cost
+                 * nothing (the Vita, 2026-11-25: CarLoader::Load 20 to 50 ms a car, nearly all of it its opens) */
+                if (p->cfg_len && hc.type_name[0]) roam_win_prefetch_car(hc.type_name);
+#endif
             }
             v->horn = g_phorn[gi].horn;
             v->have_pose = 0;
@@ -10024,7 +10877,7 @@ void roam_game_frame(CPU *c){
         soft_me(c, host, st);
         if (DUELS) gh_frame();
 #if MPRACES
-        spots_read(c, host);
+        if (g_mp_on) spots_read(c, host);
 #endif
         g_heavy = 0;
         rides_tidy(c);
@@ -10059,9 +10912,22 @@ void roam_game_frame(CPU *c){
                 if (r > 0) g_heavy++;
                 if (r < 0){ release(c, k, "could not create a car"); continue; }
                 if (r > 0){
+#ifdef ROAM_SPREAD_CREATE
+                    /* the friend's ride is built the next frame: CreateCar and building the ride in one frame were
+                     * one long stall a car of our own (the Vita, 2026-11-23) */
+                    s->st = SL_LOADING; s->want_begin = 1;
+#else
                     if (v->cfg_len > 0 && begin_load(c, k, v->cfg, v->cfg_len, v->cfg_gen)) s->st = SL_LOADING;
                     else release(c, k, "the car could not be loaded now");
+#endif
                 }
+                continue;
+            }
+            if (s->st == SL_LOADING && s->want_begin){
+                if (g_heavy >= HEAVY_PER_FRAME || !load_may_start(c)) continue;
+                s->want_begin = 0;
+                if (v->cfg_len > 0 && begin_load(c, k, v->cfg, v->cfg_len, v->cfg_gen)) g_heavy++;
+                else release(c, k, "the car could not be loaded now");
                 continue;
             }
             if (s->st == SL_LOADING){
@@ -10160,8 +11026,7 @@ void roam_game_frame(CPU *c){
     du_frame(c, host, in_roam, world_runs, duin, nduin);
     ph_mark("outruns");
 #if MPRACES
-    mp_frame(c, host, in_roam, world_runs, mpfrom, mpin, nmpin);
-    mp_panel(host, in_roam);
+    if (g_mp_on){ mp_frame(c, host, in_roam, world_runs, mpfrom, mpin, nmpin); mp_panel(host, in_roam); }
 #endif
     g_engage = in_roam && world_runs && engage_ours();
     sounds_update(have_ls ? &ls : 0, world_runs);
@@ -10206,7 +11071,9 @@ void roam_game_hud(CPU *c){
     if (DUELS) du_hud(c, roam_plat_now_us());
 #endif
 #if MPRACES
-    mp_labels(c);
+    if (g_mp_on) mp_labels(c);
+    mp_rings(c);
+    mp_prompt(c);
 #endif
     g_cost_hud += rh_ns() - t0;
 }
@@ -11993,31 +12860,6 @@ void roam_game_contact(CPU *c, void (*orig)(CPU *)){
              (double)dv[0], (double)dv[1], (double)dv[2], (double)keep * 100.0, (double)mm, (double)mf,
              (double)st[CS_V], (double)st[CS_V + 1], (double)st[CS_V + 2], (double)s->push_v[0], (double)s->push_v[1], (double)s->push_v[2]);
 }
-/* roam.c, 0x42CD60, from the race's end (0x5F8490 -> 0x42EFB0): every car of
- * the World's AI range that is out gets a new goal from its brain (car +0x2C):
- * the one at the brain's +0x6FC is looked at and let go through its vtable
- * (0x42AA20 -> 0x402070), and the new one kept there.  During an outrun
- * between players friends' cars are out in that range (the three opponent
- * cars and the first 2 of ours), and their brains (vtable 0x7A5CA8, driver 0)
- * hold no goal there: one held 0xE490B3FC in the tests, and a player's game
- * trapped at an outrun's end reading past the memory (2026-10-20).  The AI
- * range goes without friends' cars for the call, as du_start narrows it. */
-void roam_game_goals(CPU *c, void (*orig)(CPU *)){
-    uint32_t w = world(), first = w ? MR32(w + 0x14u) : 0, end = w ? MR32(w + 0x18u) : 0, was[WORLD_INDEX], n = first;
-    if (!w || first > end || end > WORLD_INDEX){ orig(c); return; }
-    for (uint32_t i = first; i < end; i++){
-        uint32_t car = was[i] = MR32(w + 0x1cu + 4u * i);
-        int ours = 0;
-        for (int k = 0; k < NSLOT && !ours; k++) ours = car && g_sl[k].car == car;
-        if (!ours) MR32(w + 0x1cu + 4u * n++) = car;
-    }
-    if (n == end){ orig(c); return; }
-    rlog("[roam] f=%ld the race's end: new goals for the AI range's cars, not for %u friends' car(s)\n", rh_frame(), end - n);
-    MR32(w + 0x18u) = n;
-    orig(c);
-    for (uint32_t i = first; i < end; i++) MR32(w + 0x1cu + 4u * i) = was[i];
-    MR32(w + 0x18u) = end;
-}
 /* roam.c, bSlotPool's constructor (0x440DF0), at the game's start.  With
  * free-roam multiplayer on, three pools get more entries:
  *  - the car loader's rides (CarLoadedRideInfoSlotPool, 22 x 0x1240 bytes):
@@ -12234,6 +13076,33 @@ int roam_game_friend_car(uint32_t car){
     return 0;
 }
 #endif
+
+/* (the Vita too: src/ug2/showoff_hooks.cpp runs it from 0x42CD60, the outrun win crash of 2026-11-26) */
+/* roam.c, 0x42CD60, from the race's end (0x5F8490 -> 0x42EFB0): every car of
+ * the World's AI range that is out gets a new goal from its brain (car +0x2C):
+ * the one at the brain's +0x6FC is looked at and let go through its vtable
+ * (0x42AA20 -> 0x402070), and the new one kept there.  During an outrun
+ * between players friends' cars are out in that range (the three opponent
+ * cars and the first 2 of ours), and their brains (vtable 0x7A5CA8, driver 0)
+ * hold no goal there: one held 0xE490B3FC in the tests, and a player's game
+ * trapped at an outrun's end reading past the memory (2026-10-20).  The AI
+ * range goes without friends' cars for the call, as du_start narrows it. */
+void roam_game_goals(CPU *c, void (*orig)(CPU *)){
+    uint32_t w = world(), first = w ? MR32(w + 0x14u) : 0, end = w ? MR32(w + 0x18u) : 0, was[WORLD_INDEX], n = first;
+    if (!w || first > end || end > WORLD_INDEX){ orig(c); return; }
+    for (uint32_t i = first; i < end; i++){
+        uint32_t car = was[i] = MR32(w + 0x1cu + 4u * i);
+        int ours = 0;
+        for (int k = 0; k < NSLOT && !ours; k++) ours = car && g_sl[k].car == car;
+        if (!ours) MR32(w + 0x1cu + 4u * n++) = car;
+    }
+    if (n == end){ orig(c); return; }
+    rlog("[roam] f=%ld the race's end: new goals for the AI range's cars, not for %u friends' car(s)\n", rh_frame(), end - n);
+    MR32(w + 0x18u) = n;
+    orig(c);
+    for (uint32_t i = first; i < end; i++) MR32(w + 0x1cu + 4u * i) = was[i];
+    MR32(w + 0x18u) = end;
+}
 #ifdef ROAM_HOST_WIN
 /* the Windows plugin and the Vita: no co-op (its count for the logs) */
 static uint32_t g_cp_n_get(void){ return 0; }

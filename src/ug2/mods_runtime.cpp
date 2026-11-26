@@ -2,6 +2,7 @@
 
 #include "mods_runtime.h"
 #include "mods_hook.h"
+#include "exopts.h"
 #define MINI_CASE_SENSITIVE
 #include "mini/ini.h"
 #include <platform/log.h>
@@ -57,15 +58,27 @@ bool active(Feature feature)
     return s_read && s_active[feature];
 }
 
+bool euCarsAiList = false;
+
 int applyPatches(uint8_t* guestBase)
 {
+    euCarsAiList = false;
     if (!active(EuCarContent))
         return 0;
-    // Behaviour from NFSU2 Extra Options; no code. Its WriteMemory<BYTE>(list, 0xFF): no id matches a car.
+    // ExtraOptions 5.1.0.1340 [Gameplay] UnlockRegionalCars: region list ids <- 0xFF, no id matches a car
+    // ExtraOptions 5.1.0.1340 [Gameplay] UnlockRegionalCars: its 0x4DFA83/0x4E2374 RegionLockHook calls need no code,
+    // as 0x5022C0 then returns 1 too and both callers read only al
     for (uint32_t id : RegionListIds)
         guestBase[id] = 0xff;
-    pf::logInfo("mods: EU Car Content: region lists at 0x%x-0x%x patched", RegionListIds[0], RegionListIds[3] + 3);
-    return 4;
+    // ExtraOptions 5.1.0.1340 [Gameplay] UnlockRegionalCars: AI car list gains CORSA and PEUGOT106
+    guestBase[AiListExtra] = AiListCars[0];
+    guestBase[AiListExtra + 1] = AiListCars[1];
+    // ExtraOptions 5.1.0.1340 [Gameplay] UnlockRegionalCars: PickRandomCarsOfSomeSort list length 0x1A -> 0x1C
+    euCarsAiList = true;
+    pf::logInfo("mods: %s %s [%s] %s: region lists 0x%x-0x%x, AI car list 0x%x-0x%x, AI list length 28",
+                exopts::Name, exopts::Version, exopts::RegionSection, exopts::RegionKey, RegionListIds[0],
+                RegionListIds[3] + 3, AiListExtra, AiListExtra + 1);
+    return 6;
 }
 
 }

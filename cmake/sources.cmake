@@ -58,6 +58,7 @@ set(NFSU_LIB_SOURCES
   src/lib/fpucontrol.cpp
   src/lib/gamepad.cpp
   src/lib/gamethreads.cpp
+  src/lib/guestmodule.cpp
   src/lib/heap.cpp
   src/lib/jump.cpp
   src/lib/library.cpp

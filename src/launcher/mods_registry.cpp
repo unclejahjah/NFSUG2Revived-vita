@@ -17,7 +17,7 @@ namespace ug2 { namespace mods {
 namespace
 {
 
-const Source s_sources[SourceCount] =
+Source s_sources[SourceCount] =
 {
     {
         exopts::Name,
@@ -68,7 +68,7 @@ const Source s_sources[SourceCount] =
             { "Gameplay", "ShowPercentOn1LapRaces", "1", false },
             { "Gameplay", "GameRegion", "0", false },
             { "Gameplay", "StartingCash", "0", false },
-            { "Gameplay", "UnlockRegionalCars", "1", true },
+            { "Gameplay", "UnlockRegionalCars", "1", true },      // ExtraOptions 5.1.0.1340 [Gameplay] UnlockRegionalCars
             { "Gameplay", "UnlockAllThings", "0", false },
             { "Gameplay", "NeonBrightness", "1", false },
             { "Gameplay", "NosTrailRepeatCount", "8", false },
@@ -90,12 +90,14 @@ const Source s_sources[SourceCount] =
             { "Misc", "EnableMusic", "1", false },
             { "Misc", "AllowMultipleInstances", "0", false },
         },
+        {},
     },
 };
 
+
 const Mod s_mods[Count] =
 {
-    {
+    {   // ExtraOptions 5.1.0.1340 [Gameplay] UnlockRegionalCars
         ExtraOptions,
         modreq::EuCarContent,
         "You can drive Peugeout 106 & Vauxhall Corsa in your NTSC game. Same deal with Acura RSX & Honda Civic in your "
@@ -134,9 +136,18 @@ void readValue(const std::string& file, const Mod& mod, State* s)
     s->iniFound = kind != pf::TextFile::Missing;
     s->unreadable = kind == pf::TextFile::Unreadable;
     // Extra Options reads the key with a default of 1: a missing section or key is on.
-    s->on = kind == pf::TextFile::Readable && (!ini::get(file, def(mod).section, def(mod).key, &value) || isOn(value));
+    s->on = kind == pf::TextFile::Readable &&
+            (ini::get(file, def(mod).section, def(mod).key, &value) ? isOn(value) : onByDefault(mod));
 }
 
+}
+
+bool onByDefault(const Mod& mod)
+{
+    for (const IniKey& key : s_sources[mod.source].keys)
+        if (!strcmp(key.section, def(mod).section) && !strcmp(key.key, def(mod).key))
+            return isOn(key.def);
+    return true;
 }
 
 const Mod& get(Id id)
@@ -147,6 +158,19 @@ const Mod& get(Id id)
 const Source& source(SourceId id)
 {
     return s_sources[id];
+}
+
+void setDownload(SourceId id, const Download& download)
+{
+    s_sources[id].download = download;
+}
+
+uint64_t Download::installedBytes() const
+{
+    uint64_t total = 0;
+    for (const FileLocation& file : files)
+        total += file.bytes;
+    return total;
 }
 
 std::string fileName(const Source& source)

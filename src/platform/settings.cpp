@@ -41,22 +41,23 @@ const Setting s_table[] =
 
     // ---- Display ----
     ENUM("frame_rate", Display, 0, "30|60|0", "30 locks to 30 fps for steady pacing; 60 shows each frame for one vblank; 0 unlocks.", 0),
-    BOOL("widescreen", Display, 1, "On fills the 16:9 screen with the HUD at the edges; off is the original 4:3 with black bars.", 0),
     ENUM("gfx_preset", Display, 0, "vita|max", "Graphics the port is tuned for, or everything on (much slower). The Display menu changes them.", 0),
     ENUM("skip_intro_movies", Display, 0, "off|logos|opening", "Skip the start-up movies: off plays them; logos skips EA, THX and the notice; opening skips the opening movie too.", 0),
-    ENUM("movies", Display, 1, "game|native|vp6|vp6only", "native: the .mp4s, Vita decoder; vp6: else native VP6 (vp6only: VP6 always); game: the game's own decoder.", 0),
+    ENUM("movies", Display, 0, "vp6preferred|vp6only", "vp6preferred: converted .mp4 if present, else native VP6; vp6only: always native VP6.", 0),
 
     // ---- Controls ----
-    BOOL("rear_touch", Controls, 1, "Rear touch pad works as L2, R2, L3 and R3, unbound until set in the Controls screen.", 0),
-    BOOL("front_touch", Controls, 1, "Touching the screen clicks like a mouse in the menus; no cursor is drawn.", 0),
-    BOOL("garage_stick", Controls, 1, "The right stick turns the car in the garage and the customisation menus.", 0),
-    INT("garage_stick_deadzone", Controls, 30, 0, 99, 1, "Dead zone of the garage stick, in percent of its range.", 0),
-    INT("stick_deadzone", Controls, 15, 0, 40, 1, "Dead zone of both sticks (steering too), in percent of their range; the game's own dead zone still applies.", 0),
-    BOOL("camera_stick", Controls, 1, "While driving the right stick turns the chase camera round the car (hood, bumper: down looks back).", 0),
-    ENUM("quick_chat_button", Controls, 0, "dpad_down|dpad_up|triangle|select", "Free roam's quick chat: hold this and press a phrase button (Vita Settings, Friends and crews); select: Select + the button.", 0),
+    BOOL("rear_touch", Controls, 1, "Rear touch pad works as L2, R2, L3 and R3, unbound until set in the Controls screen.", SettingInGame),
+    BOOL("garage_stick", Controls, 1, "The right stick turns the car in the garage and the customisation menus.", SettingInGame),
+    INT("garage_stick_deadzone", Controls, 30, 0, 70, 1, "Right stick dead zone in the garage and customisation menus, in percent; raise it if the car spins alone.", 0),
+    INT("free_look_deadzone", Controls, FreeLookDeadZoneDefault, 0, 70, 1, "Dead zone of the right stick for free look, in percent; raise it if the camera moves by itself.", 0),
+    INT("stick_cone_angle", Controls, 25, 0, 45, 1, "Steer/throttle stick: degrees off its axis that still count as a full push. 0 is the PC game's way.", 0),
+    BOOL("camera_stick", Controls, 1, "While driving the right stick turns the chase camera round the car (hood, bumper: down looks back); off: 0.9.0's free look.", 0),
     INT("camera_stick_speed", Controls, 4, 1, 10, 1, "How fast the right stick camera turns to the stick and comes back: 1 slowest, 10 fastest.", 0),
+    BOOL("free_look_ease_back", Controls, 1, "Free look: let go less than 120 degrees round and the camera eases back behind the car; further round it cuts back.", 0),
+    ENUM("horn_button", Controls, 0, "dpad_left|dpad_right|rear_l3|rear_r3|off|dpad_up|dpad_down|triangle|circle|square|cross|l|r|rear_l2|rear_r2", "Free roam's horn: hold this to honk; the other players hear it. A short D-pad press is still the game's; a face button or L/R keeps its game action too.", 0),
+    ENUM("drift_button", Controls, 0, "dpad_right|dpad_left|rear_r3|rear_l3|off|dpad_up|dpad_down|triangle|circle|square|cross|l|r|rear_l2|rear_r2", "Free roam's drift mode: hold this to switch it on or off. A short D-pad press is still the game's; a face button or L/R keeps its game action too.", 0),
+    ENUM("quick_chat_button", Controls, 0, "dpad_down|dpad_up|triangle|select", "Free roam's quick chat: hold this and press a phrase button (Vita Settings, Social); select: Select + the button.", 0),
     ENUM("steering", Controls, 0, "analog|digital", "analog: the left stick steers as far as it is pushed; digital: pushed past halfway it ramps to full lock, as a keyboard.", 0),
-    ENUM("stick_response", Controls, 0, "standard|linear|precise", "Stick response: standard is finer near the centre, linear follows the stick, precise is finer still.", 0),
 
     // ---- Audio ----
     BOOL("music_hw_decode", Audio, 1, "Decode music with the Vita's MP3 decoder, which frees the CPU; the game's decoder is the fallback.", 0),
@@ -82,7 +83,10 @@ const Setting s_table[] =
 
     // ---- Developer: boot, front end ----
     BOOL("ui_log", Developer, 0, "Log the user interface positions the game sets.", 0),
+    BOOL("ps2_prompts", Developer, 1, "PS2-style prompts: button icons in every menu text and Help on Triangle; off is the PC menus.", 0),
     BOOL("pad_log", Developer, 0, "Log the pad bindings and the buttons pressed.", 0),
+    INT("free_look_swing", Developer, 180, 0, 2000, 10, "Free look: degrees a second the camera swings to aims less than 90 from ahead; 0 snaps.", 0),
+    BOOL("free_look_release_swing", Developer, 0, "Free look: letting go swings back to the chase view instead of snapping.", 0),
     STR("pad_script", Developer, "", "Scripted pad input for tests.", 0),
     BOOL("boot_race", Developer, 0, "Skip the menus and start a test race.", 0),
     ENUM("boot_mode", Developer, 0, "race|url|drag|drift|freeroam", "Kind of race boot_race starts.", 0),
@@ -127,6 +131,7 @@ const Setting s_table[] =
     INT("movies_vp6_queue", Developer, 6, 1, 15, 1, "VP6 frames decoded ahead.", DS),
     ENUM("movies_vp6_split", Developer, 1, "off|on|core0", "VP6 coefficients on a second thread: off, on (core 3 only) or on core 0.", DS),
     BOOL("movies_vp6_unlock", Developer, 0, "Decode VP6 movies without the execution lock.", DS),
+    STR("movies_game_dir", Developer, "", "Folder below the data folder the game opens its .vp6 movies from (with movies_dir).", DS),
     STR("movies_redirect", Developer, "", "from:to, the game opens to.vp6 in place of from.vp6.", DS),
     STR("ime_test", Developer, "", "Text the keyboard test types.", 0),
     STR("ime_test_field", Developer, "", "Field the keyboard test fills.", 0),
@@ -187,8 +192,9 @@ const Setting s_table[] =
     BOOL("gxm_core2", Developer, 1, "Allow a command list worker on core 2.", 0),
     BOOL("gxm_program_list", Developer, 1, "Load the list of shader programs to build at start.", 0),
     BOOL("cull_swap", Developer, 0, "Swap the culling direction.", 0),
+    STR("debug_instruction", Developer, "", "wait: Customize's instruction line shows the bind wait text.", DS),
     BOOL("debug_frame_dump", Developer, 0, "Dump frames to files.", 0),
-    INT("debug_hold_frame", Developer, 0, 0, 100000, 100, "Hold the shown frame from this frame on and write hold.bmp; 0 is off.", 0),
+    INT("debug_hold_frame", Developer, 0, 0, 100000, 100, "Hold the shown frame from this frame on and write hold.bmp; 0 is off.", DT),
     INT("debug_skip_vp", Developer, 0, 0, 1000, 1, "Skip drawing with this vertex program; 0 is off.", 0),
     INT("debug_skip_fp", Developer, 0, 0, 1000, 1, "Skip drawing with this fragment program; 0 is off.", 0),
     INT("debug_max_draws", Developer, 0, 0, 100000, 10, "Draw at most this many calls a frame; 0 is no limit.", 0),
@@ -196,7 +202,8 @@ const Setting s_table[] =
     INT("debug_scene_dump", Developer, 0, 0, 100000, 1, "Log every Nth frame's scenes.", HOST),
     INT("debug_merge_limit", Developer, 1000, 0, 100000, 100, "Largest number of draws merged.", 0),
     INT("debug_plan_check", Developer, 0, 0, 100000, 1, "Every Nth frame is drawn as recorded and as planned, and compared.", 0),
-    STR("debug_shot_frames", Developer, "", "Race frames to save as shot_N.bmp: a,b,c; fN rendered frame N, lN N frames after loading.", 0),
+    STR("debug_shot_frames", Developer, "", "Race frames to save as shot_N.bmp: a,b,c; fN rendered frame N, lN N frames after loading.", DT),
+    INT("debug_control_type", Developer, 0, 0, 5, 1, "Plays with this Control Type (1 to 4, 5 Custom) without storing it; 0 uses registry.txt.", DS),
     BOOL("debug_draw_hash", Developer, 0, "Hash each draw.", 0),
     BOOL("debug_scene_finish", Developer, 0, "Wait for the GPU after each scene.", 0),
     FAST("scene_merge", "merging scenes"),
@@ -321,6 +328,7 @@ const Setting s_table[] =
     NATIVE_ALWAYS("anim_sample_native", "keyframe sampling"),
     NATIVE_ALWAYS("anim_quant_native", "quantised keyframe sampling"),
     NATIVE_ALWAYS("anim_quant3_native", "quantised three-channel keyframe sampling"),
+    NATIVE("movies_convert_native", "the movie frame conversion"),
 
     // ---- Developer: save folder, files ----
     STR("save_dir", Developer, "", "Save folder override; empty uses the folder below the data folder.", 0),
@@ -329,6 +337,7 @@ const Setting s_table[] =
     BOOL("save_atomic", Developer, 1, "Write saves to a temporary file and rename.", 0),
     BOOL("file_lazy_seek", Developer, 1, "Seek files only when needed.", 0),
     BOOL("file_handle_cache", Developer, 1, "Keep file handles open.", 0),
+    BOOL("texture_merge_native", Developer, 1, "Merge texture pack tables natively (car loads).", 0),
 
 };
 
@@ -339,6 +348,15 @@ const Setting s_table[] =
 #undef NATIVE
 #undef NATIVE_ALWAYS
 #undef FAST
+
+// Keys that no longer exist: a cfg line for one is skipped without a message.
+const char* const s_retired[] = { "front_touch", "widescreen", "control_type", "custom_binds", "left_stick_mode", "right_stick_mode",
+                                  "dpad_mode", "free_look",
+                                  "left_stick_deadzone", "left_stick_saturation", "left_stick_sensitivity", "right_stick_deadzone",
+                                  "right_stick_saturation", "right_stick_sensitivity",
+                                  // the fork's own, replaced by 0.9.0's stick rows (stick_deadzone and
+                                  // stick_response fill in the stick rows once: src/ug2/controlslink.cpp)
+                                  "stick_deadzone", "stick_response" };
 
 const SettingAlias s_aliases[] =
 {
@@ -396,6 +414,16 @@ bool settingReadInThisBuild(const Setting& setting)
     missing |= SettingNeedsShadowBuild;
 #endif
     return (setting.flags & missing) == 0;
+}
+
+bool settingRetired(const char* key)
+{
+    for (const char* retired : s_retired)
+    {
+        if (strcmp(retired, key) == 0)
+            return true;
+    }
+    return false;
 }
 
 const SettingAlias* settingAliases(int* count)

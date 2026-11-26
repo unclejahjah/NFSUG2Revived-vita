@@ -217,7 +217,7 @@ const Setting s_maxSettings[] = {
     { "g_OverBrightEnable", 1 },
     { "g_BleachByPassEnable", 1 },
     { "g_TintingEnable", 1 },
-    { "g_FSAALevel", 4 },
+    { "g_FSAALevel", 4 },                       // clamped to the cap 2 (4x), as the game's top Level of Detail
     { "g_HorizonFogEnable", 1 },
     { "g_TextureFiltering", 2 },                // anisotropic where the caps allow
     { "g_PerformanceLevel", 5 },

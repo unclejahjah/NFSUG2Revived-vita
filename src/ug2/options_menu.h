@@ -22,7 +22,12 @@ bool save();
 // Starts the game again (does not return on the Vita).
 void restart();
 
+// Vita Settings' pages (the Car Shop's Stance page is not one of them).
 int groupCount();
+// The Car Shop's Stance page (menu_entry.cpp): its rows are a group like the others; row 0 is Stance on or off.
+int stanceGroup();
+bool stanceIsOn();
+void stanceTurnOn();
 const char* groupTitle(int g);
 int itemCount(int g);
 const char* itemLabel(int g, int i);
@@ -33,6 +38,8 @@ int itemMaxLength(int g, int i);
 std::string itemValue(int g, int i);
 // A text item's text to edit (empty for a secret).
 std::string itemText(int g, int i);
+// A group's heading row inside a page (System's Sound, Display, Performance; Social's): it sets nothing.
+bool itemIsHeading(int g, int i);
 // A row that does something (the cloud saves): Cross runs it, its value says how it went, and actionVersion changes
 // with each new status.
 bool itemIsAction(int g, int i);
@@ -44,6 +51,10 @@ void cycle(int g, int i, int delta);
 void setText(int g, int i, const std::string& text);
 // After a change was saved: applies it now if it can be, which most settings cannot (true then).
 bool applyLive(int g, int i);
+// A cfg setting from another screen (Controls > Customize): its value as Vita Settings shows it, and a step of it,
+// saved and applied at once.
+std::string cfgValue(const char* key);
+bool cfgCycle(const char* key, int delta);
 
 }}
 

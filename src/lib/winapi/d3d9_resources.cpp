@@ -216,14 +216,15 @@ void Texture::keep(uint32_t index, MemMap* memory, uint32_t ticket)
 
 // ---- Texture -------------------------------------------------------------------------------------------------------
 
-Texture::Texture(Device* device, const render::TextureDesc& desc, DWORD format, DWORD usage, DWORD pool)
+Texture::Texture(Device* device, const render::TextureDesc& desc, DWORD format, DWORD usage, DWORD pool, bool proxy)
     :   Object(desc.cube ? KindCubeTexture : KindTexture)
     ,   m_device(device)
     ,   m_desc(desc)
     ,   m_format(format)
     ,   m_usage(usage)
     ,   m_pool(pool)
-    ,   m_storage(gpu().createTexture(desc))
+    ,   m_storage(proxy ? nullptr : gpu().createTexture(desc))
+    ,   m_proxy(proxy)
 {
     device->addRef();
     KeptLevels::get();
@@ -260,7 +261,19 @@ Texture::~Texture()
         delete surface;
     if (m_storage)
         gpu().release(m_storage);
+    if (m_lender)
+        m_lender->release();
     m_device->release();
+}
+
+void Texture::lend(Texture* source)
+{
+    if (source == m_lender)
+        return;
+    source->addRef();
+    if (m_lender)
+        m_lender->release();
+    m_lender = source;
 }
 
 void Texture::fillDesc(UINT level, D3DSURFACE_DESC* desc) const
@@ -592,6 +605,8 @@ Surface::~Surface()
 {
     if (m_role == RoleDepth && m_depth)
         gpu().release(m_depth);
+    if (m_depthListed)
+        m_device->forgetDepth(this);
 }
 
 void Surface::setContainer(Texture* texture, uint32_t face, uint32_t level)

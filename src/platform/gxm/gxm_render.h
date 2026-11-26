@@ -128,6 +128,8 @@ struct Depth : render::DepthStorage
     void*                       data;
     void*                       stencil;
     SceGxmDepthStencilSurface   surface;
+    SceGxmDepthStencilSurface   msaaSurface;    // the same memory as samples of the msaa mode (samples > 1)
+    uint8_t                     samples = 1;    // values per pixel in data: 1, 2 or 4 (msaa)
 };
 
 struct Buffer : render::BufferStorage
@@ -169,7 +171,8 @@ public:
     // Game thread: uploads queued in between run as one task.
     void beginUploads();
     void endUploads();
-    render::DepthStorage* createDepth(uint32_t width, uint32_t height);
+    // samples: 1, or 2 or 4 for a depth that msaa scenes of that mode can use.
+    render::DepthStorage* createDepth(uint32_t width, uint32_t height, uint32_t samples);
     render::BufferStorage* createBuffer(uint32_t size);
     void release(render::TextureStorage* texture);
     void release(render::DepthStorage* depth);
@@ -225,6 +228,9 @@ private:
         bool        depthUsed;      // cleared or tested by a draw
         bool        skipped;        // only colour clears: drawn at the start of scene carriedTo instead
         uint32_t    carriedTo;
+        bool        msaa;           // multisampled (setting msaa): colour downscaled when stored, depth per sample
+        bool        storesDepth;    // the next scene using its depth continues with it
+        SceGxmColorSurface          msaaColor;      // the target's surface with the downscale mode
         // Where it draws.
         const SceGxmColorSurface*   color;
         SceGxmSyncObject*           sync;
@@ -234,6 +240,8 @@ private:
         uint32_t                    firstJob, jobCount;
     };
     void planFrame(const render::Frame& frame, bool stretchDirect);
+    // After the rest of planFrame: ScenePlan::msaa and storesDepth.
+    void planMsaa(const render::Frame& frame);
     // After planFrame.
     bool presentScene(const render::Frame& frame) const;
     const SceGxmTexture* offscreen(const render::Frame& frame) const;
@@ -383,10 +391,10 @@ private:
     void* allocateTexture(uint32_t bytes, uint32_t alignment);
     bool waitForPending();
     const VertexEntry* vertexProgram(uint8_t program, uint8_t layout);
-    const FragmentEntry* fragmentProgram(const render::DrawState& state);
+    const FragmentEntry* fragmentProgram(const render::DrawState& state, bool msaa);
     // Creates the fragment program of a cache key (fragmentKey) and adds it to the cache.
     const FragmentEntry* createFragment(uint64_t key);
-    SceGxmRenderTarget* renderTarget(uint32_t width, uint32_t height);
+    SceGxmRenderTarget* renderTarget(uint32_t width, uint32_t height, bool msaa);
     static bool finished(void* self, uint32_t frameIndex);
     // Patched programs of every draw (render thread; creates them on first use).
     void preparePrograms(const render::Frame& frame);
@@ -470,6 +478,14 @@ private:
     SortStats                   m_sortStats;
     float                       m_sceneScale = 1.0f;    // debug_scene_scale: every scene's viewport scale
     uint32_t                    m_sceneSignature = 0, m_sceneLogs = 0, m_sceneLogFrame = 0;
+    // The msaa mode of the frame being drawn (Frame::msaaSamples).
+    SceGxmMultisampleMode       m_msaa = SCE_GXM_MULTISAMPLE_NONE;
+    uint32_t                    m_msaaSamples = 1;
+    uint32_t                    m_msaaModeShown = 1;    // samples of the last planned frame, for the log
+    bool                        m_msaaFailed = false;   // the GPU refused a multisampled scene
+    uint32_t                    m_msaaSignature = 0, m_msaaLogs = 0;    // msaa scene layout last logged
+    uint32_t                    m_depthLogs = 0;        // game thread: createDepth
+    std::vector<uint8_t>        m_drawMsaa;             // per draw of the frame being drawn: in an msaa scene
 
     // Command lists. m_workers[0] is the render thread's own deferred context.
     std::vector<Worker*>        m_workers;

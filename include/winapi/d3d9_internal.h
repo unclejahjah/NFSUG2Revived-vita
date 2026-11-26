@@ -488,10 +488,14 @@ public:
 class Texture : public Object
 {
 public:
-    Texture(Device* device, const render::TextureDesc& desc, DWORD format, DWORD usage, DWORD pool);
+    // proxy: a multisampled render target with no storage until a resolve or copy lends it one (lend).
+    Texture(Device* device, const render::TextureDesc& desc, DWORD format, DWORD usage, DWORD pool, bool proxy = false);
     ~Texture() override;
 
-    render::TextureStorage* storage() const    { return m_storage; }
+    render::TextureStorage* storage() const    { return m_lender ? m_lender->m_storage : m_storage; }
+    bool proxy() const                          { return m_proxy; }
+    // Proxy: draws into it and copies out of it use source's storage from now on.
+    void lend(Texture* source);
     const render::TextureDesc& desc() const    { return m_desc; }
     DWORD format() const                        { return m_format; }
     Device* device() const                      { return m_device; }
@@ -546,6 +550,8 @@ private:
     std::vector<KeptLevel*> m_kept;         // the linear copy kept after the last unlock (KeptLevels lock)
     std::vector<Surface*>   m_surfaces;
     bool                    m_opaque = false;   // copied from the back buffer, which has no alpha
+    bool                    m_proxy = false;
+    Texture*                m_lender = nullptr;     // proxy: holds one reference
 };
 
 class Surface : public Object
@@ -570,6 +576,7 @@ public:
     render::DepthStorage* depth() const     { return m_depth; }
     void setContainer(Texture* texture, uint32_t face, uint32_t level);
     void setDepth(render::DepthStorage* depth) { m_depth = depth; }
+    void setDepthListed(bool listed)        { m_depthListed = listed; }
     ULONG addRef() override;
     ULONG release() override;
     void bind() override;
@@ -594,6 +601,7 @@ private:
     Texture*                m_container = nullptr;
     uint32_t                m_face = 0, m_level = 0;
     render::DepthStorage*   m_depth = nullptr;      // owned for RoleDepth
+    bool                    m_depthListed = false;  // in its device's msaa depth list
 };
 
 // Vertex and index buffers: the guest writes a shadow copy in guest memory; unlocks copy into the GPU buffer,
@@ -1284,6 +1292,8 @@ public:
     }
     // The stream of the frame being recorded; null between frames.
     Stream* stream() const                      { return m_ctx.stream; }
+    // A depth surface is destroyed: it leaves the msaa list.
+    void forgetDepth(Surface* surface);
     // What draws need bound: stream 0 and its stride, indices, a declaration, the FVF.
     void bindings(bool& stream, UINT& stride, bool& indices, bool& declaration, DWORD& fvf) const
     {
@@ -1414,6 +1424,16 @@ private:
 
     void defaults();
     void resetBackBuffer(const D3DPRESENT_PARAMETERS& params);
+    // The proxy (Texture::proxy) a whole copy lends a texture to.
+    Texture* lendingProxy(Surface* source, Surface* dest, const RECT* sourceRect, const RECT* destRect) const;
+    // A copy of a lent proxy onto itself.
+    void dropSelfCopy(render::DrawCall& d, const render::TextureStorage* const* textures, const render::Scene* s);
+    // Frame open: on a new msaa count, replaces every listed depth.
+    void applyMsaa(uint32_t frameIndex);
+    // A depth surface whose depth follows the msaa count.
+    void listDepth(Surface* surface);
+    // Samples of a depth for msaa count samples: 1 below the back buffer's size (never multisampled).
+    uint32_t depthSamples(uint32_t width, uint32_t height, uint32_t samples) const;
     // Sets a state slot with a binding reference (Object::bind).
     template< typename T > void bindSlot(T*& slot, T* object);
     render::Frame* frame(WinApplication* app, x86::CPU& cpu);
@@ -1468,6 +1488,8 @@ private:
     State                   m_state;        // from here on: the fields draws read, together
     Surface*                m_backBuffer = nullptr;
     Surface*                m_autoDepth = nullptr;
+    uint32_t                m_msaaSamples = 1;      // samples of the depths created now and of the frames opened
+    std::vector<Surface*>   m_depthSurfaces;        // the auto depth and CreateDepthStencilSurface surfaces alive
     const EffectPass*       m_effectPass = nullptr;
     uint32_t                m_deviceSamplers = 0;
     uint32_t                m_deviceStates = 0;
@@ -1487,6 +1509,7 @@ private:
 
     bool                    m_fastLayer = false;        // d3d_fast_layer: the caches below and State's layout
     bool                    m_sceneCached = false;      // the last scene is still the one of the bound targets
+    bool                    m_proxyTarget = false;      // the bound target is a multisample proxy (Texture::proxy)
     uint32_t                m_sceneFrame = 0, m_sceneCount = 0, m_sceneEpoch = 0;   // frame, scene count, texture epoch
     uint32_t                m_markFrame = 0, m_markEpoch = 0;   // m_marked holds what this frame marked at this epoch
     const void*             m_marked[render::MaxSamplers + 2] = {};

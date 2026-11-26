@@ -14,6 +14,15 @@
 // rows for: 0x54-byte rows from 0x51E230, added with 0x54EF30 (row, 1), which binds their name (+0x2C) and value
 // (+0x30) text objects. A row's method 1 (thiscall (x, message), ret 8) takes left and right, method 3 sets its
 // texts with 0x50C900 (object, text hash), and the text of a hash comes from 0x4FF9D0 (edx), answered here for ours.
+//
+// The Car Shop's Stance (as the browser's runtime/stance.c has it): Customize's Body Shop list gets an entry after
+// Rims, made as 0x53A620 makes Rims' (an item 0x40 bytes, vtable 0x79BE34, +0xC its code, +0x2C its label; 0x52ED80
+// puts it in the list). Its Accept starts the fade Rims' does (0x53A310), and at the fade's end (0xE1FDE1D1) the
+// Options screen (UI_Options.fng) comes on page 4, which the game has no entries for: here the rows of options_menu's
+// Stance group (the Mods page's switch, then the driven car's own stance: stance_vita.c's stance_menu_*), with the
+// garage's camera on the car's front (0x4C2100) and the car drawn with the values as they are set. The car keeps
+// them when the page closes (scripts/NFSU2Stance.ini, per profile and car). Its Back (the fade's end with +0x138 0x911AB364)
+// goes to the Body Shop again, not to the Options menu.
 
 #include "menu_entry.h"
 #include "options_menu.h"
@@ -28,6 +37,14 @@
 #include <string>
 #include <vector>
 
+// free roam's texts of its own (revived/roam/mp/mp_vita.c): the guest string of a text hash, 0 for none of ours
+extern "C" uint32_t roam_lang_text(uint32_t hash);
+// revived/roam/stance_vita.c: the stance read from the .ini again at the next car; the front end's car drawn with it
+extern "C" void stance_reload(void);
+extern "C" void stance_fe_preview(int on);
+extern "C" void stance_menu_open(void);
+extern "C" void stance_menu_close(void);
+
 namespace ug2
 {
 
@@ -36,6 +53,7 @@ void sub_4b6230_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_4b8470_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_4ff9d0_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_4c4bd0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_53a620_guest(win32::WinApplication* app, x86::CPU& cpu);
 
 namespace
 {
@@ -101,6 +119,37 @@ const reg32 RowSize          = 0x58;        // the game's 0x54, then our item in
 const unsigned AcceptSound   = 8;
 const int MaxGroups          = 15;
 
+// The Car Shop's Stance (the browser's runtime/stance.c's addresses, the same game)
+const reg32 PartsReact       = 0x00566490;  // the Body Shop list's React (thiscall; message, 3 more; ret 0x10)
+const reg32 PartsItemAdd     = 0x0052ED80;  // thiscall on the list (item, 1, -1): the item's icon object
+const reg32 PartsGoFade      = 0x0053A310;  // thiscall on the parts screen: Rims' Accept, the screen's fade out
+const reg32 FeSound          = 0x0051DE30;  // cdecl (8, screen +0x30): the menu's sound
+const reg32 SetObjectText    = 0x00495460;  // cdecl (package name, object hash, text hash)
+const reg32 GarageCamera     = 0x004C2100;  // cdecl (view, 0, 0, 1): the garage's camera to a view
+const reg32 GarageCameraBack = 0x004C2140;  // cdecl (0, 1): its orbit again
+const reg32 FePackage        = 0x0052CEF0;  // cdecl (package name): the FEPackage, 0 when not loaded
+const reg32 ShowObject       = 0x0050CA50;  // cdecl (object)
+const reg32 PartItemClass    = 0x0079BE34;  // a Body Shop list item: +0xC its code, +0x2C its label hash
+const reg32 StanceIcon       = 0xB802F10E;  // the Car Shop's Change Body Parts icon: the car between two arrows
+const reg32 StanceCode       = 0x1E;        // our item's code: no category's (parts 1-0x20 but this, rims 0x1D)
+const reg32 PartsRowCode     = 0x007F867C;  // the screen table's UI_GenericParts_Browser.fng row +0x10: the list's code
+const reg32 RimsGoing        = 0x00839BC0;  // byte: Rims' fade under way (0x53A310)
+const reg32 OptionsPage      = 0x0083AA04;  // the Options screen's page (0 Audio .. 3 Player; 4: none of the game's)
+const reg32 StancePage       = 4;
+const reg32 FadeDone         = 0xE1FDE1D1;
+const reg32 OptionsBackMessage = 0x138;     // the Options screen: the message its fade out ends with
+const reg32 OptionsTitle     = 0x42ADB44C;  // the Options screen's title object
+const reg32 FrontView        = 0xA1;        // the garage's Hydraulics view: the car's front, low
+const reg32 OptionsName      = 0x0078FA50;  // "UI_Options.fng"
+const reg32 PartsName        = 0x00790634;  // "UI_GenericParts_Browser.fng"
+const char RatingPackage[]   = "UI_Menu_Asset_Reputation.fng";   // the shops' Visual Rating, hidden on the page
+const reg32 PanelGroup       = 0x8D7E0C53;  // UI_Options.fng: the title's and the panel's backings' group
+const reg32 PanelOuter       = 0x0DE769B5;  // ... the outer backing (alpha 215)
+const reg32 PanelInner       = 0x371F1C93;  // ... the inner one (alpha 200)
+const reg32 PanelAlpha       = 0x80;        // on the Stance page: the car seen through them, the labels still read
+const reg32 StanceLabel      = 0x56544000;  // our text: "Stance" (kind 4 of our hashes)
+const int FadeFrames         = 300;         // a fade the game never ended within this: none
+
 // The game's own category icons for ours (GlobalB's, which race pause menus have too), and the last for Save and
 // Restart.
 const reg32 GroupIcons[] = { 0xD708EFEF, 0x4DF98FB2, 0x8A006328, 0xF37AF144, 0xA04A7B26, VitaIcon };
@@ -116,6 +165,7 @@ reg32 hashOf(TextKind kind, int g, int i, int parity) { return OurHashes | reg32
 win32::MethodPtr s_mainReact = nullptr;
 win32::MethodPtr s_optionsMainReact = nullptr;
 win32::MethodPtr s_optionsReact = nullptr;
+win32::MethodPtr s_partsReact = nullptr;
 win32::MethodPtr s_peekMessage = nullptr;
 win32::MethodPtr s_addOption = nullptr;
 bool s_inMainSetup = false;
@@ -140,6 +190,16 @@ reg32 s_editRow = 0;                    // the row whose text the keyboard edits
 std::map<reg32, reg32> s_texts;         // our hashes' texts in guest memory, 128 bytes each
 std::map<reg32, std::string> s_shown;   // the value each row shows, by (group, item) hash
 std::map<reg32, int> s_parity;
+
+// The Car Shop's Stance
+bool s_stance = false;                  // UI_Options shows the Stance page
+bool s_stanceGoing = false;             // the Body Shop's fade to it under way
+reg32 s_stanceParts = 0;                // ... from this parts screen
+reg32 s_pageWas = 0;                    // the Options screen's page before ours
+unsigned s_frames = 0, s_goingSince = 0, s_stanceGone = 0;
+reg32 s_ratingName = 0;                 // RatingPackage in guest memory
+reg32 s_ratingPackage = 0;              // its objects we hid, shown again after
+std::vector<reg32> s_ratingHidden;
 
 reg32 callGuest(win32::WinApplication* app, x86::CPU& cpu, reg32 function, reg32 ecx, std::initializer_list<reg32> args)
 {
@@ -250,13 +310,174 @@ void changed(win32::WinApplication* app, x86::CPU& cpu, int g, int i)
                                          DialogDone, DialogDone, 0, text });
 }
 
+// ---- The Car Shop's Stance --------------------------------------------------------------------------------------
+
+// The Visual Rating's objects hidden while the page is open, shown again after.
+void ratingHide(win32::WinApplication* app, x86::CPU& cpu)
+{
+    if (!s_ratingName)
+    {
+        s_ratingName = callGuest(app, cpu, OperatorNew, 0, { reg32(sizeof(RatingPackage)) });
+        for (reg32 k = 0; s_ratingName && k < sizeof(RatingPackage); ++k)
+            rc::st8(s_ratingName + k, x86::reg8(RatingPackage[k]));
+    }
+    const reg32 package = s_ratingName ? callGuest(app, cpu, FePackage, 0, { s_ratingName }) : 0;
+    if (!package || package == s_ratingPackage)
+        return;
+    s_ratingPackage = package;
+    s_ratingHidden.clear();
+    int n = 0;
+    for (reg32 it = rc::ld32(package + 0x4C); it && n < 512 && s_ratingHidden.size() < 64; it = rc::ld32(it + 4), ++n)
+        if (!(rc::ld32(it + 0x1C) & 1))
+        {
+            callGuest(app, cpu, HideObject, 0, { it });
+            s_ratingHidden.push_back(it);
+        }
+}
+
+void ratingShow(win32::WinApplication* app, x86::CPU& cpu)
+{
+    const reg32 package = s_ratingPackage && s_ratingName ? callGuest(app, cpu, FePackage, 0, { s_ratingName }) : 0;
+    if (package && package == s_ratingPackage)
+        for (const reg32 object : s_ratingHidden)
+        {
+            // (only objects still in the package)
+            int n = 0;
+            for (reg32 it = rc::ld32(package + 0x4C); it && n < 512; it = rc::ld32(it + 4), ++n)
+                if (it == object)
+                {
+                    callGuest(app, cpu, ShowObject, 0, { object });
+                    break;
+                }
+        }
+    s_ratingPackage = 0;
+    s_ratingHidden.clear();
+}
+
+// An object of a list (a package's +0x4C, a group's +0x64) by its hash, 0 for none.
+reg32 childObject(reg32 first, reg32 hash)
+{
+    int n = 0;
+    for (reg32 it = rc::ld32(first); it && n < 512; it = rc::ld32(it + 4), ++n)
+        if (rc::ld32(it + 0x10) == hash)
+            return it;
+    return 0;
+}
+
+// An object's colour's alpha (its drawing data +0xC) at most a, marked changed as the FE's setters do.
+void alphaAtMost(reg32 object, reg32 a)
+{
+    const reg32 data = object ? rc::ld32(object + 0x2C) : 0;
+    if (!data || rc::ld32(data + 0xC) <= a)
+        return;
+    rc::st32(data + 0xC, a);
+    rc::st32(object + 0x1C, rc::ld32(object + 0x1C) | 0x400000);
+}
+
+// The page gone (its Back, or another way): the game's page and the car as the shop draws it.
+void stanceClosed(win32::WinApplication* app, x86::CPU& cpu, const char* how)
+{
+    s_stance = false;
+    s_vita = false;
+    s_options = 0;
+    s_editRow = 0;
+    s_stanceGone = 0;
+    rc::st32(OptionsPage, s_pageWas);
+    ratingShow(app, cpu);
+    options::save();
+    stance_menu_close();    // the car keeps its stance (scripts/NFSU2Stance.ini)
+    stance_reload();
+    pf::logInfo("menu entry: Stance page closed (%s)", how);
+}
+
+// Every frame: the front end's car with the stance while the Body Shop or the page is open; the page's look.
+void stanceFrame(win32::WinApplication* app, x86::CPU& cpu)
+{
+    ++s_frames;
+    if (s_stanceGoing && s_frames - s_goingSince > unsigned(FadeFrames))
+    {
+        s_stanceGoing = false;
+        rc::st8(RimsGoing, 0);
+        pf::logInfo("menu entry: the Body Shop's fade to Stance never ended");
+    }
+    if (rc::ld32(GameState) == 6)
+    {
+        stance_fe_preview(0);
+        return;
+    }
+    // (the Body Shop's list loaded, whatever is over it: the shops' Visual Rating and other overlays are packages of
+    // their own, so the top package is not always the list)
+    stance_fe_preview(s_stance || callGuest(app, cpu, FePackage, 0, { PartsName }) != 0);
+    if (!s_stance)
+        return;
+    const reg32 package = callGuest(app, cpu, FePackage, 0, { OptionsName });
+    if (!package)
+    {
+        if (++s_stanceGone > unsigned(FadeFrames))
+            stanceClosed(app, cpu, "the page went without its Back");
+        return;
+    }
+    s_stanceGone = 0;
+    ratingHide(app, cpu);
+    if (const reg32 box = childObject(package + 0x4C, PanelGroup))
+    {
+        alphaAtMost(childObject(box + 0x64, PanelOuter), PanelAlpha);
+        alphaAtMost(childObject(box + 0x64, PanelInner), PanelAlpha);
+    }
+}
+
+// The Body Shop list's React: Accept on our entry starts Rims' fade, and its end opens the Stance page.
+void partsReact(win32::WinApplication* app, x86::CPU& cpu)
+{
+    const reg32 screen = cpu.ecx;
+    const reg32 message = rc::ld32(cpu.esp + 4);
+    const reg32 selected = rc::ld32(screen + 0x58);
+    if ((message == Accept || message == 0x406415E3) && selected && rc::ld32(selected) == PartItemClass &&
+        rc::ld32(selected + 0xC) == StanceCode && rc::ld32(selected + 0x2C) == StanceLabel)
+    {
+        if (!rc::ld8(screen + 0x1D4) && !s_stanceGoing)
+        {
+            s_stanceGoing = true;
+            s_stanceParts = screen;
+            s_goingSince = s_frames;
+            callGuest(app, cpu, PartsGoFade, screen, {});
+            callGuest(app, cpu, FeSound, 0, { 8, rc::ld32(screen + 0x30) });
+            pf::logInfo("menu entry: Body Shop, Stance");
+        }
+        cpu.eax = 1;
+        cpu.esp += 4 + 16;
+        return;
+    }
+    if (message == FadeDone && s_stanceGoing && screen == s_stanceParts)
+    {
+        s_stanceGoing = false;
+        rc::st8(RimsGoing, 0);
+        s_pageWas = rc::ld32(OptionsPage);
+        rc::st32(OptionsPage, StancePage);
+        stance_menu_open();     // the car driven, its rows' values
+        options::load();
+        s_vita = true;
+        s_inPause = false;
+        s_stance = true;
+        s_group = options::stanceGroup();
+        stance_reload();
+        callGuest(app, cpu, SwitchPackage, 0, { rc::ld32(screen + 4), OptionsName, 0 });
+        cpu.eax = 1;
+        cpu.esp += 4 + 16;
+        return;
+    }
+    s_partsReact(app, cpu);
+}
+
 // Our row's method 1 (thiscall (x, message), ret 8): left and right change a choice.
 void rowReact(win32::WinApplication* app, x86::CPU& cpu)
 {
     const reg32 row = cpu.ecx;
     const reg32 message = rc::ld32(cpu.esp + 8);
     const int g = s_group, i = rowItem(row);
-    if (g >= 0 && i >= 0 && i < options::itemCount(g) && options::itemIsAction(g, i))
+    if (g >= 0 && i >= 0 && i < options::itemCount(g) && options::itemIsHeading(g, i))
+        ;   // a group's heading: nothing to change
+    else if (g >= 0 && i >= 0 && i < options::itemCount(g) && options::itemIsAction(g, i))
     {
         if (message == Accept)
         {
@@ -269,6 +490,13 @@ void rowReact(win32::WinApplication* app, x86::CPU& cpu)
         options::cycle(g, i, message == Right ? 1 : -1);
         callGuest(app, cpu, rc::ld32(rc::ld32(row) + 0x40), row, { message });    // the game's blink
         setRowTexts(app, cpu, row);
+        // the Car Shop's Stance page: moving a value turns the stance on, so the car shows it
+        if (s_stance && g == options::stanceGroup() && i > 0 && !options::stanceIsOn())
+        {
+            options::stanceTurnOn();
+            if (!s_rows.empty() && isOurRow(s_rows[0]))
+                setRowTexts(app, cpu, s_rows[0]);
+        }
         changed(app, cpu, g, i);
     }
     else if (message == Accept)
@@ -437,6 +665,27 @@ void optionsMainReact(win32::WinApplication* app, x86::CPU& cpu)
 void optionsReact(win32::WinApplication* app, x86::CPU& cpu)
 {
     const reg32 screen = cpu.ecx;
+    if (s_stance && screen == s_options)
+    {
+        const reg32 message = rc::ld32(cpu.esp + 4);
+        // (the game's page actions: none on ours; its rows take Left and Right themselves)
+        if (message == LeaveList || message == Accept)
+        {
+            cpu.eax = 1;
+            cpu.esp += 4 + 16;
+            return;
+        }
+        if (message == FadeDone && rc::ld32(screen + OptionsBackMessage) == OptionsBack)
+        {
+            stanceClosed(app, cpu, "Back");
+            callGuest(app, cpu, GarageCameraBack, 0, { 0, 1 });
+            rc::st32(PartsRowCode, StanceCode);   // the list made again on Stance, as on Rims after its screens
+            callGuest(app, cpu, SwitchPackage, 0, { rc::ld32(screen + 4), PartsName, 0 });
+            cpu.eax = 1;
+            cpu.esp += 4 + 16;
+            return;
+        }
+    }
     if (s_vita && screen == s_options)
     {
         const reg32 message = rc::ld32(cpu.esp + 4);
@@ -497,6 +746,7 @@ void openFromHotkey(win32::WinApplication* app, x86::CPU& cpu)
 void peekMessageHook(win32::WinApplication* app, x86::CPU& cpu)
 {
     s_peekMessage(app, cpu);
+    stanceFrame(app, cpu);
     if (win32::Gamepad::takeSettingsRequest())
         openFromHotkey(app, cpu);
     const unsigned actionVersion = options::actionVersion();
@@ -558,6 +808,7 @@ void configure(win32::WinApplication& app)
     s_addOption = app.replaceMethod(AddOption, addOption);
     s_pauseMainReact = app.replaceMethod(PauseMainReact, pauseMainReact);
     s_pauseListReact = app.replaceMethod(PauseListReact, pauseListReact);
+    s_partsReact = app.replaceMethod(PartsReact, partsReact);
     app.registerMethod(RowReactAddress, { "vita settings row react", rowReact });
     app.registerMethod(RowTextsAddress, { "vita settings row texts", rowTexts });
     pf::logInfo("menu entry: Vita Settings in the main menu");
@@ -659,7 +910,9 @@ void sub_4b8470(win32::WinApplication* app, x86::CPU& cpu)
     s_editRow = 0;
     s_rows.clear();
     s_restartShown = false;
-    const int count = s_group < options::groupCount() ? options::itemCount(s_group) : 0;
+    // (the Car Shop's Stance page is a group past Vita Settings' own: groupCount() leaves it out)
+    const bool known = s_group >= 0 && (s_group < options::groupCount() || s_group == options::stanceGroup());
+    const int count = known ? options::itemCount(s_group) : 0;
     for (int i = 0; s_rowClass && i < count; ++i)
     {
         const reg32 row = callGuest(app, cpu, OperatorNew, 0, { RowSize });
@@ -672,7 +925,14 @@ void sub_4b8470(win32::WinApplication* app, x86::CPU& cpu)
         s_rows.push_back(row);
     }
     callGuest(app, cpu, SelectRow, screen, { 0 });
-    pf::logInfo("menu entry: %s, %d settings", options::groupTitle(s_group), count);
+    if (s_stance)
+    {
+        // the Car Shop's page: its title, and the garage's camera on the car's front
+        if (setText(app, cpu, StanceLabel, "Stance"))
+            callGuest(app, cpu, SetObjectText, 0, { package, OptionsTitle, StanceLabel });
+        callGuest(app, cpu, GarageCamera, 0, { FrontView, 0, 0, 1 });
+    }
+    pf::logInfo("menu entry: %s, %d settings", s_stance ? "Car Shop, Stance" : options::groupTitle(s_group), count);
     cpu.esp += 4;
 }
 
@@ -713,9 +973,49 @@ void sub_4c4bd0(win32::WinApplication* app, x86::CPU& cpu)
     cpu.esp += 4;
 }
 
+// The Body Shop list's Rims entry (thiscall on the parts screen (2 label hashes), ret 8; called by the list's setup
+// 0x545B50 only): the game's, then our Stance entry after it.
+void sub_53a620(win32::WinApplication* app, x86::CPU& cpu)
+{
+    const reg32 screen = cpu.ecx;
+    sub_53a620_guest(app, cpu);
+    if (!options::enabled() || !setText(app, cpu, StanceLabel, "Stance"))
+        return;
+    s_stanceGoing = false;
+    const reg32 item = callGuest(app, cpu, OperatorNew, 0, { 0x40 });
+    if (!item)
+        return;
+    for (reg32 o = 0; o < 0x40; o += 4)
+        rc::st32(item + o, 0);
+    rc::st32(item, PartItemClass);
+    rc::st32(item + 0xC, StanceCode);
+    rc::st32(item + 0x2C, StanceLabel);
+    rc::st8(item + 0x21, 1);
+    rc::st8(item + 0x22, 0);
+    rc::st8(item + 0x23, 1);
+    rc::st8(item + 0x34, 1);
+    rc::st32(item + 0x38, item + 0x38);     // its own list: empty
+    rc::st32(item + 0x3C, item + 0x38);
+    const reg32 icon = callGuest(app, cpu, PartsItemAdd, screen + 0x4C, { item, 1, 0xFFFFFFFF });
+    if (icon && rc::ld32(icon + 0x24) != StanceIcon)
+    {
+        rc::st32(icon + 0x24, StanceIcon);
+        rc::st32(icon + 0x1C, rc::ld32(icon + 0x1C) | 0x400000);
+    }
+    rc::st32(screen + 0x1C4, rc::ld32(screen + 0x1C4) + 1);
+    pf::logInfo("menu entry: Body Shop, Stance after Rims (item %08x)", unsigned(item));
+}
+
 // The game's text of a label hash (edx; the text in eax): ours for our hashes.
 void sub_4ff9d0(win32::WinApplication* app, x86::CPU& cpu)
 {
+    // free roam's texts of its own (the race card's Solo, Multiplayer, Join: revived/roam/mp/mp_vita.c)
+    if (const reg32 own = roam_lang_text(cpu.edx))
+    {
+        cpu.eax = own;
+        cpu.esp += 4;
+        return;
+    }
     if (cpu.edx == LabelHash || (cpu.edx & 0xFFFF0000) == OurHashes)
     {
         const std::map<reg32, reg32>::const_iterator it = s_texts.find(cpu.edx);

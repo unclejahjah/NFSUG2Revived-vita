@@ -36,6 +36,8 @@ using x86::reg32;
 
 // debug_frame_dump=on (development): true while the frame being recorded is written to the log draw by draw.
 bool dumpingFrame();
+// Game thread: frames opened from now on multisample with 1 (off), 2 or 4 samples.
+void setMsaaSamples(uint32_t samples);
 
 // ---- IDirect3DDevice9 ----
 

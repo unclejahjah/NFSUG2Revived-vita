@@ -1,14 +1,23 @@
-// Pad bindings: installs the port's default bindings and leaves the rest to the game's Controls screen and profile.
-// Also the pad log, the pad script and the hidden mouse cursor.
+// Pad bindings: the port's defaults, the controls store's frame hook (controlslink) and the driving flag. Also the pad
+// log, the pad script, the hidden mouse cursor and free-roam HUD touch requests.
 
 #include "padbind.h"
+#include "carfilter.h"
+#include "hud_touch.h"
 #include "pad_defaults.h"
+#include "controlslink.h"
+#include "controlsshell.h"
+#include "startprompt.h"
+#include "ownscreens.h"
+#include "psbar.h"
+#include "psprompt.h"
 
 #include <lib/controls.h>
 #include <lib/gamepad.h>
 #include <platform/config.h>
 #include <platform/log.h>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <recomp.h>
@@ -23,6 +32,8 @@ namespace controls = win32::controls;
 const reg32 PeekMessageSlot = 0x00783330;   // import slot of PeekMessageA, called every frame by 0x5BF1C0
 const reg32 GameState = 0x008654A4;         // 3 front end
 const reg32 InputMap = 0x00870788;          // set by 0x5CFBF0: 1 menu map, else a race map
+const reg32 GameMode = 0x00850078;          // 1 career; with no event running, free roam (0x500B60)
+const reg32 CurrentEvent = 0x0089E7B0;      // 0 while no race or event runs (0x500B60)
 const reg32 Slots = 0x00874C40;             // six input slots built by 0x5C11A0, mask made by 0x5C1840
 const reg32 SlotSize = 0x370;
 const reg32 SlotCount = 6;
@@ -39,6 +50,13 @@ const reg32 RaceCoordinator = 0x008900D8;
 const reg32 GearOffset = 0x27C;             // the car's gear, found by diffing memory around shifts
 const float CarLogPeriod = 0.5f;
 const reg32 BindingName = 0x005C20E0;       // thiscall slot (action, 0/1 primary/secondary): Controls screen text
+const reg32 JoyHandlers = 0x008655A0;       // per port a list of nodes: next, -, event +8, cdecl handler +0x10, its data +0x14
+const reg32 JoyPortSize = 0x1C8;
+const reg32 JoyPortCount = 2;
+const reg32 RequestEngageInfo = 0xBF;       // JOY_EVENT_REQUEST_ENGAGE_INFO (action 15): Enter Shop / Start Race
+const reg32 RequestWorldMap = 0xC0;         // JOY_EVENT_REQUEST_WORLD_MAP (action 16)
+const reg32 RequestLegend = 0xC1;           // JOY_EVENT_REQUEST_LEGEND (action 18): Career Stats
+const reg32 RequestMessages = 0xC2;         // JOY_EVENT_REQUEST_MESSAGE_SYSTEM (action 17): Read SMS
 
 win32::MethodPtr s_peekMessage = nullptr;
 bool s_log = false;
@@ -112,11 +130,89 @@ void logMaps()
     }
 }
 
-void program()
+// Calls the game's own handler for a joy event.
+void requestEvent(win32::WinApplication* app, x86::CPU& cpu, reg32 event, const char* name)
 {
+    for (reg32 port = 0; port < JoyPortCount; ++port)
+    {
+        const reg32 list = JoyHandlers + port * JoyPortSize;
+        for (reg32 node = rc::ld32(list); node && node != list; node = rc::ld32(node))
+        {
+            const reg32 handler = rc::ld32(node + 0x10);
+            if (rc::ld32(node + 8) != event || !handler)
+                continue;
+            const x86::CPU saved = cpu;
+            cpu.esp -= 16;
+            rc::st32(cpu.esp, port);
+            rc::st32(cpu.esp + 4, event);
+            rc::st32(cpu.esp + 8, 1);
+            rc::st32(cpu.esp + 12, rc::ld32(node + 0x14));
+            cpu.esp -= 4;
+            app->dynamic_call(handler, cpu);
+            cpu = saved;
+#ifdef DEV_TOOLS
+            pf::logInfo("padbind: touch: %s requested on port %u", name, unsigned(port));
+#endif
+            return;
+        }
+    }
+#ifdef DEV_TOOLS
+    pf::logInfo("padbind: touch: %s request dropped, the game is not listening for it", name);
+#endif
+}
+
+#ifdef DEV_TOOLS
+// Logs the zones each time free-roam driving starts.
+void logZonesLive()
+{
+    static const char* const Names[controls::HudZoneCount] = { "World Map", "Read SMS", "Enter Shop", "Career Stats" };
+    const controls::ZonePolygon* zones = hudtouch::zones();
+    std::string line;
+    for (int z = 0; z < controls::HudZoneCount; ++z)
+    {
+        line += std::string(z ? "; " : "") + Names[z];
+        for (int i = 0; i < zones[z].count; ++i)
+        {
+            char point[24];
+            snprintf(point, sizeof(point), " (%.0f,%.0f)", double(zones[z].points[i].x), double(zones[z].points[i].y));
+            line += point;
+        }
+    }
+    pf::logInfo("padbind: free roam driving, touch zones live, px: %s", line.c_str());
+}
+#endif
+
+// Sends the HUD taps as the game's world action events.
+void sendWorldRequests(win32::WinApplication* app, x86::CPU& cpu)
+{
+    static const struct { controls::HudZone zone; reg32 event; const char* name; } Requests[] = {
+        { controls::HudMap, RequestWorldMap, "World Map" },
+        { controls::HudMessages, RequestMessages, "Read SMS" },
+        { controls::HudShop, RequestEngageInfo, "Enter Shop" },
+        { controls::HudCareer, RequestLegend, "Career Stats" },
+    };
+    const uint32_t zones = controls::takeWorldRequests();
+    for (const auto& r : Requests)
+    {
+        if (zones & (1u << r.zone))
+            requestEvent(app, cpu, r.event, r.name);
+    }
+}
+
+void program(win32::WinApplication* app, x86::CPU& cpu)
+{
+    controlslink::frame();
     if (s_log)
         logCar();
     const bool driving = rc::ld32(InputMap) != 1;
+    win32::controls::setDriving(driving && rc::ld32(GameState) == 6);
+    const bool freeRoam = driving && rc::ld32(GameState) == 6 && rc::ld32(GameMode) == 1 && rc::ld32(CurrentEvent) == 0;
+#ifdef DEV_TOOLS
+    if (freeRoam && !controls::freeRoam())
+        logZonesLive();
+#endif
+    controls::setFreeRoam(freeRoam);
+    sendWorldRequests(app, cpu);
     if (s_scripted && (s_scriptStep || (driving && rc::ld32(GameState) == 6)))
         win32::Gamepad::setInjectedPad(s_script.sampleAt(s_scriptStep++));
     if (!s_log)
@@ -171,7 +267,11 @@ void logNames(win32::WinApplication* app, x86::CPU& cpu, reg32 slot)
 void peekMessageHook(win32::WinApplication* app, x86::CPU& cpu)
 {
     s_peekMessage(app, cpu);
-    program();
+    program(app, cpu);
+    ownscreens::frame(app, cpu);
+    psbar::frame(app, cpu);
+    controlsshell::frame(app, cpu);
+    startprompt::frame();
     if (s_namesSlot)
     {
         logNames(app, cpu, s_namesSlot);
@@ -183,18 +283,13 @@ void peekMessageHook(win32::WinApplication* app, x86::CPU& cpu)
 
 }
 
-void sub_50b460_guest(win32::WinApplication* app, x86::CPU& cpu);
-
 namespace native
 {
 
-// Mouse cursor draw (cdecl; x, y): none with front_touch=on.
-void sub_50b460(win32::WinApplication* app, x86::CPU& cpu)
+// Mouse cursor draw (cdecl; x, y): never drawn.
+void sub_50b460(win32::WinApplication*, x86::CPU& cpu)
 {
-    if (!win32::controls::frontTouchEnabled())
-        sub_50b460_guest(app, cpu);
-    else
-        cpu.esp += 4;
+    cpu.esp += 4;
 }
 
 }
@@ -205,10 +300,16 @@ namespace padbind
 void configure(win32::WinApplication& app)
 {
     s_log = pf::Config::getBool("pad_log", false);
-    pad_defaults::install();
+    controlslink::configure();
+    pad_defaults::install(controlslink::defaultsType());
+    psprompt::configure(app);
+    psbar::install();
+    carfilter::install();
+    controlsshell::configure(app);
     const char* script = pf::Config::getString("pad_script", "");
     s_scripted = *script && s_script.load(script);
     s_peekMessage = app.replaceMethod(rc::ld32(PeekMessageSlot), peekMessageHook);
+    controls::setHudZones(hudtouch::zones());
     pf::logInfo("padbind: port defaults in the EMS table, then the game's own bindings");
 }
 

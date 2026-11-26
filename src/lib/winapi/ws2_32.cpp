@@ -1314,4 +1314,28 @@ int gethostname(WinApplication* app, x86::CPU& cpu, x86::reg32 name, int namelen
     return 0;
 }
 
+x86::reg32 htonl(WinApplication* app, x86::CPU& cpu, x86::reg32 hostlong)
+{
+    RC_USE(app);
+    RC_USE(cpu);
+    return __builtin_bswap32(hostlong);
+}
+
+x86::reg32 htons(WinApplication* app, x86::CPU& cpu, x86::reg32 hostshort)
+{
+    RC_USE(app);
+    RC_USE(cpu);
+    return __builtin_bswap16(uint16_t(hostshort));
+}
+
+x86::reg32 ntohl(WinApplication* app, x86::CPU& cpu, x86::reg32 netlong)
+{
+    return htonl(app, cpu, netlong);
+}
+
+x86::reg32 ntohs(WinApplication* app, x86::CPU& cpu, x86::reg32 netshort)
+{
+    return htons(app, cpu, netshort);
+}
+
 }}

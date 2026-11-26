@@ -494,6 +494,7 @@ struct Frame
     const uint32_t* commands;
     uint32_t    commandCount;                       // words
     bool        uploads;                            // a texture it reads had uploads when it was recorded
+    uint8_t     msaaSamples;                        // setting msaa: 1, 2 or 4; set by the layer at frame open
 };
 
 // Game hook: tag for the draw being recorded; null: 0.

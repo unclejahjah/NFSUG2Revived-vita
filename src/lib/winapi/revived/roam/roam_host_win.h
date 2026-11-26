@@ -12,7 +12,8 @@
 #include <string.h>
 #include <strings.h>
 
-typedef struct CPU CPU;                  /* not used here (always 0) */
+/* the registers of a patched handler (mp/cpu.h: the race card's, ROAM_MPRACES); elsewhere not used (always 0) */
+typedef struct CPU CPU;
 
 /* ---- guest memory: at the guest base -------------------------------------------- */
 extern uint8_t *nfsu2_guest_base;
@@ -27,6 +28,9 @@ typedef float    __attribute__((may_alias, aligned(1))) rh_f32;
 #define GPTR(a)  (nfsu2_guest_base + (uint32_t)(a))
 int      roam_win_committed(uint32_t a);          /* inside the guest's address space */
 #define rh_committed(a) roam_win_committed(a)
+#ifdef ROAM_MPRACES
+#include "mp/cpu.h"
+#endif
 
 /* the game's Player index (runtime/splitscreen_mem.h, the native builds' address) */
 #define SPLIT_PLAYERS_INDEX 0x008900acu
@@ -34,7 +38,8 @@ int      roam_win_committed(uint32_t a);          /* inside the guest's address 
 /* ---- guest calls --------------------------------------------------------------- */
 uint32_t roam_win_call(uint32_t fn, uint32_t ecx, uint32_t edx, int n, const uint32_t *args);
 #define rh_call(c, fn, ecx, edx, n, args) ((void)(c), roam_win_call((fn), (ecx), (edx), (n), (args)))
-uint32_t roam_win_esp(void);                      /* the game thread's esp in the frame hook */
+uint32_t roam_win_esp(void);
+void roam_win_prefetch_car(const char *type);    /* a car type's files opened ahead (ROAM_PREFETCH) */                      /* the game thread's esp in the frame hook */
 
 /* ---- options, log, clocks ------------------------------------------------------- */
 const char *roam_opt(const char *name);           /* environment, then the .ini */
@@ -48,6 +53,21 @@ uint64_t    roam_win_ns(void);
 #define rh_hud_marker(x, y) ((void)(x), (void)(y))   /* the HUD as the game shows it */
 #define RH_FE_NODES      512             /* the game's own level sorter (0x536520's 0x1000 bytes): nothing patched here */
 #define rh_ns()          roam_win_ns()
+#ifdef ROAM_VITA_SOUNDS
+/* the Vita port: horns (horn.c, horn_button) and friends' engines, nitrous and hydraulics (carsfx.c, the game's own
+ * samples), both mixed over the game's sound by src/lib/audio.cpp (roam_vita_audio_mix) */
+#include "horn.h"
+#include "carsfx.h"
+#define rh_horn_held(stick) horn_held(stick)
+#define rh_horn_mine()   horn_mine()
+#define rh_horn_name(k)  horn_name(k)
+#define rh_horn_begin(pos, fwd, vel)   horn_begin((pos), (fwd), (vel))
+#define rh_horn_sound(who, name, kind, p, v) horn_sound((who), (name), (kind), (p), (v))
+#define rh_horn_end()    horn_end()
+#define rh_carsfx_begin(pos, fwd, vel)    carsfx_begin((pos), (fwd), (vel))
+#define rh_carsfx_car(who, name, p, v, st) carsfx_car((who), (name), (p), (v), (st))
+#define rh_carsfx_end()  carsfx_end()
+#else
 /* no horn here: the companion neither sounds one nor plays friends', nor
  * their nitrous and hydraulics (carsfx.c) */
 #define rh_horn_held(stick) ((void)(stick), 0)
@@ -59,10 +79,19 @@ uint64_t    roam_win_ns(void);
 #define rh_carsfx_begin(pos, fwd, vel)    ((void)(pos), (void)(fwd), (void)(vel))
 #define rh_carsfx_car(who, name, p, v, st) ((void)(who), (void)(name), (void)(p), (void)(v), (void)(st))
 #define rh_carsfx_end()  ((void)0)
+#endif
 /* no show-off here: the companion opens no parts and shows friends' cars closed (showoff.c needs the port's
  * overrides of the cars' drawing) */
+#ifdef ROAM_VITA_SHOWOFF
+/* the Vita port: showoff.c (Select + L opens the hood, the trunk, the doors) and friends' cars open as theirs are */
+uint8_t showoff_mine(void);
+void showoff_car(CPU *c, int k, uint32_t car, uint8_t open);
+#define rh_showoff_mine() showoff_mine()
+#define rh_showoff_car(c, k, car, open) showoff_car((c), (k), (car), (open))
+#else
 #define rh_showoff_mine() ((uint8_t)0)
 #define rh_showoff_car(c, k, car, open) ((void)(c), (void)(k), (void)(car), (void)(open))
+#endif
 /* no light key here either: the companion's lights are the game's, and friends' cars show theirs */
 #define rh_lights_mine() 0
 #define rh_lights_car(k, car, st) ((void)(k), (void)(car), (void)(st))
@@ -77,23 +106,52 @@ uint64_t    roam_win_ns(void);
 #define rh_plate_mine()  ""
 #define rh_plate_car(k, car, text) ((void)(k), (void)(car), (void)(text))
 #define rh_plates_forget() ((void)0)
+#ifdef ROAM_VITA_SHOWOFF
+/* the Vita port: stance_vita.c (yours from the .ini's Stance rows, friends' from their car records) */
+int  stance_wire_mine(int16_t v[5]);
+void stance_wire_car(int k, uint32_t car, int has, const int16_t v[5]);
+void stance_forget(void);
+#define rh_stance_mine(v) stance_wire_mine(v)
+#define rh_stance_car(k, car, has, v) stance_wire_car((k), (car), (has), (v))
+#define rh_stance_forget() stance_forget()
+#else
 #define rh_stance_mine(v) ((void)(v), 0)
 #define rh_stance_car(k, car, has, v) ((void)(k), (void)(car), (void)(has), (void)(v))
 #define rh_stance_forget() ((void)0)
+#endif
 /* the game's "No Profile" in English only (the port also knows the other
  * languages' names from the game's text, language.c) */
 #define rh_no_profile(name) (!strcasecmp((name), "No Profile"))
+/* no trips to the race tracks' maps here (travel.c): always the city */
+#define rh_travel_room() 0u
+#ifdef ROAM_VITA_DRIFT
+/* the Vita port: drift.c (the drift button, drift_button in the cfg), and so drift battles */
+int  drift_kept_tuning(uint8_t *out);
+int  drift_wanted(void);
+void drift_battle_begin(void);
+void drift_battle_go(CPU *c);
+void drift_battle_score(double *banked, double *pend);
+uint32_t drift_battle_x(void);
+void drift_battle_end(void);
+#define rh_drift_tuning(out) drift_kept_tuning(out)
+#define ROAM_HOST_DRIFT  1
+#define rh_drift_want()  drift_wanted()
+#define rh_drift_begin() drift_battle_begin()
+#define rh_drift_go(c)   drift_battle_go(c)
+#define rh_drift_score(b, p) drift_battle_score((b), (p))
+#define rh_drift_x()     drift_battle_x()
+#define rh_drift_end()   drift_battle_end()
+#else
 /* no drift mode here (drift.c): the ride's dyno setup is always its own */
 #define rh_drift_tuning(out) ((void)(out), 0)
 #define ROAM_HOST_DRIFT  0               /* ...so no drift battles */
 #define rh_drift_want()  0
-/* no trips to the race tracks' maps here (travel.c): always the city */
-#define rh_travel_room() 0u
 #define rh_drift_begin() ((void)0)
 #define rh_drift_go(c)   ((void)(c))
 #define rh_drift_score(b, p) (*(b) = 0, *(p) = 0)
 #define rh_drift_x()     0u
 #define rh_drift_end()   ((void)0)
+#endif
 
 /* the pose log (test aid, PoseLog in the .ini) */
 typedef struct rh_file rh_file;

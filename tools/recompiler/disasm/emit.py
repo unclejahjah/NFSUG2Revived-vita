@@ -6,6 +6,16 @@ from . import codegen
 from .codegen import ctx as C
 
 
+# Instruction address -> (the mod's instruction, C++ flag): generated both ways, the flag picks (generate.py).
+MOD_SWITCHES = {}
+
+
+def raw_bytes(ins):
+    """Comment text of a decoded instruction from its own bytes."""
+    return '%08x  %s%s %s %s' % (ins.address, bytes(ins.bytes).hex(), ' ' * max(1, 23 - ins.size * 2), ins.mnemonic,
+                                 ins.op_str)
+
+
 def raw(module, fn, ins):
     """Comment text of an instruction: address, bytes, disassembly."""
     if not ins.size:
@@ -57,6 +67,17 @@ def function_body(module, fn, function_names):
                 raise AssertionError('0x%x: promoted stack slot accesses %s, generated %s'
                                      % (ins.address, expected.get(i), ctx.used_slots))
             code = ctx.slot_checks + code
+            switch = MOD_SWITCHES.get(ins.address)
+            if switch is not None:
+                mod, flag = switch
+                ctx.begin(i)
+                ctx.ins = mod
+                modded = codegen.generate(ctx, mod)
+                if ctx.used_slots != expected.get(i, set()):
+                    raise AssertionError('0x%x: the mod switch changes promoted stack slot accesses' % ins.address)
+                modded = ctx.slot_checks + modded
+                code = (['if (%s)' % flag, '{', '    // %s' % raw_bytes(mod)] + ['    ' + l for l in modded]
+                        + ['}', 'else', '{'] + ['    ' + l for l in code] + ['}'])
         lines += ['    ' + l for l in code]
         fallthrough = ins.mnemonic not in ('jmp', 'ret')
     last = fn.n - 1

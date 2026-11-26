@@ -1,7 +1,8 @@
 """The game executable as the generator sees it: sections at their preferred addresses, base relocations, imports.
 
-The image is never rebased; the runtime loads the same file at the same addresses. Every import gets a fake address
-in the header page below the code; the runtime writes these into the import address table and registers its shims
+The executable is never rebased; the runtime loads the same file at the same addresses. A game DLL (server.dll) is
+read as loaded at the guest base the runtime maps it at: its own base relocations applied, as the runtime applies
+them to the original file. Every import gets a fake address in the header page below the code; the runtime writes these into the import address table and registers its shims
 there, so an indirect call through the table reaches the shim.
 """
 
@@ -10,9 +11,10 @@ import struct
 
 from . import pefile
 
-# Fake import addresses: one per import, in the PE header page (the code starts at FAKE_IMPORT_END).
-FAKE_IMPORT_BASE = 0x400a00
-FAKE_IMPORT_END = 0x401000
+# Fake import addresses: one per import, in the PE header page (the code starts at the end offset): offsets from the
+# image base (SPEED2.EXE: 0x400a00-0x401000).
+FAKE_IMPORT_OFFSET = 0xa00
+FAKE_IMPORT_END_OFFSET = 0x1000
 
 # Names of imports by ordinal (pefile's table does not know these DLLs).
 ORDINALS = {
@@ -56,8 +58,10 @@ class Import:
 
 
 class Image:
-    def __init__(self, path, relocation_section=None):
-        """relocation_section: the section holding relocation blocks the directory lost."""
+    def __init__(self, path, relocation_section=None, rebase=None):
+        """relocation_section: the section holding relocation blocks the directory lost. rebase: the guest base the
+        image is loaded at instead of its preferred one (its base relocations applied)."""
+        self.path = path
         with open(path, 'rb') as f:
             self.file_bytes = f.read()
         self.sha256 = hashlib.sha256(self.file_bytes).hexdigest()
@@ -83,8 +87,16 @@ class Image:
                     raise AssertionError('relocation type %d at 0x%x' % (entry.type, self.base + entry.rva))
         if not self.relocations and relocation_section is not None:
             self.relocations = self.relocation_blocks(relocation_section)
+        self.preferred_base = self.base
+        delta = 0
+        if rebase is not None and rebase != self.base:
+            if not self.relocations:
+                raise AssertionError('no base relocations: the image cannot move to 0x%x' % rebase)
+            delta = (rebase - self.base) & 0xffffffff
+            self.rebase(rebase)
         self.imports = []
-        fake = FAKE_IMPORT_BASE
+        fake = self.base + FAKE_IMPORT_OFFSET
+        fake_end = self.base + FAKE_IMPORT_END_OFFSET
         for descriptor in pe.DIRECTORY_ENTRY_IMPORT:
             dll = descriptor.dll.decode().lower()
             if dll.endswith('.dll'):
@@ -96,11 +108,31 @@ class Image:
                     name = ORDINALS.get((dll, imp.ordinal))
                     if not name:
                         raise AssertionError('unknown import %s ordinal %d' % (dll, imp.ordinal))
-                if fake >= FAKE_IMPORT_END:
-                    raise AssertionError('fake import addresses reach 0x%x' % FAKE_IMPORT_END)
-                self.imports.append(Import(dll, name, imp.address, fake))
+                if fake >= fake_end:
+                    raise AssertionError('fake import addresses reach 0x%x' % fake_end)
+                self.imports.append(Import(dll, name, (imp.address + delta) & 0xffffffff, fake))
                 fake += 1
         self.code_sections = [s for s in self.sections if s.code]
+        self.exports = []                   # (name, guest address) of a DLL's named exports
+        for e in getattr(getattr(pe, 'DIRECTORY_ENTRY_EXPORT', None), 'symbols', []):
+            if e.name:
+                self.exports.append((e.name.decode(), (self.preferred_base + e.address + delta) & 0xffffffff))
+
+    def rebase(self, base):
+        """Moves the image to base: every relocated dword gets the difference, as the Windows loader does."""
+        delta = (base - self.base) & 0xffffffff
+        for site in sorted(self.relocations):
+            s = self.section_of(site)
+            offset = site - s.address
+            if offset + 4 > len(s.data):
+                raise AssertionError('relocated dword at 0x%x past the raw data' % site)
+            value = (int.from_bytes(s.data[offset:offset + 4], 'little') + delta) & 0xffffffff
+            s.data = s.data[:offset] + value.to_bytes(4, 'little') + s.data[offset + 4:]
+        for s in self.sections:
+            s.address = (s.address + delta) & 0xffffffff
+        self.relocations = set((a + delta) & 0xffffffff for a in self.relocations)
+        self.entry_point = (self.entry_point + delta) & 0xffffffff
+        self.base = base
 
     def relocation_blocks(self, address):
         """HIGHLOW sites of the IMAGE_BASE_RELOCATION chain starting a section."""

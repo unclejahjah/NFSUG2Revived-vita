@@ -19,9 +19,13 @@
 #include <strings.h>
 #include <vector>
 
-// src/lib/winapi/revived/revived_link.cpp: Friends and crews' "Add friend by name"
+// src/lib/winapi/revived/revived_link.cpp: Social's "Add friend by name"
 void revived_friend_ask(const std::string& name);
 std::string revived_friend_status(unsigned* version);
+// src/lib/winapi/revived/roam/stance_vita.c: the stance read from the .ini again at the next car drawn
+extern "C" void stance_reload(void);
+extern "C" int stance_menu_get(const char* key, char* out, int n);
+extern "C" void stance_menu_set(const char* key, const char* value);
 
 namespace ug2 { namespace options {
 
@@ -30,8 +34,11 @@ namespace
 
 // ---- The settings ---------------------------------------------------------------------------------------------------
 
-enum Store { Cfg, Ini, Extra };     // NeedForSpeedUnderground2.cfg, scripts/NFSU2FreeRoam.ini's [FreeRoam], or Extra Options' [Gameplay]
-enum Kind { Choice, Text, Secret, Action };     // Action: a row that does something (the cloud saves')
+// NeedForSpeedUnderground2.cfg, scripts/NFSU2FreeRoam.ini's [FreeRoam], Extra Options' [Gameplay], or the Car Shop's
+// Stance page's car (stance_vita.c's stance_menu_*: kept per car in scripts/NFSU2Stance.ini when the page closes)
+enum Store { Cfg, Ini, Extra, Car };
+// Action: a row that does something (the cloud saves'). Heading: a group's name inside a page, a row that sets nothing.
+enum Kind { Choice, Text, Secret, Action, Heading };
 
 struct Option
 {
@@ -58,8 +65,7 @@ struct Item
 const Option OnOff[] = { { "on", "On" }, { "off", "Off" } };
 const Option IniOnOff[] = { { "1", "On" }, { "0", "Off" } };
 const Option Network[] = { { "revived", "On" }, { "direct", "Local Wi-Fi only" }, { "off", "Off" } };
-const Option Movies[] = { { "native", "Vita decoder" }, { "vp6", "Vita, else VP6" }, { "vp6only", "VP6 only" },
-                          { "game", "The game's own" } };
+const Option Movies[] = { { "vp6preferred", "Converted, else VP6" }, { "vp6only", "VP6 only" } };
 const Option Core3Tasks[] = { { "helpers", "Helper threads" }, { "jobs", "Job workers" } };
 const Option TextureCache[] = { { "0", "0 MB" }, { "12", "12 MB" }, { "24", "24 MB" }, { "32", "32 MB" },
                                 { "48", "48 MB" }, { "64", "64 MB" } };
@@ -76,11 +82,10 @@ const Option Delay[] = { { "", "Default (100 ms)" }, { "0", "0 ms" }, { "50", "5
                          { "150", "150 ms" }, { "200", "200 ms" }, { "300", "300 ms" } };
 const Option Extrap[] = { { "", "Default (250 ms)" }, { "0", "0 ms" }, { "100", "100 ms" }, { "250", "250 ms" },
                           { "500", "500 ms" }, { "1000", "1000 ms" } };
-const Option StickDeadZone[] = { { "0", "0%" }, { "5", "5%" }, { "10", "10%" }, { "15", "15%" }, { "20", "20%" },
-                                 { "25", "25%" }, { "30", "30%" } };
 const Option CameraSpeed[] = { { "1", "1" }, { "2", "2" }, { "3", "3" }, { "4", "4" }, { "5", "5" },
                                { "6", "6" }, { "7", "7" }, { "8", "8" }, { "9", "9" }, { "10", "10" } };
-const Option StickResponse[] = { { "standard", "Standard" }, { "linear", "Linear" }, { "precise", "Precise" } };
+const Option FreeLookSpeed[] = { { "90", "Slow" }, { "135", "Steady" }, { "180", "Normal" }, { "270", "Quick" },
+                                 { "360", "Fast" }, { "540", "Fastest" }, { "0", "Instant" } };
 const Option Steering[] = { { "analog", "Analog" }, { "digital", "Digital" } };
 const Option SkipIntro[] = { { "off", "Off" }, { "logos", "Logos" }, { "opening", "Logos and opening" } };
 const Option FrameRate[] = { { "30", "30 fps" }, { "0", "Unlocked" } };
@@ -107,6 +112,31 @@ const Item Saves[] = {
       "The cloud's saves replace the ones here. The saves here are kept first in save_backups, the last five." },
 };
 
+// Your cars' stances, as nfsu2.xyz's Stance mod sets them (src/lib/winapi/revived/roam/stance_vita.c): each car its own,
+// seen by the players near you; theirs show on their cars. Only the look changes.
+// (half degrees and 5 mm steps, as the Car Shop's Stance page moves them: stance_vita.c takes tenths of a degree)
+const Option Cambers[] = { { "0", "0 degrees" }, { "0.5", "0.5 degrees" }, { "1", "1 degree" },
+                           { "1.5", "1.5 degrees" }, { "2", "2 degrees" }, { "2.5", "2.5 degrees" },
+                           { "3", "3 degrees" }, { "3.5", "3.5 degrees" }, { "4", "4 degrees" },
+                           { "4.5", "4.5 degrees" }, { "5", "5 degrees" }, { "5.5", "5.5 degrees" },
+                           { "6", "6 degrees" }, { "6.5", "6.5 degrees" }, { "7", "7 degrees" },
+                           { "7.5", "7.5 degrees" }, { "8", "8 degrees" }, { "8.5", "8.5 degrees" },
+                           { "9", "9 degrees" }, { "9.5", "9.5 degrees" }, { "10", "10 degrees" },
+                           { "10.5", "10.5 degrees" }, { "11", "11 degrees" }, { "11.5", "11.5 degrees" },
+                           { "12", "12 degrees" }, { "12.5", "12.5 degrees" }, { "13", "13 degrees" },
+                           { "13.5", "13.5 degrees" }, { "14", "14 degrees" }, { "14.5", "14.5 degrees" },
+                           { "15", "15 degrees" } };
+const Option Offsets[] = { { "-40", "-40 mm (in)" }, { "-35", "-35 mm (in)" }, { "-30", "-30 mm (in)" },
+                           { "-25", "-25 mm (in)" }, { "-20", "-20 mm (in)" }, { "-15", "-15 mm (in)" },
+                           { "-10", "-10 mm (in)" }, { "-5", "-5 mm (in)" }, { "0", "0 mm" }, { "5", "+5 mm" },
+                           { "10", "+10 mm" }, { "15", "+15 mm" }, { "20", "+20 mm" }, { "25", "+25 mm" },
+                           { "30", "+30 mm" }, { "35", "+35 mm" }, { "40", "+40 mm" }, { "45", "+45 mm" },
+                           { "50", "+50 mm" }, { "55", "+55 mm" }, { "60", "+60 mm" }, { "65", "+65 mm" },
+                           { "70", "+70 mm" }, { "75", "+75 mm" }, { "80", "+80 mm" } };
+const Option TireWidths[] = { { "80", "80 %" }, { "85", "85 %" }, { "90", "90 %" }, { "95", "95 %" },
+                              { "100", "100 % (the car's own)" }, { "105", "105 %" }, { "110", "110 %" },
+                              { "115", "115 %" }, { "120", "120 %" }, { "125", "125 %" }, { "130", "130 %" } };
+
 const Item Mods[] = {
     { "NFSU2 Revived", Cfg, "network", Choice, OPTIONS(Network), "revived", 0, nullptr,
       "The game's LAN and Online menus through nfsu2.xyz, with the players in the browser. Local Wi-Fi only: LAN "
@@ -115,6 +145,26 @@ const Item Mods[] = {
       "Meet other players in the city (NFSU2 Revived's free-roam mod, scripts/NFSU2FreeRoam.ini)." },
     { "EU Car Content", Extra, "UnlockRegionalCars", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
       "Drive the Peugeot 106 and Vauxhall Corsa in the US game (NFSU2 Extra Options). Needs their car folders." },
+    { "Stance", Ini, "Stance", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Camber, offset and tire width per car (Stance Mod by Archie, as on nfsu2.xyz), set in Customize's Body Shop "
+      "(Stance, after Rims). Only the look changes; players near you in free roam see it." },
+};
+
+// The Car Shop's Stance page (Customize, Body Shop, Stance after Rims: menu_entry.cpp): the stance of the car driven,
+// shown on it behind the rows, and the Mods page's switch. Not one of Vita Settings' pages.
+const Item StanceShop[] = {
+    { "Stance", Ini, "Stance", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Your car's stance on or off. Moving any row below turns it on." },
+    { "Front camber", Car, "FrontCamber", Choice, OPTIONS(Cambers), "0", 0, nullptr,
+      "How far the front wheels' tops lean in." },
+    { "Rear camber", Car, "RearCamber", Choice, OPTIONS(Cambers), "0", 0, nullptr,
+      "How far the rear wheels' tops lean in." },
+    { "Front offset", Car, "FrontOffset", Choice, OPTIONS(Offsets), "0", 0, nullptr,
+      "How far the front wheels stand out from the body (in, below 0)." },
+    { "Rear offset", Car, "RearOffset", Choice, OPTIONS(Offsets), "0", 0, nullptr,
+      "How far the rear wheels stand out from the body (in, below 0)." },
+    { "Tire width", Car, "TireWidth", Choice, OPTIONS(TireWidths), "100", 0, nullptr,
+      "The tires' width, of the car's own." },
 };
 
 const Item Multiplayer[] = {
@@ -148,16 +198,44 @@ const Option Flags[] = { { "", "None" }, { "gb", "United Kingdom" }, { "gb-eng",
                          { "jp", "Japan" }, { "kr", "South Korea" }, { "cn", "China" }, { "in", "India" },
                          { "ph", "Philippines" }, { "id", "Indonesia" }, { "za", "South Africa" } };
 
+// Your horn in free roam (nfsu2.xyz's synthesised ones, src/lib/winapi/revived/roam/horn.c); off: none of yours
+const Option Horns[] = { { "dual", "Dual tone" }, { "single", "Single tone" }, { "truck", "Truck air horn" },
+                         { "train", "Train horn" }, { "klaxon", "Klaxon" }, { "cucaracha", "La Cucaracha" },
+                         { "clown", "Clown horn" }, { "trombone", "Sad trombone" }, { "sputter", "Dying horn" },
+                         { "off", "Off" } };
+
+const Option HornButtons[] = { { "dpad_left", "Hold D-pad Left" }, { "dpad_right", "Hold D-pad Right" },
+                               { "rear_l3", "Rear touch, lower left" }, { "rear_r3", "Rear touch, lower right" },
+                               { "dpad_up", "Hold D-pad Up" }, { "dpad_down", "Hold D-pad Down" },
+                               { "triangle", "Hold Triangle" }, { "circle", "Hold Circle" }, { "square", "Hold Square" },
+                               { "cross", "Hold Cross" }, { "l", "Hold L" }, { "r", "Hold R" },
+                               { "rear_l2", "Rear touch, upper left" }, { "rear_r2", "Rear touch, upper right" }, { "off", "Off" } };
+
+const Option DriftButtons[] = { { "dpad_right", "Hold D-pad Right" }, { "dpad_left", "Hold D-pad Left" },
+                                { "rear_r3", "Rear touch, lower right" }, { "rear_l3", "Rear touch, lower left" },
+                                { "dpad_up", "Hold D-pad Up" }, { "dpad_down", "Hold D-pad Down" },
+                                { "triangle", "Hold Triangle" }, { "circle", "Hold Circle" }, { "square", "Hold Square" },
+                                { "cross", "Hold Cross" }, { "l", "Hold L" }, { "r", "Hold R" },
+                                { "rear_l2", "Rear touch, upper left" }, { "rear_r2", "Rear touch, upper right" }, { "off", "Off" } };
+
 const Option ChatButtons[] = { { "dpad_down", "Hold D-pad Down" }, { "dpad_up", "Hold D-pad Up" },
                                { "triangle", "Hold Triangle" }, { "select", "Select chords" } };
 
 // Quick chat's phrases (nfsu2.xyz's, src/lib/winapi/revived/roam/phrases.h) by their numbers: the common ones.
 const Option Phrases[] = { { "0", "Hey!" }, { "1", "Nice car!" }, { "2", "Thanks!" }, { "3", "Bye!" }, { "4", "Yes" }, { "5", "No" }, { "6", "Sorry!" }, { "7", "lol" }, { "8", "Follow me!" }, { "9", "Wait up!" }, { "10", "Let's go!" }, { "11", "Nice!" }, { "12", "Race?" }, { "13", "Join my race!" }, { "14", "gg" }, { "15", "One more?" }, { "16", "Yo!" }, { "17", "Hi all!" }, { "18", "Welcome!" }, { "19", "Welcome back!" }, { "20", "Long time no see!" }, { "21", "Good luck!" }, { "22", "Have fun!" }, { "23", "Gotta go!" }, { "24", "See you around!" }, { "25", "Good night!" }, { "26", "brb" }, { "27", "Back!" }, { "28", "Sure!" }, { "29", "Maybe" }, { "30", "Okay" }, { "31", "Nope" }, { "33", "On my way!" }, { "41", "ty" }, { "42", "np" }, { "44", "My bad!" } };
 
-const Item FriendsPage[] = {
+// Social: friends, then crews just beneath, then quick chat, each under its heading row.
+// (13 rows at most on a page: the game's options list draws no text past its 13th, 2026-11-26)
+const Item Social[] = {
     { "Add friend by name", Ini, "AddFriend", Text, nullptr, 0, "", 24, "Type a name",
       "Send a friend request to a player by their claimed nfsu2.xyz name. Or meet them in free roam: touch front "
       "bumpers for 3 seconds. Needs your passphrase (Multiplayer)." },
+    { "Crews", Cfg, "", Heading, nullptr, 0, "", 0, nullptr, nullptr },
+    { "Crews", Ini, "Crew", Text, nullptr, 0, "", 120, "None",
+      "Up to 4 crews, joined by commas. Players who share one see each other's names and map arrows in its colour." },
+    { "Crew colours", Ini, "CrewColours", Text, nullptr, 0, "", 40, "Cyan, magenta, violet, red",
+      "Each crew's colour in the order of Crews, 6 hex digits each, joined by commas (3cd2ff, ff4646)." },
+    { "Quick chat", Cfg, "", Heading, nullptr, 0, "", 0, nullptr, nullptr },
     { "Quick chat", Ini, "QuickChat", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "Say a set phrase to the players near you: hold the quick chat button and press a phrase button. Theirs show "
       "after their names, in every player's own language on nfsu2.xyz." },
@@ -176,10 +254,6 @@ const Item FriendsPage[] = {
       "The quick chat phrase in slot 5 (see Quick chat button for its button)." },
     { "Phrase 6", Ini, "Say6", Choice, OPTIONS(Phrases), "1", 0, nullptr,
       "The quick chat phrase in slot 6 (see Quick chat button for its button)." },
-    { "Crews", Ini, "Crew", Text, nullptr, 0, "", 120, "None",
-      "Up to 4 crews, joined by commas. Players who share one see each other's names and map arrows in its colour." },
-    { "Crew colours", Ini, "CrewColours", Text, nullptr, 0, "", 40, "Cyan, magenta, violet, red",
-      "Each crew's colour in the order of Crews, 6 hex digits each, joined by commas (3cd2ff, ff4646)." },
 };
 
 const Item FreeRoam[] = {
@@ -189,6 +263,10 @@ const Item FreeRoam[] = {
       "The flag the other players see before your name. Players on nfsu2.xyz pick from the same list." },
     { "Other flag", Ini, "Flag", Text, nullptr, 0, "", 8, "None",
       "Any other flag by its two-letter country code (de, jp, br), or gb-eng style for a nation." },
+    { "Show flags", Ini, "ShowFlags", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "Show the flags before the names over the cars on your screen. The others still see yours." },
+    { "Race rings", Ini, "RaceRings", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "The game's own ring where a race's career marker is gone; a different ring while a lobby is open there." },
     { "World", Ini, "Room", Choice, OPTIONS(Worlds), "", 0, nullptr,
       "Free roam shows only the players in the same world. World 4 has ghost cars off for everyone in it." },
     { "Own world", Ini, "Room", Text, nullptr, 0, "", 32, "Main world",
@@ -207,23 +285,37 @@ const Item FreeRoam[] = {
       "How far ahead a car is predicted when its updates are late." },
 };
 
-const Item Display[] = {
-    { "Widescreen", Cfg, "widescreen", Choice, OPTIONS(OnOff), "on", 0, nullptr,
-      "On fills the 16:9 screen with the HUD at the edges; off is the original 4:3 picture with black bars." },
-    { "Graphics preset", Cfg, "gfx_preset", Choice, OPTIONS(Preset), "vita", 0, nullptr,
-      "Vita is what the port is tuned for; Max turns everything on and is much slower. The game's Display menu "
-      "changes the individual options." },
-    { "Scenery detail distance", Cfg, "dev_world_lod_pixels", Choice, OPTIONS(LodPixels), "0", 0, nullptr,
-      "Scenery narrower than this on screen uses its simpler model. More gives speed and more pop-in." },
-    { "Small scenery", Cfg, "dev_world_min_pixels", Choice, OPTIONS(MinPixels), "0", 0, nullptr,
-      "Scenery smaller than this on screen is not drawn. More gives speed and more pop-in." },
-    { "Movies", Cfg, "movies", Choice, OPTIONS(Movies), "native", 0, nullptr,
-      "How the game's movies play. The Vita decoder plays the converted .mp4 files; VP6 plays the originals." },
-    { "Optimised particles", Cfg, "optimised_particles", Choice, OPTIONS(OnOff), "on", 0, nullptr,
-      "Cheaper tyre smoke and other particles, close to the original picture. Off is exactly as the original." },
+// NFSU2 Revived's other free-roam features, a page of their own: the game's options list draws no text for the rows
+// past the 13th (Free Roam had 21; 2026-11-26 the last ones were invisible, but still changed with Left/Right).
+const Item FreeRoamExtras[] = {
+    { "Player messages", Ini, "Messages", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "A line at the top of the screen when a player joins free roam, leaves, goes into a race or opens a race "
+      "nearby. Never while you race." },
+    { "Outruns with players", Ini, "Outruns", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "Stay close to another player for a few seconds and the outrun icon comes up: Engage challenges them to the "
+      "game's own outrun, or to a drift battle when your drift mode is on. Off: nobody can challenge you, and you "
+      "challenge nobody." },
+    { "Blocked players", Ini, "Blocked", Text, nullptr, 0, "", 255, "None",
+      "Names as they show over cars, joined by commas (up to 32). You and they never see each other in free roam: "
+      "no car, name, quick chat, outrun or race lobby. Takes effect the next time you go online." },
+    { "Horn", Ini, "Horn", Choice, OPTIONS(Horns), "dual", 0, nullptr,
+      "Your horn in free roam: the players near you hear it from your car. Off: you have none, theirs still sound." },
+    { "Horn button", Cfg, "horn_button", Choice, OPTIONS(HornButtons), "dpad_left", 0, nullptr,
+      "Hold it to honk in free roam. A short D-pad press is still the game's (World Map)." },
+    { "Drift button", Cfg, "drift_button", Choice, OPTIONS(DriftButtons), "dpad_right", 0, nullptr,
+      "Hold it in free roam to switch drift mode on or off (a short D-pad press is still Read SMS): the drift "
+      "events' handling, camera and points while you drive around. With it on, a challenge is a drift battle: most points in 90 seconds wins $100." },
+    { "Other players' car sounds", Ini, "CarSounds", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "Hear the other players' engines, nitrous and hydraulics from their cars, with the game's own sounds." },
+    { "Show-off", Ini, "ShowOff", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
+      "With the car standing, Select + L opens the hood, then the trunk, the doors, all, and closes them. Players "
+      "near you see them open, and you see theirs." },
 };
 
-const Item Sound[] = {
+
+// System: the Sound and Display groups, each under its heading row (Performance has its own page).
+const Item AudioVideo[] = {
+    { "Sound", Cfg, "", Heading, nullptr, 0, "", 0, nullptr, nullptr },
     { "Hardware music decoding", Cfg, "music_hw_decode", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "The Vita's MP3 decoder plays the music, which frees the processor. It sounds the same." },
     { "Short sound lock", Cfg, "audio_mixer_split", Choice, OPTIONS(OnOff), "on", 0, nullptr,
@@ -234,33 +326,21 @@ const Item Sound[] = {
       "Length of one block of sound output. Shorter lowers the delay and costs more processor time." },
     { "Quiet sounds", Cfg, "audio_silence_db", Choice, OPTIONS(Silence), "-60", 0, nullptr,
       "Sounds quieter than this are not mixed, which saves processor time. -60 dB is inaudible; off mixes all." },
+    { "Display", Cfg, "", Heading, nullptr, 0, "", 0, nullptr, nullptr },
+    { "Graphics preset", Cfg, "gfx_preset", Choice, OPTIONS(Preset), "vita", 0, nullptr,
+      "Vita is what the port is tuned for; Max turns everything on and is much slower. The game's Display menu "
+      "changes the individual options." },
+    { "Scenery detail distance", Cfg, "dev_world_lod_pixels", Choice, OPTIONS(LodPixels), "0", 0, nullptr,
+      "Scenery narrower than this on screen uses its simpler model. More gives speed and more pop-in." },
+    { "Small scenery", Cfg, "dev_world_min_pixels", Choice, OPTIONS(MinPixels), "0", 0, nullptr,
+      "Scenery smaller than this on screen is not drawn. More gives speed and more pop-in." },
+    { "Movies", Cfg, "movies", Choice, OPTIONS(Movies), "vp6preferred", 0, nullptr,
+      "How the game's movies play: the converted .mp4 files where they are there, else the original VP6 ones." },
+    { "Optimised particles", Cfg, "optimised_particles", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "Cheaper tyre smoke and other particles, close to the original picture. Off is exactly as the original." },
 };
 
-const Item Controller[] = {
-    { "Rear touch pad", Cfg, "rear_touch", Choice, OPTIONS(OnOff), "on", 0, nullptr,
-      "The rear touch pad works as L2, R2, L3 and R3, unbound until you set them in the game's Controls screen." },
-    { "Touch screen", Cfg, "front_touch", Choice, OPTIONS(OnOff), "on", 0, nullptr,
-      "Touching the screen works as a mouse click in the menus." },
-    { "Garage camera stick", Cfg, "garage_stick", Choice, OPTIONS(OnOff), "on", 0, nullptr,
-      "The right stick turns the car in the garage and the customisation menus." },
-    { "Camera stick dead zone", Cfg, "garage_stick_deadzone", Choice, OPTIONS(DeadZone), "30", 0, nullptr,
-      "How far the right stick moves before the garage camera turns." },
-    { "Stick dead zone", Cfg, "stick_deadzone", Choice, OPTIONS(StickDeadZone), "15", 0, nullptr,
-      "How far either stick moves before it counts, steering included. Less reacts sooner; more ignores a worn stick." },
-    { "Right stick camera", Cfg, "camera_stick", Choice, OPTIONS(OnOff), "on", 0, nullptr,
-      "While driving, the right stick turns the chase camera round the car and it comes back when released. In the "
-      "hood and bumper views pushing it down looks back. Untouched, the camera is the game's own." },
-    { "Camera stick speed", Cfg, "camera_stick_speed", Choice, OPTIONS(CameraSpeed), "4", 0, nullptr,
-      "How fast the right stick camera swings round to where the stick points, and back when released. "
-      "1 is the slowest, 10 the fastest." },
-    { "Steering", Cfg, "steering", Choice, OPTIONS(Steering), "analog", 0, nullptr,
-      "Analog steers as far as the left stick is pushed. Digital: pushed past halfway, the stick turns smoothly to "
-      "full lock and back when released, as on a keyboard." },
-    { "Stick response", Cfg, "stick_response", Choice, OPTIONS(StickResponse), "standard", 0, nullptr,
-      "Standard is finer near the centre for small steering corrections; linear follows the stick exactly; "
-      "precise is finer near the centre still." },
-};
-
+// Performance, a page of its own (System had 17 rows, and the game's list drew none past the 13th)
 const Item Performance[] = {
     { "Third CPU core", Cfg, "use_core3", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "Use the Vita's third processor core when it can be unlocked." },
@@ -270,6 +350,29 @@ const Item Performance[] = {
       "Memory for kept texture levels. More avoids reloading them." },
     { "Texture heap", Cfg, "texture_heap_mb", Choice, OPTIONS(TextureHeap), "0", 0, nullptr,
       "Largest size of the texture heap. No cap lets the game decide." },
+};
+
+const Item Controller[] = {
+    { "Rear touch pad", Cfg, "rear_touch", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "The rear touch pad works as L2, R2, L3 and R3, unbound until you set them in the game's Controls screen." },
+    { "Garage camera stick", Cfg, "garage_stick", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "The right stick turns the car in the garage and the customisation menus." },
+    { "Camera stick dead zone", Cfg, "garage_stick_deadzone", Choice, OPTIONS(DeadZone), "30", 0, nullptr,
+      "How far the right stick moves before the garage camera turns." },
+    { "Right stick camera", Cfg, "camera_stick", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "While driving, the right stick turns the chase camera round the car and it comes back when released. In the "
+      "hood and bumper views pushing it down looks back. Off: 0.9.0's free look instead." },
+    { "Camera stick speed", Cfg, "camera_stick_speed", Choice, OPTIONS(CameraSpeed), "4", 0, nullptr,
+      "How fast the right stick camera swings round to where the stick points, and back when released. "
+      "1 is the slowest, 10 the fastest." },
+    { "Free look ease back", Cfg, "free_look_ease_back", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "Free look (the right stick, where the Control Type leaves it free): let go less than 120 degrees round and the "
+      "camera eases back behind the car; further round it cuts straight back. Stick rows are in Options > Controls." },
+    { "Free look speed", Cfg, "free_look_swing", Choice, OPTIONS(FreeLookSpeed), "180", 0, nullptr,
+      "How fast free look swings round to where the stick points, and back when it eases back." },
+    { "Steering", Cfg, "steering", Choice, OPTIONS(Steering), "analog", 0, nullptr,
+      "Analog steers as far as the left stick is pushed. Digital: pushed past halfway, the stick turns smoothly to "
+      "full lock and back when released, as on a keyboard." },
 };
 
 const Item Game[] = {
@@ -294,21 +397,23 @@ struct Page
     int         count;
 };
 
-// The browser's Settings sections, the Vita's settings in each (Frame rate's one row is in Game). The game's
-// options list has rows for 11 settings at most.
+// The browser's Settings sections, the Vita's settings in each (Frame rate's one row is in Game). Ten at most: the
+// game's UI_OptionsMain shows 11 icons, and Save and Restart is the 11th (with 12 pages Mods and it were not shown).
 const Page Pages[] = {
     { "Multiplayer", OPTIONS(Multiplayer) },
     { "Free Roam", OPTIONS(FreeRoam) },
-    { "Display", OPTIONS(Display) },
-    { "Sound", OPTIONS(Sound) },
+    { "Free Roam extras", OPTIONS(FreeRoamExtras) },
+    { "Social", OPTIONS(Social) },
+    { "System", OPTIONS(AudioVideo) },
+    { "Performance", OPTIONS(Performance) },
     { "Controller", OPTIONS(Controller) },
     { "Game", OPTIONS(Game) },
-    { "Performance", OPTIONS(Performance) },
-    { "Friends and crews", OPTIONS(FriendsPage) },
     { "Saves", OPTIONS(Saves) },
     { "Mods", OPTIONS(Mods) },
+    { "Stance", OPTIONS(StanceShop) },   // the Car Shop's page, last: not shown in Vita Settings (groupCount)
 };
 const int PageCount = int(sizeof(Pages) / sizeof(Pages[0]));
+const int StancePage = PageCount - 1;
 
 // Written when free roam is first turned on without an .ini: the PC mod's file with the Vita's defaults.
 const char FreeRoamSection[] = "FreeRoam";
@@ -339,6 +444,13 @@ const char IniTemplate[] =
     "; (gb, us, de, gb-eng; empty = none)\n"
     "Names = 1\n"
     "Flag =\n"
+    "; the flags before the names drawn on your screen (1) or not (0)\n"
+    "ShowFlags = 1\n"
+    "; the game's own ring at race spots with no career marker (1) or none (0), and the ring while a lobby is open\n"
+    "RaceRings = 1\n"
+    "RingLobby = XEE_WORLD_CHALLENGE\n"
+    "; a line at the top of the screen when a player joins free roam, leaves or goes into a race (1 on, 0 off)\n"
+    "Messages = 1\n"
     "\n"
     "; quick chat (1 on, 0 off) and the phrase numbers of slots 1-6 (the cfg's quick_chat_button picks them)\n"
     "QuickChat = 1\n"
@@ -349,8 +461,23 @@ const char IniTemplate[] =
     "Say5 = 14\n"
     "Say6 = 1\n"
     "\n"
+    "; players you never see in free roam, nor they you: names as over cars, joined by commas (up to 32)\n"
+    "Blocked =\n"
+    "\n"
     "; 1 = friends' cars are solid; 0 = ghost cars you drive through; none = traffic is a ghost too\n"
     "Collide = 0\n"
+    "\n"
+    "; your horn (dual, single, truck, train, klaxon, cucaracha, clown, trombone, sputter or off; the cfg's\n"
+    "; horn_button honks), and the other players' engines, nitrous and hydraulics heard (1) or not (0)\n"
+    "Horn = dual\n"
+    "CarSounds = 1\n"
+    "; the show-off: Select + L opens the hood, the trunk, the doors (1 on, 0 off)\n"
+    "ShowOff = 1\n"
+    "; your cars' stances (1 on), each set in Customize's Body Shop, Stance (kept in NFSU2Stance.ini)\n"
+    "Stance = 0\n"
+    "\n"
+    "; outruns with other players: stay near one and press Engage to challenge them (1 on, 0 off)\n"
+    "Outruns = 1\n"
     "\n"
     "; group size, you included (2..33), and friends' cars shown at once (0..5)\n"
     "MaxPlayers = 8\n"
@@ -616,7 +743,9 @@ void load()
         {
             const Item& it = Pages[p].items[i];
             std::string v = it.def;
-            if (it.store == Cfg)
+            if (it.kind == Heading)
+                ;                   // sets nothing
+            else if (it.store == Cfg)
             {
                 // The default and the old key name are the settings table's (src/platform/settings.cpp).
                 if (const pf::Setting* setting = pf::findSetting(it.key))
@@ -632,6 +761,12 @@ void load()
                 }
                 else
                     v = "0";        // no .ini: free roam is off
+            }
+            else if (it.store == Car)
+            {
+                char value[16];
+                if (stance_menu_get(it.key, value, int(sizeof(value))))
+                    v = value;
             }
             else if (it.store == Extra)
             {
@@ -688,6 +823,8 @@ bool save()
                 change.atDefault = setting && change.value == pf::defaultText(*setting);
                 changes.push_back(change);
             }
+            else if (it.store == Car)
+                stance_menu_set(it.key, s_values[p][i].c_str());   // the car drawn with it at once
             else if (it.store == Extra)
             {
                 // No file and off stays no file; the mod's own settings file is written when a mod is turned on.
@@ -747,7 +884,29 @@ void restart()
 
 int groupCount()
 {
-    return PageCount;
+    return StancePage;      // Vita Settings' pages: all but the Car Shop's Stance page
+}
+
+int stanceGroup()
+{
+    return StancePage;
+}
+
+bool stanceIsOn()
+{
+    if (!s_loaded)
+        load();
+    return boolValue(s_values[StancePage][0]) == 1;
+}
+
+void shareValue(int g, int i);
+
+void stanceTurnOn()
+{
+    if (!s_loaded)
+        load();
+    s_values[StancePage][0] = "1";
+    shareValue(StancePage, 0);
 }
 
 const char* groupTitle(int g)
@@ -762,13 +921,32 @@ int itemCount(int g)
 
 const char* itemLabel(int g, int i)
 {
-    return item(g, i).label;
+    const Item& it = item(g, i);
+    if (it.kind != Heading)
+        return it.label;
+    // "---- SOUND ----": the group's name in capitals between rules, so the page reads as separate groups
+    static std::vector<std::string> headings;
+    std::string text = "---- ";
+    for (const char* c = it.label; *c; ++c)
+        text += char(*c >= 'a' && *c <= 'z' ? *c - 32 : *c);
+    text += " ----";
+    for (const std::string& h : headings)
+        if (h == text)
+            return h.c_str();
+    headings.reserve(32);
+    headings.push_back(text);
+    return headings.back().c_str();
 }
 
 bool itemIsText(int g, int i)
 {
     const Kind kind = item(g, i).kind;
     return kind == Text || kind == Secret;
+}
+
+bool itemIsHeading(int g, int i)
+{
+    return item(g, i).kind == Heading;
 }
 
 bool itemIsAction(int g, int i)
@@ -810,6 +988,8 @@ std::string itemValue(int g, int i)
         load();
     const Item& it = item(g, i);
     const std::string& v = s_values[g][i];
+    if (it.kind == Heading)
+        return "----------------";
     if (it.kind == Action)
         return s_lastAction == &it ? pf::cloud::status() : std::string("Press Cross");
     if (it.kind == Secret)
@@ -840,7 +1020,7 @@ void shareValue(int g, int i)
         for (int k = 0; k < Pages[p].count; ++k)
         {
             const Item& other = Pages[p].items[k];
-            if ((p != g || k != i) && other.store == it.store && !strcmp(other.key, it.key))
+            if ((p != g || k != i) && other.kind != Heading && other.store == it.store && !strcmp(other.key, it.key))
                 s_values[p][k] = s_values[g][i];
         }
 }
@@ -882,10 +1062,25 @@ void setText(int g, int i, const std::string& text)
 bool applyLive(int g, int i)
 {
     // The settings read where they are used, rather than once at the start.
-    static const char* const Live[] = { "log_info", "garage_stick", "garage_stick_deadzone", "stick_deadzone",
-                                        "stick_response", "steering", "fast_travel",
-                                        "camera_stick", "camera_stick_speed", "quick_chat_button" };
+    static const char* const Live[] = { "log_info", "garage_stick", "garage_stick_deadzone", "steering", "fast_travel",
+                                        "free_look_ease_back", "free_look_swing", "camera_stick", "camera_stick_speed",
+                                        "quick_chat_button",
+                                        "horn_button", "drift_button" };
     const Item& it = item(g, i);
+    // The stance's switch: stance_vita.c reads the .ini again at the next car it draws.
+    static const char* const StanceKeys[] = { "Stance" };
+    if (it.store == Car)
+        return true;        // (the page's car, drawn with it at once)
+    if (it.store == Ini)
+    {
+        for (const char* key : StanceKeys)
+            if (!strcmp(it.key, key))
+            {
+                stance_reload();
+                return true;
+            }
+        return false;
+    }
     if (it.store != Cfg)
         return false;
     for (const char* key : Live)
@@ -898,6 +1093,41 @@ bool applyLive(int g, int i)
         return true;
     }
     return false;
+}
+
+// A cfg setting's row from another screen (the Controls Customize screen's Horn and Drift Mode rows): its value as
+// shown, and a step Left or Right, saved and applied at once. False when no page has the key.
+static bool findCfg(const char* key, int* g, int* i)
+{
+    for (int p = 0; p < PageCount; ++p)
+        for (int k = 0; k < Pages[p].count; ++k)
+        {
+            const Item& it = Pages[p].items[k];
+            if (it.kind != Heading && it.store == Cfg && !strcmp(it.key, key))
+            {
+                *g = p;
+                *i = k;
+                return true;
+            }
+        }
+    return false;
+}
+
+std::string cfgValue(const char* key)
+{
+    int g, i;
+    return findCfg(key, &g, &i) ? itemValue(g, i) : std::string();
+}
+
+bool cfgCycle(const char* key, int delta)
+{
+    int g, i;
+    if (!findCfg(key, &g, &i))
+        return false;
+    cycle(g, i, delta);
+    const bool saved = save();
+    applyLive(g, i);
+    return saved;
 }
 
 }}

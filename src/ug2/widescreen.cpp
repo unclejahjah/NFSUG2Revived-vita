@@ -1,5 +1,5 @@
-// Widescreen for the Vita's 960x544. The 640x480 canvas keeps the 4:3 scale, centred; HUD
-// units move to the screen edges; the player views get a hor+ projection. widescreen=off keeps the 4:3 game.
+// Widescreen for the Vita's 960x544, always on. The 640x480 canvas keeps the 4:3 scale, centred; HUD
+// units move to the screen edges; the player views get a hor+ projection.
 
 #include "widescreen.h"
 
@@ -10,6 +10,7 @@
 #include <platform/config.h>
 #include <platform/gxm.h>
 #include <platform/log.h>
+#include <platform/time.h>
 
 #include <algorithm>
 #include <cctype>
@@ -25,7 +26,6 @@
 namespace ug2
 {
 
-void sub_5bf610_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_537480_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_51a5d0_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_5c7ec0_guest(win32::WinApplication* app, x86::CPU& cpu);
@@ -94,10 +94,17 @@ struct Box
 // HUD units: extents of this flush and of the last flush of the same package.
 std::unordered_map<x86::reg32, Box> s_unitNow, s_unitLast;
 
-bool enabled()
+// Objects whose place their maker set (free roam's panels: separate objects, each piece of a panel would else be
+// placed on its own and the panel come apart), and when. The maker sets it each frame it draws one; a place not set
+// for SetPlaceUs is forgotten, as the object may be gone and its memory another object's (the minimap's blips took a
+// hidden quick chat panel's place and left the minimap, 2026-11-26).
+struct SetPlace
 {
-    return pf::cachedStatic([] { return pf::Config::getBool("widescreen", true); });
-}
+    Place place;
+    uint64_t atUs;
+};
+std::unordered_map<x86::reg32, SetPlace> s_setPlace;
+const uint64_t SetPlaceUs = 250000;
 
 bool uiLog()
 {
@@ -166,9 +173,9 @@ void writeSlots(uint32_t width, uint32_t height)
 {
     s_width = width;
     s_height = height;
-    s_k = enabled() && width && height ? std::min(1.0, double(height) / double(width) / 0.75) : 1.0;
+    s_k = width && height ? std::min(1.0, double(height) / double(width) / 0.75) : 1.0;
     setMap(placeMap(Place::Centre, s_k));
-    rc::st32(SlotPictureWidth, enabled() ? x86::reg32(std::lround(height * 4.0 / 3.0)) : width);
+    rc::st32(SlotPictureWidth, x86::reg32(std::lround(height * 4.0 / 3.0)));
     rc::stf32(SlotFovX, 1.0f);
     rc::stf32(SlotFovY, 0.5f);
     s_ready = true;
@@ -230,26 +237,20 @@ void logDraw(x86::reg32 render, x86::reg32 object, x86::reg32 unit, const Box& b
 
 }
 
-// Racing resolution (thiscall): the display size with widescreen=on.
-void racingResolution(win32::WinApplication* app, x86::CPU& cpu)
+// Racing resolution (thiscall): the display size.
+void racingResolution(win32::WinApplication*, x86::CPU& cpu)
 {
     const x86::reg32 widthPointer = rc::ld32(cpu.esp + 4), heightPointer = rc::ld32(cpu.esp + 8);
-    if (enabled())
-    {
-        rc::st32(widthPointer, pf::gxm::DisplayWidth);
-        rc::st32(heightPointer, pf::gxm::DisplayHeight);
-        cpu.esp += 12;
-    }
-    else
-        sub_5bf610_guest(app, cpu);
+    rc::st32(widthPointer, pf::gxm::DisplayWidth);
+    rc::st32(heightPointer, pf::gxm::DisplayHeight);
+    cpu.esp += 12;
     const uint32_t width = rc::ld32(widthPointer), height = rc::ld32(heightPointer);
     writeSlots(width, height);
     static bool s_logged = false;
     if (!s_logged)
     {
         s_logged = true;
-        pf::logInfo("screen: back buffer %ux%u, widescreen %s, 4:3 part of the width %.4f", unsigned(width),
-                    unsigned(height), enabled() ? "on" : "off", s_k);
+        pf::logInfo("screen: back buffer %ux%u, 4:3 part of the width %.4f", unsigned(width), unsigned(height), s_k);
     }
 }
 
@@ -313,7 +314,13 @@ void renderObject(win32::WinApplication* app, x86::CPU& cpu)
     {
         unit = topGroup(object);
         s_unitNow[unit].add(box);
-        const bool fixed = fixedPlace(s_package, rc::ld32(render + 0x14), &place);
+        auto set = s_setPlace.find(object);
+        if (set != s_setPlace.end() && pf::ticksUs() - set->second.atUs > SetPlaceUs)
+        {
+            s_setPlace.erase(set);
+            set = s_setPlace.end();
+        }
+        const bool fixed = set != s_setPlace.end() ? (place = set->second.place, true) : fixedPlace(s_package, rc::ld32(render + 0x14), &place);
         const bool image = type == TypeImage || type == TypeColoredImage;
         if (!fixed && image && box.x0 <= 1.0f && box.x1 >= 639.0f)
             place = Place::Full;
@@ -342,7 +349,7 @@ void projection(win32::WinApplication* app, x86::CPU& cpu)
 {
     const x86::reg32 view = rc::ld32(cpu.esp + 4);
     float fovX = 1.0f, fovY = 0.5f;
-    if (enabled() && view)
+    if (view)
     {
         const x86::reg32 id = rc::ld32(view + 4), target = rc::ld32(view + 0x58);
         const bool player = id == 1 || id == 2 || id == 4 || id == 5;
@@ -374,3 +381,14 @@ void sub_51a5d0(win32::WinApplication* app, x86::CPU& cpu) { widescreen::renderO
 void sub_5c7ec0(win32::WinApplication* app, x86::CPU& cpu) { widescreen::projection(app, cpu); }
 
 }}
+
+// The place of an FE object of free roam's (roam_game.c): 0 centre, 1 left, 2 right, -1 its own extent's again.
+extern "C" void ug2_widescreen_place(uint32_t object, int place)
+{
+    if (place < 0 || place > 2)
+        ug2::widescreen::s_setPlace.erase(object);
+    else
+        ug2::widescreen::s_setPlace[object] = { place == 1 ? ug2::widescreen::Place::Left
+                                              : place == 2 ? ug2::widescreen::Place::Right : ug2::widescreen::Place::Centre,
+                                                pf::ticksUs() };
+}

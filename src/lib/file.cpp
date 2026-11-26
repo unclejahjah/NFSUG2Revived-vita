@@ -461,8 +461,16 @@ struct ParkedFile
     bool        sizeKnown;
     x86::reg32  size;
 };
-static const size_t ParkedMax = 4;
+// A friend's car in free roam opens a dozen files and more (its GEOMETRY.BIN and TEXTURES.BIN, the shared part and
+// rim packs) and each again for its size (bFileSize, 0x57CAC0, opens and closes it), while the streamer keeps its own
+// open: with 4 kept, most of those opens missed and each took 10 to 20 ms on the game thread (the Vita, 2026-11-23,
+// CarLoader::Load's 0x57CA10, three of them a car).
+static const size_t ParkedMax = 48;
 static std::vector<ParkedFile> s_parked;    // oldest first; parkedLock()
+// Read-only data files that were not there, by host path: the game probes such files again and again, and each
+// failed open costs as much as one that works.  Forgotten with the parked files (any write, delete or move).
+static std::vector<std::string> s_missing;  // parkedLock()
+static const size_t MissingMax = 256;
 
 static pf::LwMutex& parkedLock()
 {
@@ -482,6 +490,106 @@ void File::dropParked()
     for (const ParkedFile& parked : s_parked)
         close(parked.file);
     s_parked.clear();
+    s_missing.clear();
+}
+
+// File::prewarm's worker: guest paths queued, opened one after another at low priority.
+namespace
+{
+std::vector<std::string> s_warmQueue;   // parkedLock()
+
+bool isParkedOrMissing(const std::string& host)
+{
+    for (const ParkedFile& parked : s_parked)
+        if (parked.name == host)
+            return true;
+    for (const std::string& missing : s_missing)
+        if (missing == host)
+            return true;
+    return false;
+}
+
+#ifdef __vita__
+// Made by File::prewarm before the worker starts: a function-local static here was first constructed on the game
+// thread while the worker's first wait reached its guard, and the guard threw recursive_init_error (the Vita,
+// 2026-11-26: std::terminate on file_prewarm as free roam's players came in).
+pf::Semaphore* s_warmSignal = nullptr;
+
+int warmWorker(void*)
+{
+    for (;;)
+    {
+        s_warmSignal->wait();
+        std::string host;
+        {
+            pf::LwLockGuard guard(parkedLock());
+            if (s_warmQueue.empty())
+                continue;
+            host = s_warmQueue.front();
+            s_warmQueue.erase(s_warmQueue.begin());
+            if (isParkedOrMissing(host))
+                continue;
+        }
+        const int fd = open(host.c_str(), O_RDONLY, 0);
+        const int code = fd < 0 ? errno : 0;
+        int oldest = -1;
+        {
+            pf::LwLockGuard guard(parkedLock());
+            if (fd < 0)
+            {
+                if (code == ENOENT)
+                {
+                    if (s_missing.size() >= MissingMax)
+                        s_missing.erase(s_missing.begin());
+                    s_missing.push_back(host);
+                }
+            }
+            else if (isParkedOrMissing(host))
+                oldest = fd;   // (the game opened and closed it meanwhile)
+            else
+            {
+                if (s_parked.size() >= ParkedMax)
+                {
+                    oldest = s_parked.front().file;
+                    s_parked.erase(s_parked.begin());
+                }
+                s_parked.push_back(ParkedFile{ host, fd, false, 0 });
+            }
+        }
+        if (oldest >= 0)
+            close(oldest);
+    }
+    return 0;
+}
+#endif
+}
+
+void File::prewarm(const char* guestPath)
+{
+#ifdef __vita__
+    if (!guestPath || !parking())
+        return;
+    const std::string host = moveToRoot(guestPath);
+    {
+        pf::LwLockGuard guard(parkedLock());
+        if (isParkedOrMissing(host) || s_warmQueue.size() >= 64)
+            return;
+        for (const std::string& queued : s_warmQueue)
+            if (queued == host)
+                return;
+        s_warmQueue.push_back(host);
+    }
+    static pf::Thread* s_thread = nullptr;   // (the game thread only)
+    if (!s_thread)
+    {
+        s_warmSignal = new pf::Semaphore("file_prewarm", 0);
+        s_thread = new pf::Thread("file_prewarm", warmWorker, nullptr, pf::Thread::PriorityLow, 32 * 1024);
+        s_thread->start();
+    }
+    s_warmSignal->post();
+#else
+    (void)guestPath;
+#endif
 }
 
 File::File(int file, const char* name)
@@ -544,6 +652,14 @@ File::File(const char* path, x86::reg32 mode, x86::reg32 flags, x86::reg32 creat
             m_seekPending = true;
             return;
         }
+        for (const std::string& missing : s_missing)
+        {
+            if (missing != m_filename)
+                continue;
+            m_error = ENOENT;
+            m_existed = false;
+            return;
+        }
     }
     else
     {
@@ -602,7 +718,16 @@ File::File(const char* path, x86::reg32 mode, x86::reg32 flags, x86::reg32 creat
     m_error = m_file < 0 ? errno : 0;
     m_readOnly = !writes;
     if (m_parkable)
+    {
         m_existed = m_file >= 0;
+        if (m_file < 0 && m_error == ENOENT)
+        {
+            pf::LwLockGuard guard(parkedLock());
+            if (s_missing.size() >= MissingMax)
+                s_missing.erase(s_missing.begin());
+            s_missing.push_back(m_filename);
+        }
+    }
     // The game probes files that do not exist: not an error.
     if (m_file == -1)
     {

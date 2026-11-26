@@ -105,7 +105,8 @@ public:
     // Game thread: async uploads queued in between run as one task.
     void beginUploads();
     void endUploads();
-    render::DepthStorage* createDepth(uint32_t width, uint32_t height);
+    // samples: 1, or 2 or 4 for msaa scenes of frames with that Frame::msaaSamples.
+    render::DepthStorage* createDepth(uint32_t width, uint32_t height, uint32_t samples = 1);
     // Vertex or index data; BufferStorage::data is written directly.
     render::BufferStorage* createBuffer(uint32_t size);
     // Freed once the frames that may still read the resource and its queued uploads are finished: at once when they

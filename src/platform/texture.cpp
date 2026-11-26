@@ -1,5 +1,8 @@
 #include <platform/texture.h>
 #include <cstring>
+#if defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
 
 namespace pf { namespace texture {
 
@@ -266,7 +269,18 @@ uint8_t minAlpha(Format format, uint32_t width, uint32_t height, uint32_t level,
         for (uint32_t y = 0; y < h && lowest; ++y)
         {
             const uint8_t* row = in + size_t(y) * pitch;
-            for (uint32_t x = 0; x < w; ++x)
+            uint32_t x = 0;
+#if defined(__ARM_NEON)
+            uint8x16_t least = vdupq_n_u8(255);
+            for (; x + 16 <= w; x += 16)
+                least = vminq_u8(least, vld4q_u8(row + x * 4).val[3]);
+            uint8x8_t half = vpmin_u8(vget_low_u8(least), vget_high_u8(least));
+            half = vpmin_u8(half, half);
+            half = vpmin_u8(half, half);
+            half = vpmin_u8(half, half);
+            lowest = vget_lane_u8(half, 0) < lowest ? vget_lane_u8(half, 0) : lowest;
+#endif
+            for (; x < w; ++x)
                 lowest = row[x * 4 + 3] < lowest ? row[x * 4 + 3] : lowest;
         }
         return uint8_t(lowest);

@@ -95,6 +95,9 @@ public:
     static x86::reg32 remove(const char* filename);
     // Closes the read-only files kept open after their close.
     static void dropParked();
+    // Opens a read-only data file on a worker thread and keeps it with the files kept open, so the game's own open of
+    // it later costs nothing (free roam: a friend's car's files, before its load). Missing files are remembered too.
+    static void prewarm(const char* guestPath);
     // Size and free space of the volume holding the data folder, in bytes. False if unknown.
     static bool diskSpace(x86::reg64* total, x86::reg64* free);
     // Host path of a guest path, without a trailing separator.

@@ -2,6 +2,7 @@
 
 #include <winapi/d3d9.h>
 #include <winapi/d3d9_internal.h>
+#include <winapi/d3d9_msaa.h>
 #include <winapi/d3d9_native.h>
 #include <winapi/d3d9_probe.h>
 #include <lib/fpucontrol.h>
@@ -574,6 +575,7 @@ HRESULT Direct3D::CheckDeviceFormat(WinApplication* app, x86::CPU& cpu, UINT ada
     }
 }
 
+// NONMASKABLE has 3 quality levels (d3d9_msaa.h): SPEED2.EXE's FSAA menu then offers levels 1 (2x) and 2 (4x).
 HRESULT Direct3D::CheckDeviceMultiSampleType(WinApplication* app, x86::CPU& cpu, UINT adapter, DWORD type,
                                              DWORD format, BOOL windowed, DWORD multiSample, DWORD* qualityLevels)
 {
@@ -584,8 +586,8 @@ HRESULT Direct3D::CheckDeviceMultiSampleType(WinApplication* app, x86::CPU& cpu,
     RC_USE(format);
     RC_USE(windowed);
     if (qualityLevels)
-        *qualityLevels = 1;
-    return multiSample == 0 ? D3D_OK : D3DERR_NOTAVAILABLE;
+        *qualityLevels = multiSample == MultisampleNonMaskable ? NonMaskableQualities : 1;
+    return multiSample == MultisampleNone || multiSample == MultisampleNonMaskable ? D3D_OK : D3DERR_NOTAVAILABLE;
 }
 
 HRESULT Direct3D::CheckDepthStencilMatch(WinApplication* app, x86::CPU& cpu, UINT adapter, DWORD type,

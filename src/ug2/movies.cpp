@@ -63,8 +63,8 @@ const reg32 ChunkHeader = 8;
 const int LateFrames = 0x10;                   // frames behind the clock before the codec skips to a key frame
 const int RingSize = 4;
 
-// ModeVp6: the .mp4 when there is one, else libavcodec's VP6 decoder; ModeVp6Only never uses the .mp4.
-enum Mode { ModeGame, ModeNative, ModeVp6, ModeVp6Only };
+// ModeGame: the game's decoder (host default); ModeVp6: .mp4 if present, else native VP6; ModeVp6Only: native VP6.
+enum Mode { ModeGame, ModeVp6, ModeVp6Only };
 
 struct Session
 {
@@ -116,6 +116,7 @@ std::vector<MemMap*> s_frameBlocks;            // worker frame buffers
 uint8_t* s_linger = nullptr;                   // last frame of an ended movie, freed with its codec
 std::string s_redirectFrom, s_redirectTo;      // movies_redirect=<from>:<to> (dev): the game opens <to>.vp6
 MemMap* s_redirectPath = nullptr;
+std::string s_gameDir;                         // movies_game_dir (dev): the game opens its .vp6 files from this folder
 win32::MethodPtr s_createFile = nullptr;
 win32::MethodPtr s_decode = nullptr;
 win32::MethodPtr s_destroy = nullptr;
@@ -191,21 +192,82 @@ bool movieName(reg32 path, char* name, size_t size)
     return true;
 }
 
-// skip_intro_movies: 1 the logos and the notice, 2 the opening movie too. Their open fails, as with the files
-// deleted on PC, so the game goes straight on without playing anything (blank.vp6 in their place showed a moment
-// of the movie screen each).
-int s_skipIntro = 0;
-const char* const RemovedMovie = "skip_intro_movies_removed";   // no such file
+// skip_intro_movies: 1 the logos and the notice, 2 the opening movie too. Their screens are taken out of the
+// boot flow's list of screens (0x4D9580 builds it from the name tables 0x7F65E8 and 0x7F6620, and skips the empty
+// names the game itself leaves there), so nothing of them shows; the movies still play from anywhere else.
+const reg32 EmptyName = 0x00783FE5;          // the game's ""
+const reg32 BootScreenTables[][2] = { { 0x007F65E8, 0x007F6620 }, { 0x007F6620, 0x007F6654 } };
 
-bool skippedIntro(const char* name)
+void removeIntroScreens(int skip)
 {
-    static const char* const Logos[] = { "ealogo", "THX_logo", "PSA" };
-    for (const char* logo : Logos)
+    static const char* const Logos[] = { "LS_BlankMovie.fng", "LS_EAlogo.fng", "LS_THXMovie.fng", "LS_PSAMovie.fng" };
+    int removed = 0;
+    for (const auto& table : BootScreenTables)
     {
-        if (strcasecmp(name, logo) == 0)
-            return s_skipIntro >= 1;
+        for (reg32 slot = table[0]; slot < table[1]; slot += 4)
+        {
+            std::string name;
+            for (reg32 p = rc::ld32(slot); p && rc::ld8(p) && name.size() < 64; ++p)
+                name += char(rc::ld8(p));
+            bool remove = skip >= 2 && name == "UG_LS_IntroFMV.fng";
+            for (const char* logo : Logos)
+                remove = remove || name == logo;
+            if (!remove)
+                continue;
+            rc::st32(slot, EmptyName);
+            ++removed;
+        }
     }
-    return s_skipIntro >= 2 && strcasecmp(name, "FMVOpening") == 0;
+    pf::logInfo("movies: skip_intro_movies: %d start-up screens taken out of the boot flow", removed);
+}
+
+// The press-start screen (UG_LS_Splash, React 0x4C5580) plays the opening as an attract movie after a while idle: it
+// points the boot flow (0x836488: +4 first link, +8 last link, +0xC current node; a node's link is at +4 and its
+// name at +0xC) at the UG_LS_IntroFMV node (0x4C5080) and shows that screen. When the movie ends or is skipped, the
+// IntroFMV screen's React (0x4C5330) moves the flow to the current node's next one (0x4C4F50), back to the splash.
+// With skip_intro_movies=opening that node is not in the flow, so the current node is null and the next screen is
+// read from address 0: a black screen. The current node is set to the splash's previous one, so the flow goes back
+// to the splash as it does in the retail game.
+const reg32 BootFlow = 0x00836488;
+const reg32 IntroFmvReact = 0x004C5330;      // vtable 0x7907D8 slot 2, thiscall (message, 3 more), ret 0x10
+win32::MethodPtr s_introFmvReact = nullptr;
+
+reg32 linkNode(reg32 link)
+{
+    return link ? link - 4 : 0;
+}
+
+std::string nodeName(reg32 node)
+{
+    std::string name;
+    for (reg32 p = node ? rc::ld32(node + 0xC) : 0; p && rc::ld8(p) && name.size() < 64; ++p)
+        name += char(rc::ld8(p));
+    return name;
+}
+
+void introFmvReact(win32::WinApplication* app, x86::CPU& cpu)
+{
+    const reg32 flow = rc::ld32(BootFlow);
+    if (flow && !rc::ld32(flow + 0xC))
+    {
+        reg32 previous = 0;
+        for (reg32 node = linkNode(rc::ld32(flow + 4)), i = 0; node && node != flow && i < 64; ++i)
+        {
+            if (nodeName(node) == "UG_LS_Splash.fng")
+            {
+                if (previous)
+                {
+                    rc::st32(flow + 0xC, previous);
+                    pf::logInfo("movies: attract movie: the boot flow goes back to the splash from %s",
+                                nodeName(previous).c_str());
+                }
+                break;
+            }
+            previous = node;
+            node = linkNode(rc::ld32(node + 4));
+        }
+    }
+    s_introFmvReact(app, cpu);
 }
 
 // A guest copy of the path with the movie's name (name, the path's last part without .vp6) replaced by to.
@@ -232,23 +294,33 @@ reg32 redirectPath(reg32 path, const char* name)
     return replacedPath(path, name, s_redirectTo);
 }
 
+// movies_game_dir: a guest copy of the path in that folder, or 0.
+reg32 relocatePath(const char* name)
+{
+    if (s_gameDir.empty())
+        return 0;
+    const std::string text = "C:\\" + s_gameDir + "\\" + name + ".vp6";
+    if (!s_redirectPath)
+        s_redirectPath = new MemMap(4096, MemMap::High, pf::perf::AllocOther);
+    const reg32 copy = s_redirectPath->getBlockStart();
+    for (size_t i = 0; i <= text.size(); ++i)
+        rc::st8(copy + reg32(i), uint8_t(text.c_str()[i]));
+    return copy;
+}
+
 void createFileHook(win32::WinApplication* app, x86::CPU& cpu)
 {
     char name[sizeof(s_lastName)];
     const reg32 path = rc::ld32(cpu.esp + 4);
     if (movieName(path, name, sizeof(name)))
     {
-        if (skippedIntro(name))
-        {
-            pf::logInfo("movies: skip_intro_movies: %s.vp6 is not opened", name);
-            rc::st32(cpu.esp + 4, replacedPath(path, name, RemovedMovie));
-            strcpy(name, RemovedMovie);
-        }
-        else if (const reg32 copy = redirectPath(path, name))
+        if (const reg32 copy = redirectPath(path, name))
         {
             rc::st32(cpu.esp + 4, copy);
             strcpy(name, s_redirectTo.c_str());
         }
+        if (const reg32 copy = relocatePath(name))
+            rc::st32(cpu.esp + 4, copy);
         lockName();
         strcpy(s_lastName, name);
         unlockName();
@@ -436,7 +508,7 @@ void startSession(reg32 codec)
     const int height = int(rc::ld32(codec + CodecHeight));
     if (!stream)
     {
-        if (s_mode >= ModeVp6 && startVp6(codec, name, width, height))
+        if (startVp6(codec, name, width, height))
             return;
         pf::logInfo("movies: %s: no native video, the game decodes it", name);
         return;
@@ -836,18 +908,31 @@ void selfTestVp6(const char* name)
 void configure(win32::WinApplication& app)
 {
 #ifdef __vita__
-    const char* const defaultMode = "native";
+    const Mode defaultMode = ModeVp6;
     const char* const defaultDir = "ux0:data/NeedForSpeedUnderground2/MOVIES";
 #else
-    const char* const defaultMode = "game";
+    const Mode defaultMode = ModeGame;
     const char* const defaultDir = "";
 #endif
-    static const char* const modes[] = { "game", "native", "vp6", "vp6only" };
-    s_mode = Mode(pf::Config::getChoice("movies", modes, 4, strcmp(defaultMode, "native") == 0 ? 1 : 0));
+    static const char* const modes[] = { "vp6preferred", "vp6only" };
+    const std::string choice = pf::Config::getString("movies", "");
+    s_mode = defaultMode;
+    if (strcasecmp(choice.c_str(), "vp6only") == 0)
+        s_mode = ModeVp6Only;
+    else if (strcasecmp(choice.c_str(), "vp6preferred") == 0 || strcasecmp(choice.c_str(), "vp6") == 0)
+        s_mode = ModeVp6;
+    else if (!choice.empty())
+    {
+        s_mode = ModeVp6;
+        pf::logInfo("movies: movies=%s is not one of %s/%s, %s used", choice.c_str(), modes[0], modes[1], modes[0]);
+    }
     static const char* const IntroSkips[] = { "off", "logos", "opening" };
-    s_skipIntro = pf::Config::getChoice("skip_intro_movies", IntroSkips, 3, 0);
-    if (s_skipIntro && !s_createFile)
-        s_createFile = app.replaceMethod(rc::ld32(CreateFileSlot), createFileHook);
+    if (const int skip = pf::Config::getChoice("skip_intro_movies", IntroSkips, 3, 0))
+    {
+        removeIntroScreens(skip);
+        if (skip >= 2 && !s_introFmvReact)
+            s_introFmvReact = app.replaceMethod(IntroFmvReact, introFmvReact);
+    }
     s_dir = pf::Config::getString("movies_dir", defaultDir);
     while (s_dir.size() > 1 && (s_dir.back() == '/' || s_dir.back() == '\\'))
         s_dir.pop_back();
@@ -870,12 +955,13 @@ void configure(win32::WinApplication& app)
     }
     if (s_dir.empty())
     {
-        pf::logError("movies: movies=%s needs movies_dir; the game decodes its movies", modes[s_mode]);
+        pf::logError("movies: movies=%s needs movies_dir; the game decodes its movies", modes[s_mode - 1]);
         s_mode = ModeGame;
         return;
     }
 #ifdef DEV_SETTINGS
     s_unlockDecode = pf::Config::getBool("movies_vp6_unlock", false);
+    s_gameDir = pf::Config::getString("movies_game_dir", "");
     const std::string redirect = pf::Config::getString("movies_redirect", "");
     const size_t colon = redirect.find(':');
     if (colon != std::string::npos)
@@ -889,7 +975,7 @@ void configure(win32::WinApplication& app)
         s_createFile = app.replaceMethod(rc::ld32(CreateFileSlot), createFileHook);
     s_decode = app.replaceMethod(CodecDecode, decodeHook);
     s_destroy = app.replaceMethod(CodecDestroy, destroyHook);
-    pf::logInfo("movies: movies=%s, playback from %s (the game's VP6 decoder when no source works)", modes[s_mode],
+    pf::logInfo("movies: movies=%s, playback from %s (the game's VP6 decoder when no source works)", modes[s_mode - 1],
                 s_dir.c_str());
 }
 

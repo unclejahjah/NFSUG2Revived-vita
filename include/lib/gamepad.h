@@ -74,11 +74,11 @@ public:
     AxisProperties& axisProperties(controls::Axis axis) { return m_axisProperties[axis]; }
 
     // Joystick buttons and axes now, axes shaped with this device's properties and scaled to their ranges.
-    void getState(x86::reg32* buttons, x86::sreg32 (&axes)[controls::AxisCount], int* pov);
+    void getState(x86::reg32* buttons, x86::sreg32 (&axes)[controls::AxisCount], int (&pov)[controls::HatCount]);
 
     // Game code run at each getState on the guest thread (execution lock held) with the buttons and hat about to
     // be reported; it may change them. Set once before the game starts.
-    typedef void (*PollHook)(x86::reg32* buttons, int* pov);
+    typedef void (*PollHook)(x86::reg32* buttons, int* pov);     // pov: the first of the hats
     static void setPollHook(PollHook hook);
 
     // Synthetic pad merged into every reading: inputs ORed, nonzero sticks and a touch replace. Any thread.
@@ -86,6 +86,10 @@ public:
 
     // Right stick of the last pad reading, injected pad included: -1..1, y down. Any thread.
     static void getRightStick(float* x, float* y);
+    // The same shaped with controls::FixedStickShape (garage, free look).
+    static void getFixedRightStick(float* x, float* y);
+    // The last pad reading: inputs, raw sticks lx, ly, rx, ry.
+    static void getPad(uint32_t* inputs, float (&sticks)[4]);
 
     // Front touch as the mouse: last position (0..1 of the pointer area) and the left button.
     struct Touch
@@ -96,6 +100,9 @@ public:
     };
     // False until a touch. button: latched presses and releases. Any thread.
     static bool getTouch(Touch* touch, bool button = false);
+
+    // While set, getTouch reports no touch and no button: the front touch does not reach the game. Any thread.
+    static void setTouchBlocked(bool blocked);
 
     // Display 0..1 to pointer area 0..1; false outside.
     typedef bool (*TouchMap)(float* x, float* y);
@@ -123,6 +130,13 @@ public:
     static bool takeSettingsRequest();
     // Once after a quick chat chord (Select + Down, Left, Right, Cross, Circle, Square): its slot 0-5, else -1.
     static int takeSayChord();
+    // A key pressed for the game by host code (free roam's races driving the game's menus: Enter, Escape, Left):
+    // queued like typed text, down then up, and while it is queued the pad holds no keys or buttons. Any thread.
+    static void tapKey(const controls::KeyCode& key);
+    // While held, the pad holds no keys or buttons and no sticks (host code drives the game's menus). Any thread.
+    static void setPadHeld(bool held);
+    // The pad's inputs at the last pump (controls::bit), held or not: for host code's own chords
+    static uint32_t rawInputs();
     // For an editor that only appends and deletes at its end: clearing a field skips the End key.
     static void setTextAppendOnly(bool appendOnly);
     // Ends the edit of the field: a keyboard still open for it closes without typing.

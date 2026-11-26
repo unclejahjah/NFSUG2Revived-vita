@@ -53,6 +53,10 @@ extern "C" uint64_t ws_now_us(void);
 // free roam's friends on the Vita (roam_vita.cpp): what the server said ({"t":"friend",...}); weak, for builds without
 extern "C" void roam_host_friend(const char* op, const char* name, const char* st, const char* done)
     __attribute__((weak));
+// ...and the lines the page would show over the game (a player joined, left...): the HUD's top line there
+extern "C" void roam_host_notice(const char* text) __attribute__((weak));
+// ...and the players blocked in free roam (the .ini's Blocked), for the hello
+extern "C" int roam_host_blocked(char names[][25], int max) __attribute__((weak));
 
 namespace
 {
@@ -731,6 +735,18 @@ private:
             hello += ",\"ticket\":" + jsonText(m_ticket);
         if (!m_claim.empty())
             hello += ",\"claim\":" + jsonText(m_claim);
+        if (roam_host_blocked)
+        {
+            static char blocked[32][25];
+            const int n = roam_host_blocked(blocked, 32);
+            for (int i = 0; i < n; ++i)
+                hello += std::string(i ? "," : ",\"block\":[") + jsonText(blocked[i]);
+            if (n)
+            {
+                hello += "]";
+                pf::logInfo("revived: blocking %d player%s in free roam", n, n == 1 ? "" : "s");
+            }
+        }
         hello += "}";
         sendFrame(0x1, hello.data(), hello.size());
         m_nextPing = nowMs() + PingMs;
@@ -913,6 +929,8 @@ private:
                     text.erase(k, 1);
                 if (!text.empty() && text[0] != '\x1e')
                     pf::logInfo("revived: %s", text.c_str());
+                if (!text.empty() && roam_host_notice)
+                    roam_host_notice(text.c_str());
             }
             ++tail;
             st(&ep.mb->tx_tail, tail);
@@ -1060,6 +1078,12 @@ private:
             setPage(NET_PAGE_OFFLINE);
             m_backoff = 250;
             pf::logInfo("revived: the server is full: in line for a place, %d of %d", int(pos), int(of));
+            if (roam_host_notice && pos > 0)
+            {
+                char line[96];
+                snprintf(line, sizeof(line), "The server is full: you are %d in line for free roam", int(pos));
+                roam_host_notice(line);
+            }
         }
         else if (t == "peers" || t == "delta")
         {

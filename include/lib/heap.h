@@ -15,6 +15,9 @@ namespace heap
 x86::reg32 allocate(x86::reg32 size, bool zero);
 // False if the address is not a live block.
 bool release(x86::reg32 address);
+// Sets aside one block for a later request of size bytes (or up to 64 fewer) (it is lent to that request and kept when
+// freed), while guest memory still has a range that large. False when it does not fit, or another size is reserved.
+bool reserve(x86::reg32 size);
 // Requested size of a live block, or 0xffffffff.
 x86::reg32 size(x86::reg32 address);
 // Bytes the guest holds in live blocks (log statistics).

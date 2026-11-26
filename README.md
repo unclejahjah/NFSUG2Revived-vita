@@ -11,7 +11,7 @@ It is very possible that some of these changes have brought about unexpected bug
 [Install](#install) · [Controls](#controls) · [Settings](#settings) · [Online](#online-and-lan-play) · [Report Bug](../../issues)
 
 > **Playtest.** The game is playable in all aspects. The entire career mode is working, and the framerate is good in most scenes.
-> Expect rough edges; [Known issues](#known-issues--caveats) lists the ones we know.
+> Expect rough edges.
 
 ## What this fork adds
 
@@ -33,20 +33,17 @@ This fork builds on [danos-x5/NFSUG2_VITA](https://github.com/danos-x5/NFSUG2_VI
 
 ## Requirements
 
-- Need for Speed Underground 2 for PC, **version 1.2**, installed (your own copy). The whole game folder is needed,
-  about 1.7 GB, or about 2 GB with the converted movies.
-- The port has only been tested with one version 1.2 `SPEED2.EXE`, the one with SHA-256
-  `f9dd86c054878ce6276beb07c1fd61874f7a1e4bf1f241b084c65b73e24168a7`. Nothing checks this on the Vita, and the build
-  only warns about another executable, but another one may not work. See [Mods](#mods).
-- Only the **US release** of version 1.2 has been tested. The EU release will be tested soon.
+- Need for Speed Underground 2 for PC, installed (your own copy). The whole game folder is needed, about 1.7 GB.
+- The port is only compatible the US Version 1.2 `SPEED2.EXE`, the one with SHA-256
+  `f9dd86c054878ce6276beb07c1fd61874f7a1e4bf1f241b084c65b73e24168a7`. See [Mods](#mods).
 - PS Vita with HENkaku / Ensō and [VitaShell](https://github.com/TheOfficialFloW/VitaShell)
 - About 2.5 GB free on the memory card
 - Only if you build the VPK yourself instead of downloading it: a Mac with Apple silicon or an x86-64 Windows PC
   (see [Build](#build)). These are the two kinds of computer the build is tested on.
-- [CapUnlocker](https://github.com/GrapheneCt/CapUnlocker) is recommended: it lets the port use the Vita's fourth
-  CPU core.
 - [PSVshell](https://github.com/Electry/PSVshell) is optional but recommended in this playtest state: overclocking
   the CPU to 500 MHz with it increases performance.
+- [CapUnlocker](https://github.com/GrapheneCt/CapUnlocker) is optional but recommended: it lets the port use the Vita's fourth
+  CPU core.
 
 The port sets the Vita's CPU and GPU clocks itself, so the game runs without an overclocking plugin.
 
@@ -55,12 +52,10 @@ The port sets the Vita's CPU and GPU clocks itself, so the game runs without an 
 1. Download `NFSU2VITA.vpk` from the [Releases](../../releases) page. You can also build it yourself from your game
    folder (see [Build](#build)).
 2. Copy `NFSU2VITA.vpk` to the Vita and install it with VitaShell.
-3. (Recommended) Convert the movies in your game folder (see [Movies](#movies)). Without this step the movies will be very
-   slow.
-4. On your computer, open the game folder (the one with `SPEED2.EXE`) and copy **everything inside it**, every file
+3. On your computer, open the game folder (the one with `SPEED2.EXE`) and copy **everything inside it**, every file
    and folder including `MOVIES`, to `ux0:data/NeedForSpeedUnderground2/` (VitaShell's FTP or USB mode works).
    `SPEED2.EXE` must end up at `ux0:data/NeedForSpeedUnderground2/SPEED2.EXE`, not in a subfolder.
-5. Start the game from the home screen.
+4. Start the game from the home screen.
 
 If the game closes right away, `ux0:data/NeedForSpeedUnderground2/NeedForSpeedUnderground2.log` says what is missing.
 
@@ -79,10 +74,6 @@ To put them on a VPK that has plain ones, without building again:
 python3 -I tools/vita/livearea_art.py "<game folder>" --vpk NFSU2VITA.vpk
 ```
 
-To use your own pictures instead, put `icon0.png` (128x128), `bg.png` (840x500, the LiveArea background) and
-`startup.png` (280x158, the start button) in a folder. Each must be an 8-bit palette PNG, 256 colours or fewer,
-which [pngquant](https://pngquant.org) makes from an ordinary PNG; the script says so if one is not. Then:
-
 ```sh
 python3 -I tools/vita/livearea_art.py --images "<your folder>" --vpk NFSU2VITA.vpk
 ```
@@ -96,74 +87,41 @@ Save files from the PC game work. On the PC each profile is a folder named after
 ux0:data/NeedForSpeedUnderground2/save/NFS Underground 2/<profile name>/
 ```
 
-so a profile called `Player` ends up as `ux0:data/NeedForSpeedUnderground2/save/NFS Underground 2/Player/Player`. Then load it
-from the game's profile screen. The button settings saved in a PC profile come with it; change them in the game's
-Controls screen if they do not suit the Vita.
+so a profile called `Player` ends up as `ux0:data/NeedForSpeedUnderground2/save/NFS Underground 2/Player/Player`. 
 
 ### Movies
 
 The game's movies are the `.vp6` files in its `MOVIES` folder, and the port needs them there. On their own they
-are decoded in software, and the picture will be very slow on the Vita while the sound plays normally. With an
-H.264 copy of each movie beside the original, the Vita's own video decoder draws the picture and the movies play
-smoothly. To make the copies, with [ffmpeg](https://ffmpeg.org) installed, run this once on the PC:
-
-```sh
-python3 tools/vita/movies_convert.py "<game folder>/MOVIES"
-```
-
-It writes one `.mp4` next to each `.vp6` (29 files, about 310 MB) and changes nothing else. Then copy the game
-folder to the Vita as described above, so that `MOVIES` holds both. If you already copied the game, copy the
-`MOVIES` folder again.
-
-The `.mp4` files hold the picture and the sound. Keep the `.vp6` files as well: the port needs both. Movies converted
-before v0.8.4 have no sound; convert them again.
+are decoded in software. Converted `.mp4` files beside them are optional and faster; `movies=vp6preferred` (the default) uses them when present, `movies=vp6only` always decodes the `.vp6`.
 
 ## Controls
 
-All controls are configurable in the game's Options menu. The Vita appears to the game as a PlayStation 2
-controller (Cross is shown as Button 3), and the tables below are the defaults.
+The Vita appears to the game as a PlayStation 2 controller. Control Type 1, the default, is shown below; change the
+controls in the game's Options > Controls (Joypad Configuration). Text fields, such as a profile name, open the Vita
+keyboard, the touch screen taps menu items like a mouse click.
 
-![Rear touch pad](images/rear-touch.svg)
+The touch screen is also used in Career free roam to handle Enter Race / Shop, and opening the World map, SMS and Career statistics menus.
 
-### Menus
+![Control Type 1 on the Joypad Configuration screen](images/controls/readme_controls_type1.png)
+
+The rear touch pad is split into four quadrants: L2 and R2 at the top, L3 and R3 at the bottom. 
+
+![Rear touch pad quadrants](images/controls/readme_rear_pad.png)
+
+Extra buttons in this fork (free roam online, and Vita Settings):
 
 | Button | Action |
 |--------|--------|
-| D-pad, left stick | Move |
-| Cross | Select |
-| Circle | Back |
-| Start | Start, skip movie |
 | Select + Up | Vita Settings |
-
-### Driving
-
-| Button | Action |
-|--------|--------|
-| R | Accelerate |
-| L | Brake / reverse |
-| Left stick | Steer |
-| Cross | Handbrake |
-| Circle | Nitrous |
-| Triangle / Square | Change camera / look back |
-| Right stick | Turn the chase camera round the car (`camera_stick`); with the hood and bumper cameras, down looks back |
-| Rear touch corners | Not bound; set them in Options > Controls |
-| Select | Reset car to the road |
-| Start | Pause |
-
-### Free roam
-
-| Button | Action |
-|--------|--------|
-| D-pad up | Enter a race or shop |
-| D-pad right | Read SMS |
-| D-pad down | Career statistics |
-| D-pad left | World map (with `fast_travel` on, answer No to the GPS question to go to the chosen place) |
+| Right stick (while the Control Type leaves it free) | Free look: aims the race camera; let go under 120 degrees round and it eases back (`free_look_ease_back`) |
 | Hold D-pad Down + Up, Left, Right, Cross, Circle or Square | Online free roam: quick chat (see [Quick chat](#quick-chat)) |
 | Hold D-pad Down + Triangle | Online free roam: ask the player nose to nose with you to be friends |
+| Hold D-pad Left | Online free roam: horn (`horn_button`) |
+| Hold D-pad Right | Online free roam: drift mode on or off (`drift_button`) |
+| D-pad Left, then No to the GPS question | Fast travel to the place picked on the World Map (`fast_travel`) |
 
-A short press of D-pad Down still opens the career statistics; holding it for quick chat does not.
-
-Text fields, such as a profile name, open the Vita keyboard. To quit, use the PS button.
+A short press of a D-pad direction still does what the Control Type gives it (Change Camera, World Map, Read SMS);
+only holding it does quick chat, the horn or drift.
 
 ## Settings
 
@@ -171,8 +129,8 @@ Text fields, such as a profile name, open the Vita keyboard. To quit, use the PS
 
 **Vita Settings**, the main menu icon where Online was (Online is not offered), opens the game's own Options screens
 with the settings of the browser version's Settings page that the Vita has, in the same groups: Multiplayer, Free
-Roam, Display, Sound, Controller and Game, with the start-up screen's player settings (Performance), Worlds,
-Friends and crews, and Mods (NFSU2 Revived, free roam and EU Car Content, each switched on or off). It is also the last icon in the game's Options, and Select + Up opens it
+Roam, Social (friends, crews and quick chat), System (Sound, Display and Performance, each under its own
+heading), Controller, Game, Saves and Mods (NFSU2 Revived, free roam and EU Car Content, each switched on or off). It is also the last icon in the game's Options, and Select + Up opens it
 from any front-end menu (not in a race). Pick a group, then change a setting with left and right as in the game's options; Cross on a text
 setting, such as a name or the passphrase, opens the Vita keyboard. Each change is saved at once to the same files as
 a hand edit and as the start-up screen's: `NeedForSpeedUnderground2.cfg` and free roam's `scripts/NFSU2FreeRoam.ini`.
@@ -183,41 +141,20 @@ logged once typed. `options_menu=off` leaves the icon out.
 ### Start-up screen
 
 The VPK holds two programs: `eboot.bin`, a small launcher with the start-up screen and settings manager, and
-`game.bin`, the game. The launcher only edits the settings files and then starts the game as a new program; the game
-reads the files and plays the same way with or without it. `game.bin` copied over `eboot.bin` runs the game alone.
+`game.bin`, the game. 
 
 Each time the game starts it first shows a short screen: press START to open the settings manager, or any other
-button to start the game at once; after 3 seconds it starts by itself. The sticks and touch pads do not count as
-buttons. `show_configurator_on_boot=off` in the settings file turns the screen off: the launcher then starts the game
+button to start the game at once; after 3 seconds it starts by itself. `show_configurator_on_boot=off` in the settings file turns the screen off: the launcher then starts the game
 at once.
 
 The manager has two tabs, switched with L and R: **Mods** for PC mod features (see [Mods tab](#mods-tab)) and
-**Config** for the port's own settings, every key of the settings file by group. The d-pad moves up and down and changes
-the selected value with left and right (hold to repeat). The left stick does the same, faster the further and the
-longer it is pushed, but only past half way, never near a diagonal, and only along the axis a push starts on; it
-changes numbers only. Square sets the default; holding Select for 3 seconds sets the whole tab to its defaults
-(only the mods on Mods, every setting on Config). Triangle shows or hides the dev settings (`dev_` keys and the Developer
-group) on Config, and the mod settings the port does not support yet on Mods; both start hidden. Below the last item
-are **Cancel** (or Circle anywhere) and **Save** (or START anywhere), which can also be tapped; each asks first, then
-starts the game. Save writes only the settings you changed, in the file's own format, and leaves the other lines as
-they are. The path of the file each tab edits is shown above the hints.
-
-If the settings file or a mod's settings file is there but cannot be read (not text, or nothing in it makes sense),
-the game lists it for 2 seconds before it starts and uses the defaults, or leaves that mod off. The manager says so
-too, and its Save writes the file anew from what the screen shows; Cancel leaves it as it is. A missing file is never
-an error.
+**Config** for the port's own settings, every key of the settings file by group. Triangle shows or hides the dev settings (`dev_` keys and the Developer group) on Config, and the mod settings the port does not support yet on Mods; both start hidden.
 
 ### Mods tab
 
 The start-up screen's Mods tab switches PC mod features the port has rebuilt itself, grouped by the mod they come
-from. Triangle also lists the rest of each mod's settings, greyed out, as the port does not support them yet; they are
-never changed. Each feature keeps its setting in the mod's own settings file, shared with the PC game, so a PC mod
-user's file works as it is. The game is vanilla by default: with no settings file a mod is off, Save writes one only
-when you turn a mod on, and with an existing file only that mod's key is changed in place, every other line left as
-it was. As on the PC, an existing file without a feature's key (or its section) counts as on.
-`NeedForSpeedUnderground2.cfg` never covers the same feature as a mod. The manager only edits the files: a setting
-can be switched whatever files it needs; while any are missing the description shows the requirements in orange. The
-game decides at start-up and keeps a feature off while anything it needs is missing.
+from. Each feature keeps its setting in the mod's own settings file, shared with the PC game, so a PC mod
+user's file works as it is. The game is vanilla by default: with no settings file a mod is off.
 
 The settings files are under the game folder, `ux0:data/NeedForSpeedUnderground2/`, and can be edited by hand.
 
@@ -227,7 +164,7 @@ The settings files are under the game folder, `ux0:data/NeedForSpeedUnderground2
 
 ### Settings file
 
-With nothing changed the game runs locked to 30 frames a second, in widescreen, with the touch screen on as a replacement for a mouse.
+With nothing changed the game runs locked to 30 frames a second, in widescreen, with the touch screen as a replacement for a mouse.
 
 The first time the game starts it writes a settings file, `ux0:data/NeedForSpeedUnderground2/NeedForSpeedUnderground2.cfg`.
 Every setting in it is listed at its default behind a `#`. To change one, remove the `#` at the start of its line,
@@ -242,11 +179,11 @@ Delete the file to get a fresh copy on the next start.
 | Setting | Values | What it does |
 |---------|--------|--------------|
 | `frame_rate` | `30` (default), `0` | Locked to 30 frames a second for steady pacing, or unlocked |
-| `widescreen` | `on` (default), `off` | Full 16:9 picture with the HUD at the screen edges, or the original 4:3 one with black bars |
 | `gfx_preset` | `vita` (default), `max` | Graphics the port is tuned for, or everything on (much slower). Can be changed in game Options -> Display|
 | `rear_touch` | `on` (default), `off` | Rear touch pad L2, R2, L3, R3 (unbound until set in Options > Controls) |
-| `front_touch` | `on` (default), `off` | Touching the screen works as a mouse click in the menus; no cursor is drawn |
-| `garage_stick` | `on` (default), `off` | The right stick turns the car in the garage and customisation menus. `garage_stick_deadzone` (default `30`, percent) tunes it. The right stick does not move menu selections |
+| `garage_stick` | `on` (default), `off` | The right stick turns the car in the garage and customisation menus. `garage_stick_deadzone` (default `30`, percent, 0 to 70) tunes it. The right stick does not move menu selections |
+| `free_look_deadzone` | `30` (default), `0` to `70` | Dead zone of the right stick for free look |
+| `stick_cone_angle` | `25` (default), `0` to `45` | Steer/throttle stick: degrees off its axis that still count as a full push; `0` is the PC game's way |
 | `dev_world_lod_pixels` | `0` (default, off), a width in pixels | Experimental. Scenery narrower than this on screen uses its simpler model. `128` gives more speed; higher values show more pop-in. The old name `world_lod_pixels` still works |
 | `dev_world_min_pixels` | `0` (default, off) to `64` | Experimental. Scenery smaller than this on screen is not drawn. More speed, more pop-in. The old name `world_min_pixels` still works |
 | `optimised_particles` | `on` (default), `off` | Cheaper tyre smoke and other particles with a picture close to the original, or exactly as the original game |
@@ -264,11 +201,10 @@ Delete the file to get a fresh copy on the next start.
 | `options_menu` | `on` (default), `off` | The Vita Settings icon in the game's menus |
 | `fast_travel` | `on` (default), `off` | Fast travel from the World Map (see [Quality of life options](#quality-of-life-options)) |
 | `skip_intro_movies` | `off` (default), `logos`, `opening` | Skip the EA, THX and notice movies at start-up, or those and the opening movie |
-| `stick_deadzone` | `15` (default), `0` to `40` | Dead zone of both sticks in percent |
-| `stick_response` | `standard` (default), `linear`, `precise` | How the sticks respond: finer near the centre, straight, or finer still |
 | `steering` | `analog` (default), `digital` | Steering as far as the left stick is pushed, or full lock (ramped) past half way, as a keyboard |
-| `camera_stick` | `on` (default), `off` | The right stick turns the chase camera while driving |
-| `camera_stick_speed` | `4` (default), `1` to `10` | How fast the right stick camera follows the stick and comes back |
+| `free_look_ease_back` | `on` (default), `off` | Free look: let go under 120 degrees round and the camera eases back; further round it cuts back |
+| `horn_button` | `dpad_left` (default, held), `dpad_right`, `rear_l3`, `rear_r3`, `off` | Free roam's horn |
+| `drift_button` | `dpad_right` (default, held), `dpad_left`, `rear_r3`, `rear_l3`, `off` | Free roam's drift mode switch |
 | `quick_chat_button` | `dpad_down` (default), `dpad_up`, `triangle`, `select` | The button held for free roam's quick chat |
 | `crash_report` | `on` (default), `off` | Write a crash report when the game crashes (see [Crash reports](#crash-reports)) |
 | `stall_seconds` | `8` (default), seconds | How long without a frame before a freeze report is written |
@@ -279,22 +215,25 @@ Settings that start with `dev_` are experiments that may change or go away. Thei
 `dev_smoke_fade`, `dev_smoke_near`, `dev_smoke_mip`); the names without `dev_` are still read and the log notes the
 new name.
 
+The stick dead zone, outer limit and sensitivity are per stick in Options > Controls (saved in `registry.txt`); the
+old `stick_deadzone` and `stick_response` keys are read once to fill them in.
+
 ### Quality of life options
 
 All of these are in Vita Settings (Controller and Game) and in the settings file:
 
-- **Sticks:** `stick_deadzone` and `stick_response` apply to both sticks, steering included, and change at once.
+- **Sticks:** dead zone, outer limit and sensitivity per stick are in Options > Controls (Danos's 0.9.0 rows).
 - **Digital steering:** `steering=digital` turns the left stick into a keyboard-style steer: pushed past half way it
   ramps to full lock in a quarter of a second and back when let go. The D-pad is not used.
-- **Right stick camera:** while driving, the right stick turns the chase camera all the way round the car. Let go
-  near the back and it eases back; from further round it snaps back. With the hood and bumper cameras, down is the
-  game's Look Back. Nothing changes while the stick is left alone, and it no longer works the gas and brake.
+- **Free look:** 0.9.0's free look (the right stick aims the race camera while the Control Type leaves it free), with
+  this fork's ease-back: let go under 120 degrees round and it eases back; from further round it cuts back
+  (`free_look_ease_back`).
 - **Fast travel:** on the World Map, pick a place, Accept, and answer **No** to "Are you sure you want to engage the
   GPS system?": the car is put there. Yes sets the GPS route as before. As the PC mod NFSU2FastTravel does it.
 - **Skip intro movies:** `logos` skips the EA, THX and notice movies, `opening` the opening movie too.
 
 The graphics settings can be changed in the game's own Display menu, and they are kept between sessions. The
-resolution stays at 960x544. Above the Medium detail setting the Vita will definitely struggle with performance.
+resolution stays at 960x544. 
 
 ## Online and LAN play
 
@@ -333,7 +272,7 @@ with `Enable = 0`, the game is as before.
 [`extras/scripts/NFSU2FreeRoam.ini`](extras/scripts/NFSU2FreeRoam.ini) has the Vita's defaults: `MaxPlayers = 8` and
 `MaxCars = 2` (the PC's 33 and 5 are too many for the Vita; every car shown is a car load) and `CarPoolKB = 24000`,
 the car memory the Vita has been tested with. A car that does not fit is left out, not a crash. Vita Settings' Free
-Roam and Friends and crews groups edit the same file.
+Roam and Social groups edit the same file.
 
 On top of the PC plugin, the Vita draws what the browser version's page does:
 
@@ -341,7 +280,7 @@ On top of the PC plugin, the Vita draws what the browser version's page does:
 - **Flags:** your flag before your name (`Flag`, a code such as `gb`, `us` or `gb-eng`; Vita Settings > Free Roam
   lists them), and the other players' flags before theirs.
 - **Friends:** drive nose to nose with a player and hold the quick chat button + Triangle to ask them to be friends;
-  their answer shows in their name tag. Vita Settings > Friends and crews > Add friend by name asks by name.
+  their answer shows in their name tag. Vita Settings > Social > Add friend by name asks by name.
 - **Crews:** `Crew` and `CrewColours`, as on PC.
 
 #### Quick chat
@@ -349,7 +288,7 @@ On top of the PC plugin, the Vita draws what the browser version's page does:
 Hold D-pad Down (`quick_chat_button`) in free roam: the top line shows the six phrases. Press Up, Left, Right,
 Cross, Circle or Square to send one (by default Hey!, Thanks!, Race?, Follow me!, gg, Nice car!). It shows after
 your name on other players' screens, and as "You: ..." on yours. The phrases are nfsu2.xyz's list; pick them in Vita
-Settings > Friends and crews or as `Say1` to `Say6` in the ini. With `quick_chat_button=select` they are Select +
+Settings > Social or as `Say1` to `Say6` in the ini. With `quick_chat_button=select` they are Select +
 Down, Left, Right, Cross, Circle, Square (Up stays Vita Settings).
 
 ### Status and limits
@@ -527,4 +466,8 @@ trademark of Electronic Arts. You must own the game.
 
 ## Contributions
 
-Pull requests are welcome. Changes to engine behaviour are accepted when their purpose is performance: for example cheaper particles or more aggressive level of detail which only affect visual fidelity. They should be behind a setting, say what they change visually, and come with a before and after measurement on a real Vita. Changes to gameplay (handling, AI, career) are out of scope.
+Pull requests are welcome. Changes to engine behaviour are accepted when their purpose is performance: for example cheaper particles or more aggressive level of detail which only affect visual fidelity. They should be behind a setting, say what they change visually, and come with a before and after measurement on a real Vita.
+
+Integrating existing PC mods is also very welcome and made easier with the modding skill for AI coding agents, [`.claude/skills/modding/SKILL.md`](.claude/skills/modding/SKILL.md), which `AGENTS.md` points to
+
+Changes to core gameplay (handling, AI, career) are out of scope unless there is a very specific reason, e.g a bug that existed even in the PC version. 

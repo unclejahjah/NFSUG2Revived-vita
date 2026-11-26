@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Converts the game's EA .vp6 movies to MP4 for movies=native: H.264 (no B-frames) and AAC sound.
+"""Converts the game's EA .vp6 movies to MP4 for movies=vp6preferred: H.264 (no B-frames) and AAC sound.
 
 ffmpeg's EA demuxer stops at the first SCEl (audio end) chunk and drops the video after it, so those chunks are
 removed first. Usage: movies_convert.py <MOVIES folder> [output folder]

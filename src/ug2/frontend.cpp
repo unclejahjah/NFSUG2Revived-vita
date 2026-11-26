@@ -2,6 +2,7 @@
 
 #include "frontend.h"
 
+#include <unordered_set>
 #include <lib/controls.h>
 #include <lib/file.h>
 #include <lib/gamepad.h>
@@ -214,7 +215,16 @@ void createFileHook(win32::WinApplication* app, x86::CPU& cpu)
         if (s_opened.size() < 4096)
             s_opened += path + "|";
     }
-    pf::logInfo("fe: open %s at frame %u", path.c_str(), unsigned(rc::ld32(FramesRendered)));
+    // Each path's first open only: a car load opens its GEOMETRY.BIN for every read (30 to 50 a car), so a free roam
+    // session logged some 40,000 of these lines (the Vita, 2026-11-25), each one a log write while cars came in.
+    static std::unordered_set<std::string> s_logged;
+    bool first;
+    {
+        std::lock_guard<std::mutex> guard(s_openedLock);
+        first = s_logged.size() < 4096 && s_logged.insert(path).second;
+    }
+    if (first)
+        pf::logInfo("fe: open %s at frame %u", path.c_str(), unsigned(rc::ld32(FramesRendered)));
     if (win32::memlog::g_enabled.load(std::memory_order_relaxed) && isWorldLoad(path))
         win32::memlog::event("world load");
     s_createFile(app, cpu);
@@ -999,9 +1009,8 @@ void configure(win32::WinApplication& app)
     }
     s_moviesSkip = atof(pf::Config::getString("movies_skip", "0"));
     static const char* const IntroSkips[] = { "off", "logos", "opening" };
-    s_skipIntro = pf::Config::getChoice("skip_intro_movies", IntroSkips, 3, 0);
-    if (s_skipIntro)
-        pf::logInfo("frontend: skip_intro_movies=%s", IntroSkips[s_skipIntro]);
+    s_skipIntro = 0;   // skip_intro_movies takes the screens out of the boot flow (movies.cpp)
+    (void)IntroSkips;
     parseQuit(pf::Config::getString("boot_quit_after", ""));
     if (pf::Config::getBool("fe_msg", false))
         s_msgApp = &app;

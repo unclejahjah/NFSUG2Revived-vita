@@ -11,6 +11,10 @@
 // The mover's fields (+0x4C POV in use, +0x51 Look Back) and the look-at's arguments are from the v1.2 exe; the
 // orbit and its two ways back follow a request by Jah (the same design as elmnt22's vita-nfsu2 port, none of its
 // code).
+//
+// Brought back after 0.9.0 (2026-11-26, Jah: the old camera's feel, free look off): with camera_stick on, free look
+// (src/ug2/freelook.cpp) stays out of the way; with it off, free look runs as 0.9.0 has it. The natives of 0x453570 and
+// 0x5ba9a0 (src/ug2/native/) call cameraStickUpdate and cameraStickLookAt below first.
 
 #include <lib/controls.h>
 #include <lib/gamepad.h>
@@ -24,8 +28,6 @@
 namespace ug2
 {
 
-void sub_453570_guest(win32::WinApplication* app, x86::CPU& cpu);
-void sub_5ba9a0_guest(win32::WinApplication* app, x86::CPU& cpu);
 
 namespace
 {
@@ -134,47 +136,52 @@ void step(reg32 mover)
 
 }
 
-namespace native
-{
-
-// CubicCameraMover::Update (thiscall): the stick's frame, then the game's update.
-void sub_453570(win32::WinApplication* app, x86::CPU& cpu)
+// CubicCameraMover::Update (thiscall, ecx the mover): true when the old stick camera is on, its frame done (the
+// caller then runs the game's update with cameraStickBegin/End around it).
+bool cameraStickOn(x86::CPU& cpu)
 {
     const reg32 mover = cpu.ecx;
     if (!enabled())
     {
-        if (s_orbit.lookBack)
+        if (s_orbit.lookBack && mover)
             rc::st8(mover + LookBackOffset, 0);
         s_orbit = Orbit();
-        sub_453570_guest(app, cpu);
-        return;
+        return false;
     }
-    win32::controls::setCameraStickLive(pf::ticksUs());   // the right stick is the camera's, not gas and brake
+    // only while driving with the right stick free of game actions, as free look: a bound stick keeps its action
+    if (!mover || !win32::controls::driving() || !win32::controls::rightStickUnbound())
+    {
+        if (s_orbit.lookBack && mover)
+            rc::st8(mover + LookBackOffset, 0);
+        s_orbit = Orbit();
+        s_inUpdate = false;
+        return true;
+    }
     step(mover);
     s_inUpdate = s_orbit.yaw != 0.0f && chaseView(mover) && !rc::ld8(mover + LookBackOffset);
-    sub_453570_guest(app, cpu);
+    return true;
+}
+
+void cameraStickEnd()
+{
     s_inUpdate = false;
 }
 
 // Look-at (cdecl; matrix out, eye, target, up): in the turned chase view the eye goes round the target.
-void sub_5ba9a0(win32::WinApplication* app, x86::CPU& cpu)
+void cameraStickLookAt(x86::CPU& cpu)
 {
-    if (s_inUpdate)
-    {
-        s_inUpdate = false;                     // the update's one look-at
-        const reg32 eye = rc::ld32(cpu.esp + 8), target = rc::ld32(cpu.esp + 12), up = rc::ld32(cpu.esp + 16);
-        const float tx = rc::ldf32(target), ty = rc::ldf32(target + 4);
-        const float dx = rc::ldf32(eye) - tx, dy = rc::ldf32(eye + 4) - ty;
-        const float c = std::cos(s_orbit.yaw), s = std::sin(s_orbit.yaw);
-        rc::store<float>(eye, tx + dx * c - dy * s);
-        rc::store<float>(eye + 4, ty + dx * s + dy * c);
-        rc::store<float>(up, 0.0f);             // level while turned
-        rc::store<float>(up + 4, 0.0f);
-        rc::store<float>(up + 8, 1.0f);
-    }
-    sub_5ba9a0_guest(app, cpu);
-}
-
+    if (!s_inUpdate)
+        return;
+    s_inUpdate = false;                     // the update's one look-at
+    const reg32 eye = rc::ld32(cpu.esp + 8), target = rc::ld32(cpu.esp + 12), up = rc::ld32(cpu.esp + 16);
+    const float tx = rc::ldf32(target), ty = rc::ldf32(target + 4);
+    const float dx = rc::ldf32(eye) - tx, dy = rc::ldf32(eye + 4) - ty;
+    const float c = std::cos(s_orbit.yaw), s = std::sin(s_orbit.yaw);
+    rc::store<float>(eye, tx + dx * c - dy * s);
+    rc::store<float>(eye + 4, ty + dx * s + dy * c);
+    rc::store<float>(up, 0.0f);             // level while turned
+    rc::store<float>(up + 4, 0.0f);
+    rc::store<float>(up + 8, 1.0f);
 }
 
 }

@@ -38,6 +38,10 @@ def run(command, **options):
     return subprocess.call(command, **options)
 
 
+# Game DLLs translated with the executable when they are next to it (tools/recompiler/games/srv.py).
+DLLS = ('server.dll',)
+
+
 def find_exe(folder):
     """The executable's path in a folder, whatever its letter case."""
     if folder and os.path.isdir(folder):
@@ -66,6 +70,7 @@ def game_folder(given):
 def generator_stamp(folder):
     """Fingerprint of everything the translated code depends on."""
     files = [find_exe(folder)]
+    files += [os.path.join(folder, n) for n in os.listdir(folder) if n.lower() in DLLS]
     for root, _, names in os.walk(folder):
         if os.path.basename(root).upper() == 'MOVIES':
             continue
@@ -91,7 +96,8 @@ def translate(folder, force):
     stamp_file = os.path.join(GENERATED, '.stamp')
     stamp = generator_stamp(folder)
     current = open(stamp_file).read().strip() if os.path.isfile(stamp_file) else ''
-    changed = force or stamp != current or not os.path.isfile(os.path.join(GENERATED, 'ug2.cpp'))
+    changed = force or stamp != current or not os.path.isfile(os.path.join(GENERATED, 'ug2.cpp')) \
+        or not os.path.isfile(os.path.join(GENERATED, 'srv.cpp'))
     if changed:
         step('Translating the game code (about 5 minutes)')
         os.makedirs(GENERATED, exist_ok=True)
@@ -99,6 +105,11 @@ def translate(folder, force):
                    '--binaries', folder, '--out', GENERATED] + CODEGEN_OPTIONS
         if run(command) != 0:
             sys.exit('Translating the game code failed.')
+        # The game DLLs (games/srv.py: server.dll, for hosting LAN games), when the folder has them.
+        command = python() + [os.path.join(HERE, 'recompiler', 'generate.py'), '--game', 'srv', '--missing-ok',
+                   '--binaries', folder, '--out', GENERATED] + CODEGEN_OPTIONS
+        if run(command) != 0:
+            sys.exit('Translating server.dll failed.')
         with open(stamp_file, 'w') as f:
             f.write(stamp + '\n')
     if changed or not os.path.isfile(FX_TABLES):
@@ -132,8 +143,14 @@ def main():
     llvm = deps.llvm(args.llvm, args.download_tools)
     cmake = deps.build_tool('cmake', args.download_tools)
     ninja = deps.build_tool('ninja', args.download_tools)
+    try:
+        packages = deps.packages()
+    except Exception as e:
+        print('The launcher\'s libraries could not be installed (%s): building without mod downloads.' % e)
+        packages = ''
     clang = '.'.join(str(n) for n in deps.clang_version(llvm))
-    print('VitaSDK: %s\nLLVM:    %s (clang %s)\nCMake:   %s\nNinja:   %s' % (vitasdk, llvm, clang, cmake, ninja))
+    print('VitaSDK: %s\nLLVM:    %s (clang %s)\nCMake:   %s\nNinja:   %s\nLibraries: %s' % (vitasdk, llvm, clang, cmake,
+                                                                                    ninja, packages or '(none)'))
 
     if folder:
         with open(REMEMBERED, 'w', encoding='utf-8') as f:
@@ -150,7 +167,12 @@ def main():
     step('FFmpeg for native VP6 movies (optional)')
     if run(python() + ['-I', os.path.join(HERE, 'vita', 'build_ffmpeg_vp6.py'), '--vitasdk', vitasdk,
                        '--jobs', str(args.jobs)], env=dict(os.environ)) != 0:
-        print('FFmpeg did not build: the port is built without native VP6 movies (movies=vp6).')
+        print('FFmpeg did not build: the port is built without native VP6 movies (movies=vp6preferred or vp6only).')
+    if packages:
+        step('libarchive for the launcher\'s mod downloads (optional)')
+        if run(python() + ['-I', os.path.join(HERE, 'vita', 'build_libarchive.py'), '--vitasdk', vitasdk, '--packages',
+                           packages, '--cmake', cmake, '--jobs', str(args.jobs)], env=dict(os.environ)) != 0:
+            print('libarchive did not build: the launcher is built without mod downloads.')
 
     use_art = os.path.isfile(GAME_ART) and not args.no_game_art
     build = os.path.abspath(args.build_dir)
@@ -161,7 +183,8 @@ def main():
     configure = [cmake, '-S', REPO, '-B', build, '-G', 'Ninja', '-DCMAKE_MAKE_PROGRAM=' + ninja,
                  '-DCMAKE_TOOLCHAIN_FILE=' + os.path.join(REPO, 'cmake', 'vita-clang.cmake'),
                  '-DCMAKE_BUILD_TYPE=Release', '-DNFSU_GAME_OPT=-O2',
-                 '-DVITASDK=' + vitasdk.replace('\\', '/'), '-DNFSU_LLVM=' + llvm.replace('\\', '/')]
+                 '-DVITASDK=' + vitasdk.replace('\\', '/'), '-DNFSU_LLVM=' + llvm.replace('\\', '/'),
+                 '-DNFSU_VITA_PACKAGES=' + packages.replace('\\', '/')]
     configure.append('-DNFSU_PLAIN_ART=' + ('OFF' if use_art else 'ON'))
     options = '\n'.join(configure + ['game art: %s' % use_art]) + '\n'
     options_file = os.path.join(build, 'build-options.txt')

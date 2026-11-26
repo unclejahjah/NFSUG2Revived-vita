@@ -123,7 +123,14 @@ std::vector<cfgui::ModView> views(const std::string& gameFolder)
             view.enabled = s.on;
             if (!s.met)
                 view.requirements = s.requirements;
+            if (src.downloadable())
+            {
+                view.downloadName = src.mod;
+                view.downloadSpace = src.download.spaceNeeded();
+            }
             view.details.push_back(mod.description);
+            if (mod.note)
+                view.details.push_back(mod.note);
             result.push_back(view);
         }
     }
@@ -137,7 +144,7 @@ bool save(const Mod& mod, const std::string& gameFolder, bool on)
     const bool found = fileExists(file);
     if (!found && !on)
         return true;
-    if (found && (ini::get(file, def(mod).section, def(mod).key, &value) ? isOn(value) : true) == on)
+    if (found && (ini::get(file, def(mod).section, def(mod).key, &value) ? isOn(value) : onByDefault(mod)) == on)
         return true;
     if (!found)
         mkdir(file.substr(0, file.rfind('/')).c_str(), 0777);
