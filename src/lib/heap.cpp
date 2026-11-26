@@ -38,6 +38,9 @@ struct State
     // that request still fits when guest memory is fragmented later. Lent out and given back, never released.
     MemMap*                                     reserved = nullptr;
     x86::reg32                                  reservedSize = 0;
+    // unreserve(): the size to set aside again right after the next block of KeepSize or more (the city's stream pool
+    // on the way back from a hosted race), while guest memory still has the room; later it is too fragmented.
+    x86::reg32                                  reservePending = 0;
     bool                                        reservedLent = false;
     // A released block of KeepSize or more (the track streamer's pool, 36 to 60 MB) is kept for the next request of
     // KeepSize or more that fits in it: the next track load gets the same range back. Between the two the guest heap
@@ -181,6 +184,17 @@ x86::reg32 allocate(x86::reg32 size, bool zero)
             address = block->getBlockStart();
             s.large[address] = block;
         }
+        if (s.reservePending && !s.reserved && rounded >= KeepSize)
+        {
+            const x86::reg32 pending = s.reservePending;
+            s.reservePending = 0;
+            s.reserved = MemMap::tryCreate((pending + Granularity - 1) & ~(Granularity - 1), MemMap::Low,
+                                           pf::perf::AllocHeapLarge);
+            if (s.reserved)
+                s.reservedSize = pending;
+            pf::logInfo("memory: %u KB set aside again after a %u KB block%s", pending / 1024, rounded / 1024,
+                        s.reserved ? "" : ": no room");
+        }
         s.blocks[address] = Block{size, sizeClass};
         s.used += size;
     }
@@ -239,6 +253,7 @@ bool unreserve()
             return false;
         reserved = s.reserved;
         s.reserved = nullptr;
+        s.reservePending = s.reservedSize;
         s.reservedSize = 0;
     }
     delete reserved;
@@ -267,6 +282,7 @@ bool reserve(x86::reg32 size)
     pf::LwLockGuard guard(s.mutex);
     if (s.reserved)
         return s.reservedSize == size;
+    s.reservePending = 0;
     const x86::reg32 rounded = (size + Granularity - 1) & ~(Granularity - 1);
     s.reserved = MemMap::tryCreate(rounded, MemMap::Low, pf::perf::AllocHeapLarge);
     if (!s.reserved)

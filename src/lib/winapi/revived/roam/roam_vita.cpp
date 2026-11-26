@@ -967,7 +967,8 @@ int roam_vita_can_host(void)
 
 // After a hosted race, in the main menu with the server gone (mprace.c): its memory back for the menus and the city's
 // load (a 60000 KB stream pool that did not fit beside it, 2026-11-26), set aside again once free roam is back
-// (roam_vita_can_host from the trip's end).
+// (heap.cpp: right after the city's stream pool, while there is still room; roam_vita_can_host from the trip's end
+// finds it there).
 void roam_vita_host_room_release(void)
 {
     if (s_hostRoom > 0 && win32::heap::unreserve())

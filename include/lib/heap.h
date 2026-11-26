@@ -22,6 +22,7 @@ bool reserve(x86::reg32 size);
 // memory exhaustion. True when there was one. Any thread.
 bool letGoKept();
 // Gives back the reserve() block while it is not lent; reserve() may be called again after. True when there was one.
+// The same size is set aside again by itself right after the next allocation of KeepSize or more (a track's stream pool).
 bool unreserve();
 // Requested size of a live block, or 0xffffffff.
 x86::reg32 size(x86::reg32 address);
