@@ -4617,6 +4617,16 @@ static void near_update(CPU *c, uint32_t w, int64_t host, int in_roam){
         g_nr.ncopy = 0; g_nr.n = 0; g_nr.orig = 0; g_nr.stop = 0;
     }
     if (icons != g_nr.icons || !nr_icons_live(icons)){                  /* the icons made again (0x4F92A0): ours went with them */
+        /* ...or only some did (leaving a shop, 2026-11-26): the ones still in the list, forgotten, stayed shown where
+         * their stand-in last was, an arrow stuck on the minimap.  Every icon naming a stand-in of ours is hidden now
+         * (the ones made from here on are shown or hidden by the loop below) */
+        int stuck = 0;
+        for (uint32_t n = g_nr.blk ? rd32(icons) : 0, m = 0; n && n != icons && m < MM_POOL && ok(n, 0x20); n = rd32(n), m++){
+            uint32_t num = rd32(n + 8u);
+            if (num >= nr_num(0) && num < nr_num(0) + (uint32_t)NEAR_SLOTS * (NEAR_BLK >> 2) && !(MR32(n + 0x18u) & MM_HIDE)){
+                MR32(n + 0x18u) |= MM_HIDE; stuck++; }
+        }
+        if (stuck) rlog("[roam] f=%ld minimap: %d arrow(s) of ours left from before the icons were made again, hidden\n", rh_frame(), stuck);
         g_nr.n = 0; g_nr.icons = icons; g_nr.stop = 0;
     }
     if (!in_roam){                                                      /* (a shop, a race, the menus: none, and no questions) */
