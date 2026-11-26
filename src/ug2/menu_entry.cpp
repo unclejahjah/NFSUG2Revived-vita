@@ -259,7 +259,9 @@ void rowReact(win32::WinApplication* app, x86::CPU& cpu)
     const reg32 row = cpu.ecx;
     const reg32 message = rc::ld32(cpu.esp + 8);
     const int g = s_group, i = rowItem(row);
-    if (g >= 0 && i >= 0 && i < options::itemCount(g) && options::itemIsAction(g, i))
+    if (g >= 0 && i >= 0 && i < options::itemCount(g) && options::itemIsHeading(g, i))
+        ;   // a group's heading: nothing to change
+    else if (g >= 0 && i >= 0 && i < options::itemCount(g) && options::itemIsAction(g, i))
     {
         if (message == Accept)
         {

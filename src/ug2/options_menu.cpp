@@ -19,7 +19,7 @@
 #include <strings.h>
 #include <vector>
 
-// src/lib/winapi/revived/revived_link.cpp: Friends and crews' "Add friend by name"
+// src/lib/winapi/revived/revived_link.cpp: Social's "Add friend by name"
 void revived_friend_ask(const std::string& name);
 std::string revived_friend_status(unsigned* version);
 
@@ -31,7 +31,8 @@ namespace
 // ---- The settings ---------------------------------------------------------------------------------------------------
 
 enum Store { Cfg, Ini, Extra };     // NeedForSpeedUnderground2.cfg, scripts/NFSU2FreeRoam.ini's [FreeRoam], or Extra Options' [Gameplay]
-enum Kind { Choice, Text, Secret, Action };     // Action: a row that does something (the cloud saves')
+// Action: a row that does something (the cloud saves'). Heading: a group's name inside a page, a row that sets nothing.
+enum Kind { Choice, Text, Secret, Action, Heading };
 
 struct Option
 {
@@ -188,10 +189,18 @@ const Option ChatButtons[] = { { "dpad_down", "Hold D-pad Down" }, { "dpad_up", 
 // Quick chat's phrases (nfsu2.xyz's, src/lib/winapi/revived/roam/phrases.h) by their numbers: the common ones.
 const Option Phrases[] = { { "0", "Hey!" }, { "1", "Nice car!" }, { "2", "Thanks!" }, { "3", "Bye!" }, { "4", "Yes" }, { "5", "No" }, { "6", "Sorry!" }, { "7", "lol" }, { "8", "Follow me!" }, { "9", "Wait up!" }, { "10", "Let's go!" }, { "11", "Nice!" }, { "12", "Race?" }, { "13", "Join my race!" }, { "14", "gg" }, { "15", "One more?" }, { "16", "Yo!" }, { "17", "Hi all!" }, { "18", "Welcome!" }, { "19", "Welcome back!" }, { "20", "Long time no see!" }, { "21", "Good luck!" }, { "22", "Have fun!" }, { "23", "Gotta go!" }, { "24", "See you around!" }, { "25", "Good night!" }, { "26", "brb" }, { "27", "Back!" }, { "28", "Sure!" }, { "29", "Maybe" }, { "30", "Okay" }, { "31", "Nope" }, { "33", "On my way!" }, { "41", "ty" }, { "42", "np" }, { "44", "My bad!" } };
 
-const Item FriendsPage[] = {
+// Social: friends, then crews just beneath, then quick chat, each under its heading row.
+const Item Social[] = {
+    { "Friends", Cfg, "", Heading, nullptr, 0, "", 0, nullptr, nullptr },
     { "Add friend by name", Ini, "AddFriend", Text, nullptr, 0, "", 24, "Type a name",
       "Send a friend request to a player by their claimed nfsu2.xyz name. Or meet them in free roam: touch front "
       "bumpers for 3 seconds. Needs your passphrase (Multiplayer)." },
+    { "Crews", Cfg, "", Heading, nullptr, 0, "", 0, nullptr, nullptr },
+    { "Crews", Ini, "Crew", Text, nullptr, 0, "", 120, "None",
+      "Up to 4 crews, joined by commas. Players who share one see each other's names and map arrows in its colour." },
+    { "Crew colours", Ini, "CrewColours", Text, nullptr, 0, "", 40, "Cyan, magenta, violet, red",
+      "Each crew's colour in the order of Crews, 6 hex digits each, joined by commas (3cd2ff, ff4646)." },
+    { "Quick chat", Cfg, "", Heading, nullptr, 0, "", 0, nullptr, nullptr },
     { "Quick chat", Ini, "QuickChat", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "Say a set phrase to the players near you: hold the quick chat button and press a phrase button. Theirs show "
       "after their names, in every player's own language on nfsu2.xyz." },
@@ -210,10 +219,6 @@ const Item FriendsPage[] = {
       "The quick chat phrase in slot 5 (see Quick chat button for its button)." },
     { "Phrase 6", Ini, "Say6", Choice, OPTIONS(Phrases), "1", 0, nullptr,
       "The quick chat phrase in slot 6 (see Quick chat button for its button)." },
-    { "Crews", Ini, "Crew", Text, nullptr, 0, "", 120, "None",
-      "Up to 4 crews, joined by commas. Players who share one see each other's names and map arrows in its colour." },
-    { "Crew colours", Ini, "CrewColours", Text, nullptr, 0, "", 40, "Cyan, magenta, violet, red",
-      "Each crew's colour in the order of Crews, 6 hex digits each, joined by commas (3cd2ff, ff4646)." },
 };
 
 const Item FreeRoam[] = {
@@ -269,7 +274,20 @@ const Item FreeRoam[] = {
 };
 
 
-const Item Display[] = {
+// Audio & Video: the Sound, Display and Performance groups, each under its heading row.
+const Item AudioVideo[] = {
+    { "Sound", Cfg, "", Heading, nullptr, 0, "", 0, nullptr, nullptr },
+    { "Hardware music decoding", Cfg, "music_hw_decode", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "The Vita's MP3 decoder plays the music, which frees the processor. It sounds the same." },
+    { "Short sound lock", Cfg, "audio_mixer_split", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "The sound mixer holds the game's sound lock for a shorter time. Worth about 1 fps in busy races." },
+    { "Mix rate", Cfg, "audio_mix_rate", Choice, OPTIONS(MixRate), "0", 0, nullptr,
+      "The rate the game mixes its sound at. 32000 Hz needs less processor time; 22050 Hz less again, but duller." },
+    { "Sound block", Cfg, "audio_block_ms", Choice, OPTIONS(BlockMs), "20", 0, nullptr,
+      "Length of one block of sound output. Shorter lowers the delay and costs more processor time." },
+    { "Quiet sounds", Cfg, "audio_silence_db", Choice, OPTIONS(Silence), "-60", 0, nullptr,
+      "Sounds quieter than this are not mixed, which saves processor time. -60 dB is inaudible; off mixes all." },
+    { "Display", Cfg, "", Heading, nullptr, 0, "", 0, nullptr, nullptr },
     { "Graphics preset", Cfg, "gfx_preset", Choice, OPTIONS(Preset), "vita", 0, nullptr,
       "Vita is what the port is tuned for; Max turns everything on and is much slower. The game's Display menu "
       "changes the individual options." },
@@ -281,19 +299,15 @@ const Item Display[] = {
       "How the game's movies play: the converted .mp4 files where they are there, else the original VP6 ones." },
     { "Optimised particles", Cfg, "optimised_particles", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "Cheaper tyre smoke and other particles, close to the original picture. Off is exactly as the original." },
-};
-
-const Item Sound[] = {
-    { "Hardware music decoding", Cfg, "music_hw_decode", Choice, OPTIONS(OnOff), "on", 0, nullptr,
-      "The Vita's MP3 decoder plays the music, which frees the processor. It sounds the same." },
-    { "Short sound lock", Cfg, "audio_mixer_split", Choice, OPTIONS(OnOff), "on", 0, nullptr,
-      "The sound mixer holds the game's sound lock for a shorter time. Worth about 1 fps in busy races." },
-    { "Mix rate", Cfg, "audio_mix_rate", Choice, OPTIONS(MixRate), "0", 0, nullptr,
-      "The rate the game mixes its sound at. 32000 Hz needs less processor time; 22050 Hz less again, but duller." },
-    { "Sound block", Cfg, "audio_block_ms", Choice, OPTIONS(BlockMs), "20", 0, nullptr,
-      "Length of one block of sound output. Shorter lowers the delay and costs more processor time." },
-    { "Quiet sounds", Cfg, "audio_silence_db", Choice, OPTIONS(Silence), "-60", 0, nullptr,
-      "Sounds quieter than this are not mixed, which saves processor time. -60 dB is inaudible; off mixes all." },
+    { "Performance", Cfg, "", Heading, nullptr, 0, "", 0, nullptr, nullptr },
+    { "Third CPU core", Cfg, "use_core3", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "Use the Vita's third processor core when it can be unlocked." },
+    { "Third core work", Cfg, "core3_tasks", Choice, OPTIONS(Core3Tasks), "helpers", 0, nullptr,
+      "What the third core does: helper and file threads with the command-list worker, or job workers." },
+    { "Texture cache", Cfg, "texture_cache_mb", Choice, OPTIONS(TextureCache), "12", 0, nullptr,
+      "Memory for kept texture levels. More avoids reloading them." },
+    { "Texture heap", Cfg, "texture_heap_mb", Choice, OPTIONS(TextureHeap), "0", 0, nullptr,
+      "Largest size of the texture heap. No cap lets the game decide." },
 };
 
 const Item Controller[] = {
@@ -311,17 +325,6 @@ const Item Controller[] = {
     { "Steering", Cfg, "steering", Choice, OPTIONS(Steering), "analog", 0, nullptr,
       "Analog steers as far as the left stick is pushed. Digital: pushed past halfway, the stick turns smoothly to "
       "full lock and back when released, as on a keyboard." },
-};
-
-const Item Performance[] = {
-    { "Third CPU core", Cfg, "use_core3", Choice, OPTIONS(OnOff), "on", 0, nullptr,
-      "Use the Vita's third processor core when it can be unlocked." },
-    { "Third core work", Cfg, "core3_tasks", Choice, OPTIONS(Core3Tasks), "helpers", 0, nullptr,
-      "What the third core does: helper and file threads with the command-list worker, or job workers." },
-    { "Texture cache", Cfg, "texture_cache_mb", Choice, OPTIONS(TextureCache), "12", 0, nullptr,
-      "Memory for kept texture levels. More avoids reloading them." },
-    { "Texture heap", Cfg, "texture_heap_mb", Choice, OPTIONS(TextureHeap), "0", 0, nullptr,
-      "Largest size of the texture heap. No cap lets the game decide." },
 };
 
 const Item Game[] = {
@@ -351,12 +354,10 @@ struct Page
 const Page Pages[] = {
     { "Multiplayer", OPTIONS(Multiplayer) },
     { "Free Roam", OPTIONS(FreeRoam) },
-    { "Display", OPTIONS(Display) },
-    { "Sound", OPTIONS(Sound) },
+    { "Social", OPTIONS(Social) },
+    { "Audio & Video", OPTIONS(AudioVideo) },
     { "Controller", OPTIONS(Controller) },
     { "Game", OPTIONS(Game) },
-    { "Performance", OPTIONS(Performance) },
-    { "Friends and crews", OPTIONS(FriendsPage) },
     { "Saves", OPTIONS(Saves) },
     { "Mods", OPTIONS(Mods) },
 };
@@ -696,7 +697,9 @@ void load()
         {
             const Item& it = Pages[p].items[i];
             std::string v = it.def;
-            if (it.store == Cfg)
+            if (it.kind == Heading)
+                ;                   // sets nothing
+            else if (it.store == Cfg)
             {
                 // The default and the old key name are the settings table's (src/platform/settings.cpp).
                 if (const pf::Setting* setting = pf::findSetting(it.key))
@@ -842,13 +845,32 @@ int itemCount(int g)
 
 const char* itemLabel(int g, int i)
 {
-    return item(g, i).label;
+    const Item& it = item(g, i);
+    if (it.kind != Heading)
+        return it.label;
+    // "---- SOUND ----": the group's name in capitals between rules, so the page reads as separate groups
+    static std::vector<std::string> headings;
+    std::string text = "---- ";
+    for (const char* c = it.label; *c; ++c)
+        text += char(*c >= 'a' && *c <= 'z' ? *c - 32 : *c);
+    text += " ----";
+    for (const std::string& h : headings)
+        if (h == text)
+            return h.c_str();
+    headings.reserve(32);
+    headings.push_back(text);
+    return headings.back().c_str();
 }
 
 bool itemIsText(int g, int i)
 {
     const Kind kind = item(g, i).kind;
     return kind == Text || kind == Secret;
+}
+
+bool itemIsHeading(int g, int i)
+{
+    return item(g, i).kind == Heading;
 }
 
 bool itemIsAction(int g, int i)
@@ -890,6 +912,8 @@ std::string itemValue(int g, int i)
         load();
     const Item& it = item(g, i);
     const std::string& v = s_values[g][i];
+    if (it.kind == Heading)
+        return "----------------";
     if (it.kind == Action)
         return s_lastAction == &it ? pf::cloud::status() : std::string("Press Cross");
     if (it.kind == Secret)
@@ -920,7 +944,7 @@ void shareValue(int g, int i)
         for (int k = 0; k < Pages[p].count; ++k)
         {
             const Item& other = Pages[p].items[k];
-            if ((p != g || k != i) && other.store == it.store && !strcmp(other.key, it.key))
+            if ((p != g || k != i) && other.kind != Heading && other.store == it.store && !strcmp(other.key, it.key))
                 s_values[p][k] = s_values[g][i];
         }
 }

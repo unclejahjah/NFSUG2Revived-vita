@@ -129,8 +129,8 @@ only holding it does quick chat, the horn or drift.
 
 **Vita Settings**, the main menu icon where Online was (Online is not offered), opens the game's own Options screens
 with the settings of the browser version's Settings page that the Vita has, in the same groups: Multiplayer, Free
-Roam, Display, Sound, Controller and Game, with the start-up screen's player settings (Performance), Worlds,
-Friends and crews, and Mods (NFSU2 Revived, free roam and EU Car Content, each switched on or off). It is also the last icon in the game's Options, and Select + Up opens it
+Roam, Social (friends, crews and quick chat), Audio & Video (Sound, Display and Performance, each under its own
+heading), Controller, Game, Saves and Mods (NFSU2 Revived, free roam and EU Car Content, each switched on or off). It is also the last icon in the game's Options, and Select + Up opens it
 from any front-end menu (not in a race). Pick a group, then change a setting with left and right as in the game's options; Cross on a text
 setting, such as a name or the passphrase, opens the Vita keyboard. Each change is saved at once to the same files as
 a hand edit and as the start-up screen's: `NeedForSpeedUnderground2.cfg` and free roam's `scripts/NFSU2FreeRoam.ini`.
@@ -272,7 +272,7 @@ with `Enable = 0`, the game is as before.
 [`extras/scripts/NFSU2FreeRoam.ini`](extras/scripts/NFSU2FreeRoam.ini) has the Vita's defaults: `MaxPlayers = 8` and
 `MaxCars = 2` (the PC's 33 and 5 are too many for the Vita; every car shown is a car load) and `CarPoolKB = 24000`,
 the car memory the Vita has been tested with. A car that does not fit is left out, not a crash. Vita Settings' Free
-Roam and Friends and crews groups edit the same file.
+Roam and Social groups edit the same file.
 
 On top of the PC plugin, the Vita draws what the browser version's page does:
 
@@ -280,7 +280,7 @@ On top of the PC plugin, the Vita draws what the browser version's page does:
 - **Flags:** your flag before your name (`Flag`, a code such as `gb`, `us` or `gb-eng`; Vita Settings > Free Roam
   lists them), and the other players' flags before theirs.
 - **Friends:** drive nose to nose with a player and hold the quick chat button + Triangle to ask them to be friends;
-  their answer shows in their name tag. Vita Settings > Friends and crews > Add friend by name asks by name.
+  their answer shows in their name tag. Vita Settings > Social > Add friend by name asks by name.
 - **Crews:** `Crew` and `CrewColours`, as on PC.
 
 #### Quick chat
@@ -288,7 +288,7 @@ On top of the PC plugin, the Vita draws what the browser version's page does:
 Hold D-pad Down (`quick_chat_button`) in free roam: the top line shows the six phrases. Press Up, Left, Right,
 Cross, Circle or Square to send one (by default Hey!, Thanks!, Race?, Follow me!, gg, Nice car!). It shows after
 your name on other players' screens, and as "You: ..." on yours. The phrases are nfsu2.xyz's list; pick them in Vita
-Settings > Friends and crews or as `Say1` to `Say6` in the ini. With `quick_chat_button=select` they are Select +
+Settings > Social or as `Say1` to `Say6` in the ini. With `quick_chat_button=select` they are Select +
 Down, Left, Right, Cross, Circle, Square (Up stays Vita Settings).
 
 ### Status and limits

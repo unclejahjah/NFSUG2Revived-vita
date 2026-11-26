@@ -33,6 +33,8 @@ int itemMaxLength(int g, int i);
 std::string itemValue(int g, int i);
 // A text item's text to edit (empty for a secret).
 std::string itemText(int g, int i);
+// A group's heading row inside a page (Audio & Video's Sound, Display, Performance; Social's): it sets nothing.
+bool itemIsHeading(int g, int i);
 // A row that does something (the cloud saves): Cross runs it, its value says how it went, and actionVersion changes
 // with each new status.
 bool itemIsAction(int g, int i);

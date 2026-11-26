@@ -54,7 +54,7 @@ const Setting s_table[] =
     BOOL("free_look_ease_back", Controls, 1, "Free look: let go less than 120 degrees round and the camera eases back behind the car; further round it cuts back.", 0),
     ENUM("horn_button", Controls, 0, "dpad_left|dpad_right|rear_l3|rear_r3|off", "Free roam's horn: hold this to honk; the other players hear it. A short D-pad press is still the game's.", 0),
     ENUM("drift_button", Controls, 0, "dpad_right|dpad_left|rear_r3|rear_l3|off", "Free roam's drift mode: hold this to switch it on or off. A short D-pad press is still the game's.", 0),
-    ENUM("quick_chat_button", Controls, 0, "dpad_down|dpad_up|triangle|select", "Free roam's quick chat: hold this and press a phrase button (Vita Settings, Friends and crews); select: Select + the button.", 0),
+    ENUM("quick_chat_button", Controls, 0, "dpad_down|dpad_up|triangle|select", "Free roam's quick chat: hold this and press a phrase button (Vita Settings, Social); select: Select + the button.", 0),
     ENUM("steering", Controls, 0, "analog|digital", "analog: the left stick steers as far as it is pushed; digital: pushed past halfway it ramps to full lock, as a keyboard.", 0),
 
     // ---- Audio ----
