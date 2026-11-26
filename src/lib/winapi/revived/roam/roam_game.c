@@ -6034,9 +6034,9 @@ int roam_game_hud_up(void){ return roam_plat_now_us() - g_mp_hud_at < 250000; }
 #define DH_LEFT_DY      156.f         /* the left panels moved down to sit just above the minimap (Jah, 2026-11-26): the
                                          * drift event's 39..140 to 195..296; the minimap's ring starts at about 304 */
 #define DH_LIME         0xcaf48au
-#define DH_BOX_RGB      0x666666u     /* the box: as the Bank's backing (PositionBacking, 3RDPERSON_BOXCORNER, white at 255:
-                                         * its texels grey 102 at 102 of 255), the white panel pieces (60 %) tinted to it */
-#define DH_BOX_A        170           /* ...at 0.6 x 170/255 = 40 %, the texture's */
+#define DH_BOX_A        140           /* the box: as the Bank's box top right, black at about a third (measured on the Vita's
+                                         * screenshots: what is behind it at 0.67 in each channel); ui_panel's black
+                                         * pieces (60 %) at 0.6 x 140/255 = 33 % */
 #define DH_GREY         0xc0c0c0u
 static int g_dh_drawn;
 static void dh_text(CPU *c, int i, uint32_t pkg, const char *tx, uint32_t rgb, uint8_t a, float x, float y, float sc, uint32_t just){
@@ -6086,7 +6086,7 @@ static void dh_draw(CPU *c, uint32_t pkg){
      * white pieces, tinted: Jah 2026-11-26, the three in a single box, corners as the native UI), round the texts'
      * 39..186 and 201..286 */
     ui_hide_imgs(c, FL_DH, 3);
-    ui_panel(c, FL_DH + 3, pkg, 28.f, 192.f, 168.f, 102.f, 1, DH_BOX_RGB, DH_BOX_A, 0.42f);
+    ui_panel(c, FL_DH + 3, pkg, 28.f, 192.f, 168.f, 102.f, 0, 0xffffffu, DH_BOX_A, 0.42f);
     dh_text(c, DH_BEST_L, pkg, "Best:", DH_GREY, 255, 39.f, 47.f + DH_LEFT_DY, 0.9f, 0u);
     dh_text(c, DH_BEST, pkg, best, DH_LIME, 255, 180.f, 45.f + DH_LEFT_DY, 1.f, 2u);
     dh_text(c, DH_MULT, pkg, mult, 0x30cf30u, 255, 53.f, 95.f + DH_LEFT_DY, 0.9f, 5u);
