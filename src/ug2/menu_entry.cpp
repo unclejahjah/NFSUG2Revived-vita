@@ -19,8 +19,9 @@
 // Rims, made as 0x53A620 makes Rims' (an item 0x40 bytes, vtable 0x79BE34, +0xC its code, +0x2C its label; 0x52ED80
 // puts it in the list). Its Accept starts the fade Rims' does (0x53A310), and at the fade's end (0xE1FDE1D1) the
 // Options screen (UI_Options.fng) comes on page 4, which the game has no entries for: here the rows of options_menu's
-// Stance group (the .ini's Stance keys, as on the Mods page), with the garage's camera on the car's front (0x4C2100)
-// and the car drawn with the stance as it is set (stance_vita.c). Its Back (the fade's end with +0x138 0x911AB364)
+// Stance group (the Mods page's switch, then the driven car's own stance: stance_vita.c's stance_menu_*), with the
+// garage's camera on the car's front (0x4C2100) and the car drawn with the values as they are set. The car keeps
+// them when the page closes (scripts/NFSU2Stance.ini, per profile and car). Its Back (the fade's end with +0x138 0x911AB364)
 // goes to the Body Shop again, not to the Options menu.
 
 #include "menu_entry.h"
@@ -41,6 +42,8 @@ extern "C" uint32_t roam_lang_text(uint32_t hash);
 // revived/roam/stance_vita.c: the stance read from the .ini again at the next car; the front end's car drawn with it
 extern "C" void stance_reload(void);
 extern "C" void stance_fe_preview(int on);
+extern "C" void stance_menu_open(void);
+extern "C" void stance_menu_close(void);
 
 namespace ug2
 {
@@ -399,6 +402,8 @@ void stanceClosed(win32::WinApplication* app, x86::CPU& cpu, const char* how)
     s_stanceGone = 0;
     rc::st32(OptionsPage, s_pageWas);
     ratingShow(app, cpu);
+    options::save();
+    stance_menu_close();    // the car keeps its stance (scripts/NFSU2Stance.ini)
     stance_reload();
     pf::logInfo("menu entry: Stance page closed (%s)", how);
 }
@@ -465,6 +470,7 @@ void partsReact(win32::WinApplication* app, x86::CPU& cpu)
         rc::st8(RimsGoing, 0);
         s_pageWas = rc::ld32(OptionsPage);
         rc::st32(OptionsPage, StancePage);
+        stance_menu_open();     // the car driven, its rows' values
         options::load();
         s_vita = true;
         s_inPause = false;
