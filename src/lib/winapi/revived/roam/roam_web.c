@@ -80,6 +80,16 @@
 #include <unistd.h>
 #include <time.h>
 #include <stdatomic.h>
+#include <stdarg.h>
+
+/* The Vita's newlib stderr goes nowhere: this file's lines (the virtual LAN's stats, the lock's long holds) go to the
+ * host's log (roam_vita.cpp roam_log) where it has one, to stderr elsewhere */
+__attribute__((weak)) void roam_log(const char *fmt, ...);
+static void web_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+static void web_log(const char *fmt, ...){
+    char b[1024]; va_list ap; va_start(ap, fmt); vsnprintf(b, sizeof b, fmt, ap); va_end(ap);
+    if (roam_log) roam_log("%s", b); else fputs(b, stderr);
+}
 
 static pthread_t       g_thr;
 static int             g_thr_on;
@@ -151,7 +161,7 @@ static inline net_slot *rx_slot(uint32_t i){ return (net_slot *)((uint8_t *)MB +
 static int mailbox_once(void){
     if (MB) return 0;
     net_mailbox *m = aligned_alloc(64, NET_MAILBOX_BYTES);
-    if (!m){ fprintf(stderr, "[roam] no memory for the net mailbox\n"); return -1; }
+    if (!m){ web_log("[roam] no memory for the net mailbox\n"); return -1; }
     memset(m, 0, NET_MAILBOX_BYTES);
     m->magic = NET_MAGIC; m->version = NET_VERSION; m->hdr_bytes = NET_HDR_BYTES; m->slot_bytes = NET_SLOT_BYTES;
     m->tx_slots = NET_TX_SLOTS; m->rx_slots = NET_RX_SLOTS;
@@ -190,7 +200,7 @@ static void blocked(const char *what, uint32_t ip){
     char b[16];
     g_st.blocked++;
     if (g_st.blocked <= 20 || g_st.blocked % 1000 == 0)
-        fprintf(stderr, "[roam] BLOCKED %s %s (test harness: loopback only; %llu refused so far)\n",
+        web_log("[roam] BLOCKED %s %s (test harness: loopback only; %llu refused so far)\n",
                 what, roam_ip_str(ip, b), (unsigned long long)g_st.blocked);
 }
 int roam_plat_guard(int test_mode, uint32_t ip, int is_bcast){
@@ -205,7 +215,7 @@ static void send_err(const char *why, uint32_t ip, uint16_t port){
     g_st.send_err++;
     if (g_st.send_err <= 5 || g_st.send_err % 1000 == 0){
         char b[16];
-        fprintf(stderr, "[roam] sendto %s:%u failed: %s (%llu send errors)\n", roam_ip_str(ip, b), port, why,
+        web_log("[roam] sendto %s:%u failed: %s (%llu send errors)\n", roam_ip_str(ip, b), port, why,
                 (unsigned long long)g_st.send_err);
     }
 }
@@ -219,7 +229,7 @@ static void do_send(uint16_t sport, uint32_t ip, uint16_t port, const uint8_t *b
         uint32_t gen = ld(&MB->generation);
         if (W.offline_noted != gen + 1){
             W.offline_noted = gen + 1;
-            fprintf(stderr, "[roam] the virtual LAN is not connected%s: datagrams are dropped until the page's switch "
+            web_log("[roam] the virtual LAN is not connected%s: datagrams are dropped until the page's switch "
                             "connection is up\n", gen ? " (reconnecting)" : " yet");
         }
         return;
@@ -233,7 +243,7 @@ static void do_send(uint16_t sport, uint32_t ip, uint16_t port, const uint8_t *b
             char b[16], n[16];
             g_st.send_err++;
             if (g_st.send_err <= 5 || g_st.send_err % 1000 == 0)
-                fprintf(stderr, "[roam] sendto %s:%u failed: not an address on the virtual LAN (%s/%d); in the browser "
+                web_log("[roam] sendto %s:%u failed: not an address on the virtual LAN (%s/%d); in the browser "
                                 "roam_peers takes the virtual addresses the page shows\n", roam_ip_str(ip, b), port,
                         roam_ip_str(vip & mask, n), __builtin_popcount(mask));
             return;
@@ -450,7 +460,7 @@ void roam_plat_name_piece(int off, int total, const char *b, int n){
     memcpy(g_name, g_name_in, sizeof g_name);
     atomic_fetch_add(&g_name_gen, 1);
     pthread_mutex_unlock(&g_name_mx);
-    fprintf(stderr, "[roam] a new name from the page (%d characters)\n", total);
+    web_log("[roam] a new name from the page (%d characters)\n", total);
 }
 /* the page's newest name, and how many it sent (0: none: out is left as it is) */
 uint32_t roam_plat_name(char out[33]){
@@ -474,7 +484,7 @@ void roam_plat_name2_piece(int off, int total, const char *b, int n){
     memcpy(g_name2, g_name2_in, sizeof g_name2);
     atomic_fetch_add(&g_name2_gen, 1);
     pthread_mutex_unlock(&g_name_mx);
-    fprintf(stderr, "[roam] a new name for player 2 from the page (%d characters)\n", total);
+    web_log("[roam] a new name for player 2 from the page (%d characters)\n", total);
 }
 uint32_t roam_plat_name2(char out[33]){
     if (!atomic_load(&g_name2_gen)) return 0;
@@ -568,7 +578,7 @@ static void imp_parse(const char *s){
         else if (!strcmp(k, "seed")) IMP.rng = (uint32_t)v ? (uint32_t)v : 1u;
     }
     IMP.on = 1;
-    fprintf(stderr, "[roam] impairment (test aid) on received datagrams: loss %d%%, delay %d ms, jitter +-%d ms, duplicates %d%%\n",
+    web_log("[roam] impairment (test aid) on received datagrams: loss %d%%, delay %d ms, jitter +-%d ms, duplicates %d%%\n",
             IMP.loss, IMP.delay, IMP.jitter, IMP.dup);
 }
 static void imp_queue(int64_t now, uint32_t ip, uint16_t port, const uint8_t *b, int len){
@@ -602,21 +612,21 @@ static void link_watch(link_seen *k, int64_t now){
     int up = ps == NET_PAGE_ONLINE;
     char b[16];
     if (up && (!k->up || vip != k->vip || gen != k->gen)){
-        fprintf(stderr, "[roam] virtual LAN up: this browser is %s/%d on the switch (connection %u, %u on the switch)%s\n",
+        web_log("[roam] virtual LAN up: this browser is %s/%d on the switch (connection %u, %u on the switch)%s\n",
                 roam_ip_str(vip, b), __builtin_popcount(ld(&MB->netmask)), gen, ld(&MB->switch_peers),
                 k->vip && vip != k->vip ? "; a new address: friends see a new player once the old one timed out" :
                 k->vip ? "; the same address again" : "");
         k->vip = vip; k->gen = gen; k->nagged = 0;
     }
     if (!up && k->up){
-        fprintf(stderr, "[roam] virtual LAN down (was %s): the page is reconnecting, datagrams are dropped meanwhile\n",
+        web_log("[roam] virtual LAN down (was %s): the page is reconnecting, datagrams are dropped meanwhile\n",
                 roam_ip_str(k->vip, b));
         k->t_down = now; k->nagged = 0;
     }
     k->up = up;
     if (!up && !k->nagged && now - k->t_down > 10000000){
         k->nagged = 1;
-        fprintf(stderr, "[roam] the virtual LAN has not been connected for 10 s (%s): friends cannot be reached until it is\n",
+        web_log("[roam] the virtual LAN has not been connected for 10 s (%s): friends cannot be reached until it is\n",
                 ps == NET_PAGE_NONE ? "the page has not attached the network (web/src/net attachNet)" :
                 k->vip ? "the page lost the server's switch and keeps reconnecting" : "the page is still connecting to the server's switch");
     }
@@ -628,11 +638,11 @@ static void held_long(const char *what, int first, int n, int64_t since){
     int64_t us = roam_plat_now_us() - since;
     if (us < 15000 || said >= 30) return;
     said++;
-    fprintf(stderr, "[roam] network: the lock held %.1f ms for %s (%d bytes, first byte %d)\n", (double)us / 1000.0, what, n, first);
+    web_log("[roam] network: the lock held %.1f ms for %s (%d bytes, first byte %d)\n", (double)us / 1000.0, what, n, first);
 }
 static void web_stats_log(const char *when){
     double tws = MB->tx_wait_ms_sum, twm = MB->tx_wait_ms_max; uint32_t twn = MB->tx_wait_n;
-    fprintf(stderr, "[roam] virtual LAN %s: sent %llu, received %llu, dropped while offline %llu, send errors %llu (not on the LAN %llu, queue full %llu), "
+    web_log("[roam] virtual LAN %s: sent %llu, received %llu, dropped while offline %llu, send errors %llu (not on the LAN %llu, queue full %llu), "
                     "filtered %llu (from this browser's own endpoints %llu); page: switch rtt %.2f ms, peers on the switch %u, RX ring full %u, oversize %u; "
                     "C->page wait mean %.3f ms max %.2f ms, page->C wait mean %.3f ms max %.2f ms; stepped aside for the game thread %u times\n",
             when, (unsigned long long)g_st.sent, (unsigned long long)g_st.recv, (unsigned long long)W.offline,
@@ -711,7 +721,7 @@ int roam_plat_start(const roam_plat_cfg *cfg, rc_session *s){
     g_cfg = *cfg; g_s = s; g_ep1.port = cfg->port;
     memset(&g_st, 0, sizeof g_st); memset(&W, 0, sizeof W);
     if (g_cfg.test_mode && g_cfg.discovery){
-        fprintf(stderr, "[roam] LAN discovery DISABLED: automated run (test harness), no broadcast will be sent; "
+        web_log("[roam] LAN discovery DISABLED: automated run (test harness), no broadcast will be sent; "
                         "only loopback peers from NFSU2_ROAM_PEERS\n");
         g_cfg.discovery = 0;
     }
@@ -743,9 +753,9 @@ int roam_plat_start(const roam_plat_cfg *cfg, rc_session *s){
     g_thr_on = 1;
     set_want(1);
     if (webtest_vlan())
-        fprintf(stderr, "[roam] automated run on the virtual LAN (NFSU2_ROAM_WEBTEST=vlan): virtual addresses and discovery as "
+        web_log("[roam] automated run on the virtual LAN (NFSU2_ROAM_WEBTEST=vlan): virtual addresses and discovery as "
                         "for players; the switch reaches only browsers on this server\n");
-    fprintf(stderr, "[roam] virtual LAN UDP port %u open%s%s\n", g_cfg.port,
+    web_log("[roam] virtual LAN UDP port %u open%s%s\n", g_cfg.port,
             g_cfg.test_mode ? " (test harness: loopback only; the switch stands for the loopback, 127.0.0.1:<port> "
                               "reaches the test instance on that port)" :
             use_hub ? ", the players near us from the server's free-roam hub (10.77.0.253)" : "",
@@ -782,7 +792,7 @@ int roam_plat_start2(rc_session *s, uint16_t port){
     s->conf.discovery = 0;
     g_ep2.port = port; g_port2 = port; g_port2_was = port; g_s2 = s;
     roam_plat_unlock();
-    fprintf(stderr, "[roam] player 2's virtual LAN UDP port %u open (a second endpoint of this browser)%s\n", port,
+    web_log("[roam] player 2's virtual LAN UDP port %u open (a second endpoint of this browser)%s\n", port,
             s->conf.hub_ip ? ", the players near player 2 from the server's hub" : "");
     return 0;
 }
@@ -791,7 +801,7 @@ void roam_plat_stop2(uint8_t reason){
     roam_plat_lock();
     if (g_s2){
         rc_shutdown(g_s2, reason);
-        fprintf(stderr, "[roam] player 2's virtual LAN UDP port %u closed\n", g_port2);
+        web_log("[roam] player 2's virtual LAN UDP port %u closed\n", g_port2);
         g_s2 = 0; g_port2 = 0;
     }
     roam_plat_unlock();
@@ -820,12 +830,12 @@ int roam_plat_parse_peers(const char *list, int test_mode, uint16_t defport, uin
         unsigned a, b, c, d, pt = defport; char extra;
         int got = sscanf(tok, "%u.%u.%u.%u:%u%c", &a, &b, &c, &d, &pt, &extra);
         if ((got != 4 && got != 5) || a > 255 || b > 255 || c > 255 || d > 255 || pt == 0 || pt > 65535){
-            fprintf(stderr, "[roam] peer \"%s\" ignored: write a.b.c.d or a.b.c.d:port (IPv4 numbers, no names)\n", tok);
+            web_log("[roam] peer \"%s\" ignored: write a.b.c.d or a.b.c.d:port (IPv4 numbers, no names)\n", tok);
             continue;
         }
         uint32_t v = a << 24 | b << 16 | c << 8 | d;
         if (test_mode && a != 127){
-            fprintf(stderr, "[roam] peer %s REFUSED: test harness, only 127.x.x.x peers\n", tok); continue; }
+            web_log("[roam] peer %s REFUSED: test harness, only 127.x.x.x peers\n", tok); continue; }
         ip[n] = v; port[n] = (uint16_t)pt; n++;
     }
     return n;
