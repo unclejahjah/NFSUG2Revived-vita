@@ -7332,7 +7332,7 @@ static void mp_act(int64_t host, int in_roam, int act, uint32_t a, uint32_t b, u
         if (g_mp.st != MP_IDLE || !in_roam) return;
         const MpSpot *sp = mp_spot_here(); MpLobby *h[MP_SEEN]; int n = mp_here(h);
 #ifdef ROAM_LOBBY_PANEL
-        if (!sp || !race_lan(sp->race)) return;   /* (D-pad Left held: at any start a LAN race can be run, the game's own too) */
+        if (!sp || !race_lan(sp->race)) return;   /* (D-pad Up held: at any start a LAN race can be run, the game's own too) */
 #else
         if (!mp_new_page(sp, n)) return;
 #endif
@@ -7373,7 +7373,8 @@ int  pad_lobby_take(void);
 static void mp_pad(int64_t host, int in_roam){
     int l = 0, r = 0;
 #ifdef ROAM_LOBBY_PANEL
-    /* the Vita's panel: D-pad Left held a new lobby at any start of a LAN race, Down held (hosting) Friends only */
+    /* the Vita's panel: D-pad Up held a new lobby at any start of a LAN race (one waiting there or not: Jah
+     * 2026-11-26; a tap is Engage: joins the lobby there, else opens one), Down held (hosting) Friends only */
     if (in_roam && host - g_mp_hud_at < 250000 && !mp_cannot()){
         const MpSpot *sp = mp_spot_here();
         if (g_mp.st == MP_IDLE && sp && race_lan(sp->race) && mp_can_host()) l = ROAM_LB_NEW;
@@ -7711,7 +7712,7 @@ static void js_race(MpJs *j, uint32_t r){
 /* The race lobby's panel in the game, for a platform with no page around it (the Vita): on the left just above the
  * minimap, in drift mode's box (dh_draw: the pause menu's black rounded pieces at DH_BOX_A, Jah 2026-11-26, "as the
  * drift UI and the native elements"), the names' font (ConduitMdITC_TT14i).  It shows a lobby at the start we are at
- * (its players; Up joins it), a start where a lobby can be opened (D-pad Left held: mp_pad), ours (Up starts the race,
+ * (its players; Up joins it), a start where a lobby can be opened (Up there, or Up held: mp_pad), ours (Up starts the race,
  * Down held: Friends only) and the one we are in.  No top line, pop-up or question asks to join any more (mp_line,
  * mp_recv, mp_card): the panel is all */
 #ifndef DH_LIME
@@ -7790,7 +7791,8 @@ static int lb_panel(CPU *c, uint32_t pkg, int64_t host){
             if (mp_outpaced(l->race)){ snprintf(ta, sizeof ta, "Stage %d race: its cars are", mp_outpaced(l->race)); snprintf(tb, sizeof tb, "usually much faster than yours"); ra = 0xff8020u; }
             key[nk].gl = GL_UP; snprintf(key[nk].label, sizeof key[nk].label, "Join lobby"); nk++;
         } else snprintf(ta, sizeof ta, "No lobby here yet");
-        if (sp && !no && race_lan(sp->race) && mp_can_host()){ key[nk].hold = 1; key[nk].gl = GL_LEFT; snprintf(key[nk].label, sizeof key[nk].label, "New lobby"); nk++; }
+        /* a new lobby: Up at a multiplayer-only spot with none (mp_ui_frame), else Up held (mp_pad) */
+        if (sp && !no && race_lan(sp->race) && mp_can_host()){ key[nk].hold = l || sp->kind != MPS_ONLY; key[nk].gl = GL_UP; snprintf(key[nk].label, sizeof key[nk].label, "New lobby"); nk++; }
         break;
     case MP_HOST:
         if (l->away_s){ snprintf(ta, sizeof ta, "You seem away: it closes in %d s", l->away_s); snprintf(tb, sizeof tb, "unless you press a button"); ra = 0xff8020u; }
@@ -8248,7 +8250,7 @@ static void mp_card(CPU *c){
         uint32_t r = rd32(G_ENGAGED_RACE);
         if (!r || !race_lan(r)){ sub_00499c00(c); return; }                        /* a race no LAN race can be: as before */
 #ifdef ROAM_LOBBY_PANEL
-        sub_00499c00(c); return;                  /* no question: Accept races it Solo; Up joins a lobby, Left held opens one */
+        sub_00499c00(c); return;                  /* no question: Accept races it Solo; Up joins a lobby, Up held opens one */
 #endif
         MpLobby *l = mp_joinable();                                                /* (the lobby card's page: else a new lobby) */
         if (!l && !mp_can_host()){ sub_00499c00(c); return; }                     /* (no lobby to join, none to open: Solo) */
@@ -8305,10 +8307,7 @@ static void mp_ui_frame(CPU *c, int64_t host, int in_roam, int press, const MpSp
      * gets no input (the world keeps it: the game's own dialogs there come in
      * its engage state or its pause) */
     if (!sp || sp->kind != MPS_ONLY) return;
-#ifdef ROAM_LOBBY_PANEL
-    return;                                   /* (Up joins the lobby here, mp_frame; Left held opens one, mp_pad) */
-#endif
-    mp_engage_spot(host, sp->race);
+    mp_engage_spot(host, sp->race);       /* (Up: the lobby here joined, else one opened; Up held: a new one, mp_pad) */
 }
 /* the race card's Solo or Multiplayer question is up (career.c: the career bot answers Solo, its focused button) */
 int roam_game_card_question(void){ return g_mpd.dlg == MPD_CARD; }

@@ -656,7 +656,7 @@ int roam_host_drift_presses(void)
     return win32::controls::takeDriftPresses();
 }
 
-// The race lobby panel's keys (roam/mp/mp_vita.c pad_lobby_offer, each frame while free roam's HUD is up): D-pad Left
+// The race lobby panel's keys (roam/mp/mp_vita.c pad_lobby_offer, each frame while free roam's HUD is up): D-pad Up
 // held for a new lobby, Down held for Friends only (controls::setLobbyKeys); the presses since the last frame, bit 0
 // Left, bit 1 Down; and how far Down's hold towards Friends only is, 0..1 (-1 none), for the quick chat box's bar.
 extern "C" void roam_host_lobby_keys(int left, int down)

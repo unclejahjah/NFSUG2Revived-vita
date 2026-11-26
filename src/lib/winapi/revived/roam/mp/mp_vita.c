@@ -188,7 +188,7 @@ int mpcredit_busy(void){ return 0; }
 /* the network race's cars as they came in (racenet.c): not measured here */
 float racenet_jump(const char *name){ (void)name; return 0.f; }
 float racenet_farthest(char name[16]){ name[0] = 0; return 0.f; }
-/* the lobby panel's keys (roam_game.c mp_pad, ROAM_LOBBY_PANEL): on the Vita D-pad Left held (left: a new lobby) and
+/* the lobby panel's keys (roam_game.c mp_pad, ROAM_LOBBY_PANEL): on the Vita D-pad Up held (left: a new lobby) and
  * Down held (second: Friends only), taken from the game by controls.cpp only while offered (roam_vita.cpp) */
 void roam_host_lobby_keys(int left, int down);
 int roam_host_lobby_take(void);
