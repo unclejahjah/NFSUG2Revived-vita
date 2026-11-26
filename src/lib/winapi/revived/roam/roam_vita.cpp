@@ -56,6 +56,7 @@ void showoff_frame(struct CPU* c);   // showoff.c: the hood, the trunk and the d
 void drift_frame(struct CPU* c);     // drift.c: drift mode (drift_button) and drift battles
 void roam_vita_tap(unsigned dik);
 int roam_vita_can_host(void);
+const char* roam_vita_no_host_why(void);
 void roam_vita_host_room_release(void);
 int roam_host_hud_line(char* tx, int n);
 int roam_host_chat_menu(const char** keys, const char** texts, int max);
@@ -963,6 +964,17 @@ int roam_vita_can_host(void)
                     s_hostRoom > 0 ? "set aside" : "not available (guest memory too fragmented): this game does not host");
     }
     return s_hostRoom > 0;
+}
+
+// The notice when a lobby cannot be opened here (roam_game.c MP_NO_HOST): the files missing, or no room in guest memory
+// for the server's state (it was not set aside early enough, see above)
+const char* roam_vita_no_host_why(void)
+{
+    if (win32::guestmodule::available("server.dll") && s_hostRoom < 0)
+        return "Hosting is unavailable until you restart the game (not enough free memory for the LAN server): join a "
+               "lobby another player opens here";
+    return "Hosting a race needs server.dll and server.cfg from the PC game (patch 1.2) next to SPEED2.EXE: join a lobby "
+           "another player opens here";
 }
 
 // After a hosted race, in the main menu with the server gone (mprace.c): its memory back for the menus and the city's

@@ -6856,8 +6856,9 @@ static void mp_report(void){
  * src/lib/guestmodule.cpp); without it the Vita joins the lobbies others open, and opens none */
 #ifdef ROAM_MPRACE_HOST_CHECK
 int roam_vita_can_host(void);
+const char *roam_vita_no_host_why(void);
 static int mp_can_host(void){ return roam_vita_can_host(); }
-#define MP_NO_HOST "Hosting a race needs server.dll and server.cfg from the PC game (patch 1.2) next to SPEED2.EXE: join a lobby another player opens here"
+#define MP_NO_HOST roam_vita_no_host_why()
 #else
 static int mp_can_host(void){ return 1; }
 #define MP_NO_HOST ""
