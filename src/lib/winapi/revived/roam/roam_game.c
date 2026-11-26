@@ -9780,6 +9780,10 @@ static int heavy_take(void){
  * parked car already wears, or one with a car that fits, is not kept
  * waiting behind him (int3a review: a nearest friend without memory hid
  * every other friend until he left) */
+#ifdef ROAM_SWAP_CALM
+#define SWAP_NEAR_M   250.f         /* a friend nearer than this may take a shown friend's slot */
+#define SWAP_HOLD_US  30000000LL    /* ...from a car shown at least this long */
+#endif
 static void assign(CPU *c, int64_t host){
     int nslots = O.max_cars;
     uint8_t tried[PV_MAX] = {0};               /* g_pv indices refused this frame */
@@ -9827,6 +9831,14 @@ static void assign(CPU *c, int64_t host){
         /* 3. a parked car with another look: the new ride replaces it */
         for (int j = 0; j < nslots && k < 0; j++) if (g_sl[j].st == SL_PARKED && ok(g_sl[j].car, 0x9e0)) k = j;
         if (k < 0){
+#ifdef ROAM_SWAP_CALM
+            /* (the Vita: each car swapped in costs 2 or 3 frames of 50 to 100 ms; with 15 players and 5 slots
+             * cars were swapped 54 times in 16 minutes, for friends 300 to 900 m away that the game does not draw
+             * anyway, 2026-11-26.  A friend farther than SWAP_NEAR_M takes no shown friend's slot, and a car
+             * shown less than SWAP_HOLD_US stays unless out of sight.  v is the nearest friend without a slot:
+             * none after it is nearer) */
+            if (v->rank > SWAP_NEAR_M) return;
+#endif
             /* 4. a friend out of sight: the one unseen the longest gives way */
             int far = -1;
             for (int j = 0; j < nslots; j++)
@@ -9851,6 +9863,9 @@ static void assign(CPU *c, int64_t host){
                 float fd = 0.f; int fj = -1;
                 for (int j = 0; j < nslots; j++){
                     if (g_sl[j].st != SL_ACTIVE || du_keeps(j) || (g_sl[j].crew && (pass == 0 || !v->crew))) continue;
+#ifdef ROAM_SWAP_CALM
+                    if (roam_plat_now_us() - g_sl[j].acq_us < SWAP_HOLD_US) continue;
+#endif
                     for (int i = 0; i < g_npv; i++)
                         if (g_pv[i].idx == g_sl[j].peer && g_pv[i].id == g_sl[j].peer_id && g_pv[i].rank > fd){ fd = g_pv[i].rank; fj = j; }
                 }
