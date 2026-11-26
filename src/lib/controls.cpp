@@ -174,9 +174,11 @@ static int hornButton()
     const unsigned generation = pf::Config::generation();
     if (s_generation.load(std::memory_order_acquire) != generation)
     {
-        static const char* const Names[] = { "dpad_left", "dpad_right", "rear_l3", "rear_r3", "off" };
-        static const int Buttons[] = { DpadLeft, DpadRight, RearL3, RearR3, -1 };
-        s_button.store(Buttons[pf::Config::getChoice("horn_button", Names, 5, 0)], std::memory_order_relaxed);
+        static const char* const Names[] = { "dpad_left", "dpad_right", "rear_l3", "rear_r3", "off", "dpad_up", "dpad_down",
+                                             "triangle", "circle", "square", "cross", "l", "r", "rear_l2", "rear_r2" };
+        static const int Buttons[] = { DpadLeft, DpadRight, RearL3, RearR3, -1, DpadUp, DpadDown, Triangle, Circle, Square,
+                                       Cross, L, R, RearL2, RearR2 };
+        s_button.store(Buttons[pf::Config::getChoice("horn_button", Names, 15, 0)], std::memory_order_relaxed);
         s_generation.store(generation, std::memory_order_release);
     }
     return s_button.load(std::memory_order_relaxed);
@@ -191,9 +193,11 @@ static int driftButton()
     const unsigned generation = pf::Config::generation();
     if (s_generation.load(std::memory_order_acquire) != generation)
     {
-        static const char* const Names[] = { "dpad_right", "dpad_left", "rear_r3", "rear_l3", "off" };
-        static const int Buttons[] = { DpadRight, DpadLeft, RearR3, RearL3, -1 };
-        s_button.store(Buttons[pf::Config::getChoice("drift_button", Names, 5, 0)], std::memory_order_relaxed);
+        static const char* const Names[] = { "dpad_right", "dpad_left", "rear_r3", "rear_l3", "off", "dpad_up", "dpad_down",
+                                             "triangle", "circle", "square", "cross", "l", "r", "rear_l2", "rear_r2" };
+        static const int Buttons[] = { DpadRight, DpadLeft, RearR3, RearL3, -1, DpadUp, DpadDown, Triangle, Circle, Square,
+                                       Cross, L, R, RearL2, RearR2 };
+        s_button.store(Buttons[pf::Config::getChoice("drift_button", Names, 15, 0)], std::memory_order_relaxed);
         s_generation.store(generation, std::memory_order_release);
     }
     return s_button.load(std::memory_order_relaxed);
@@ -847,7 +851,9 @@ static float clampUnit(float v)
 }
 
 // horn_button and drift_button: a rear corner is ours from the press; a D-pad direction (one of the game's own
-// controls in every Control Type) only once held for HoldUs, and a shorter press reaches the game afterwards as a tap.
+// controls in every Control Type) only once held for HoldUs, and a shorter press reaches the game afterwards as a tap;
+// a face button or L/R (the game's driving: accelerate, brake, nitrous...) stays the game's too, and is also ours once
+// held for HoldUs, so holding it to drive never loses the action.
 static const uint64_t HoldUs = 250000;
 
 bool Mapper::held(Hold& hold, Input input, uint32_t inputs, uint32_t pressed, uint64_t nowUs, uint32_t* hidden,
@@ -855,16 +861,19 @@ bool Mapper::held(Hold& hold, Input input, uint32_t inputs, uint32_t pressed, ui
 {
     const uint32_t key = bit(input);
     const bool dpad = input == DpadUp || input == DpadDown || input == DpadLeft || input == DpadRight;
+    const bool rear = input == RearL2 || input == RearR2 || input == RearL3 || input == RearR3;
+    const bool shared = !dpad && !rear;
     if (pressed & key)
-        hold = { nowUs ? nowUs : 1, !dpad, 0 };
+        hold = { nowUs ? nowUs : 1, rear, 0 };
     if (inputs & key)
     {
         if (hold.sinceUs && !hold.fired && nowUs - hold.sinceUs >= HoldUs)
             hold.fired = true;
-        *hidden |= key;
+        if (!shared)
+            *hidden |= key;
         return hold.fired;
     }
-    if (hold.sinceUs && !hold.fired)
+    if (hold.sinceUs && !hold.fired && !shared)
         hold.pulseEndUs = nowUs + s_tapUs;
     hold.sinceUs = 0;
     hold.fired = false;

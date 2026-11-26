@@ -54,8 +54,8 @@ const Setting s_table[] =
     BOOL("camera_stick", Controls, 1, "While driving the right stick turns the chase camera round the car (hood, bumper: down looks back); off: 0.9.0's free look.", 0),
     INT("camera_stick_speed", Controls, 4, 1, 10, 1, "How fast the right stick camera turns to the stick and comes back: 1 slowest, 10 fastest.", 0),
     BOOL("free_look_ease_back", Controls, 1, "Free look: let go less than 120 degrees round and the camera eases back behind the car; further round it cuts back.", 0),
-    ENUM("horn_button", Controls, 0, "dpad_left|dpad_right|rear_l3|rear_r3|off", "Free roam's horn: hold this to honk; the other players hear it. A short D-pad press is still the game's.", 0),
-    ENUM("drift_button", Controls, 0, "dpad_right|dpad_left|rear_r3|rear_l3|off", "Free roam's drift mode: hold this to switch it on or off. A short D-pad press is still the game's.", 0),
+    ENUM("horn_button", Controls, 0, "dpad_left|dpad_right|rear_l3|rear_r3|off|dpad_up|dpad_down|triangle|circle|square|cross|l|r|rear_l2|rear_r2", "Free roam's horn: hold this to honk; the other players hear it. A short D-pad press is still the game's; a face button or L/R keeps its game action too.", 0),
+    ENUM("drift_button", Controls, 0, "dpad_right|dpad_left|rear_r3|rear_l3|off|dpad_up|dpad_down|triangle|circle|square|cross|l|r|rear_l2|rear_r2", "Free roam's drift mode: hold this to switch it on or off. A short D-pad press is still the game's; a face button or L/R keeps its game action too.", 0),
     ENUM("quick_chat_button", Controls, 0, "dpad_down|dpad_up|triangle|select", "Free roam's quick chat: hold this and press a phrase button (Vita Settings, Social); select: Select + the button.", 0),
     ENUM("steering", Controls, 0, "analog|digital", "analog: the left stick steers as far as it is pushed; digital: pushed past halfway it ramps to full lock, as a keyboard.", 0),
 

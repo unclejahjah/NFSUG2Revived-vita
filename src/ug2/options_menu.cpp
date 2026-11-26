@@ -179,11 +179,17 @@ const Option Horns[] = { { "dual", "Dual tone" }, { "single", "Single tone" }, {
 
 const Option HornButtons[] = { { "dpad_left", "Hold D-pad Left" }, { "dpad_right", "Hold D-pad Right" },
                                { "rear_l3", "Rear touch, lower left" }, { "rear_r3", "Rear touch, lower right" },
-                               { "off", "Off" } };
+                               { "dpad_up", "Hold D-pad Up" }, { "dpad_down", "Hold D-pad Down" },
+                               { "triangle", "Hold Triangle" }, { "circle", "Hold Circle" }, { "square", "Hold Square" },
+                               { "cross", "Hold Cross" }, { "l", "Hold L" }, { "r", "Hold R" },
+                               { "rear_l2", "Rear touch, upper left" }, { "rear_r2", "Rear touch, upper right" }, { "off", "Off" } };
 
 const Option DriftButtons[] = { { "dpad_right", "Hold D-pad Right" }, { "dpad_left", "Hold D-pad Left" },
                                 { "rear_r3", "Rear touch, lower right" }, { "rear_l3", "Rear touch, lower left" },
-                                { "off", "Off" } };
+                                { "dpad_up", "Hold D-pad Up" }, { "dpad_down", "Hold D-pad Down" },
+                                { "triangle", "Hold Triangle" }, { "circle", "Hold Circle" }, { "square", "Hold Square" },
+                                { "cross", "Hold Cross" }, { "l", "Hold L" }, { "r", "Hold R" },
+                                { "rear_l2", "Rear touch, upper left" }, { "rear_r2", "Rear touch, upper right" }, { "off", "Off" } };
 
 const Option ChatButtons[] = { { "dpad_down", "Hold D-pad Down" }, { "dpad_up", "Hold D-pad Up" },
                                { "triangle", "Hold Triangle" }, { "select", "Select chords" } };
