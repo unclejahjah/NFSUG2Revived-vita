@@ -2572,7 +2572,12 @@ static void push_pose(Slot *s, rc_pose *P, int64_t newest, int64_t rt, float dt)
 #define TAG_QCN         9
 #define TAG_LB0         (TAG_QC0 + TAG_QCN)   /* and the race lobby's panel: title, race, a line a player, two of keys (lb_panel) */
 #define TAG_LBN         18
-#define TAG_ALL         (TAG_N + 1 + TAG_MPN + TAG_QCN + TAG_LBN)
+#define TAG_DH0         (TAG_LB0 + TAG_LBN)   /* and drift mode's HUD, the drift event's texts (dh_draw) */
+#define TAG_DHN         9
+enum { DH_TITLE, DH_PTS, DH_BEST_L, DH_BEST, DH_TOT_L, DH_TOT, DH_MULT, DH_GAIN_L, DH_GAIN };   /* (TAG_DH0 + these) */
+#define DH_BIG_SOURCE   0x2da220aau   /* HUD_SingleRace's "+9999": Font_ConduitMdITCTT38bi, the drift event's points' */
+static inline int dh_big(int i){ return i == DH_PTS || i == DH_MULT; }
+#define TAG_ALL         (TAG_N + 1 + TAG_MPN + TAG_QCN + TAG_LBN + TAG_DHN)
 #define TAG_DUEL_MAX    120
 /* the names' objects in a HUD; co-op free roam has a set for each player's (its half of the screen) */
 typedef struct { uint32_t hud, obj[TAG_ALL]; uint8_t looked[TAG_ALL], shown[TAG_ALL], alpha[TAG_ALL]; char text[TAG_ALL][TAG_DUEL_MAX]; uint32_t rgb[TAG_ALL];
@@ -2719,8 +2724,17 @@ static uint32_t tag_obj(CPU *c, int k, uint32_t pkg){
     g_tag.looked[k] = 1;
     if (k >= TAG_GAME){
         uint32_t o1 = tag_obj(c, 0, pkg);
-        char nm[24]; snprintf(nm, sizeof nm, k == TAG_DUEL ? "ROAM_OUTRUN" : k >= TAG_LB0 ? "ROAM_LOBBY_%d" : k >= TAG_QC0 ? "ROAM_CHAT_%d" : k >= TAG_MP0 ? "ROAM_RACE_%d" : "ROAM_PLAYER_%d",
-                              k >= TAG_LB0 ? k - TAG_LB0 + 1 : k >= TAG_QC0 ? k - TAG_QC0 + 1 : k >= TAG_MP0 ? k - TAG_MP0 + 1 : k + 1);   /* past the HUD's six: copies of the first */
+#ifdef ROAM_VITA_DRIFT
+        /* drift mode's points and multiplier in the drift event's big font (Font_ConduitMdITCTT38bi): copies of the
+         * HUD's own "+9999" (0x2DA220AA, in it), the rest the names' (ConduitMdITC_TT14i, the drift event's small) */
+        if (k >= TAG_DH0 && dh_big(k - TAG_DH0)){
+            uint32_t a[2] = { pkg, DH_BIG_SOURCE }, b = rh_call(c, FN_FE_FIND, 0, 0, 2, a);
+            if (ok(b, 0x70) && rd32(b + 0x18u) == 2u) o1 = b;
+            else rlog("[roam] f=%ld drift HUD: no big-font text in the HUD: the small font for the points\n", rh_frame());
+        }
+#endif
+        char nm[24]; snprintf(nm, sizeof nm, k == TAG_DUEL ? "ROAM_OUTRUN" : k >= TAG_DH0 ? "ROAM_DRIFT_%d" : k >= TAG_LB0 ? "ROAM_LOBBY_%d" : k >= TAG_QC0 ? "ROAM_CHAT_%d" : k >= TAG_MP0 ? "ROAM_RACE_%d" : "ROAM_PLAYER_%d",
+                              k >= TAG_DH0 ? k - TAG_DH0 + 1 : k >= TAG_LB0 ? k - TAG_LB0 + 1 : k >= TAG_QC0 ? k - TAG_QC0 + 1 : k >= TAG_MP0 ? k - TAG_MP0 + 1 : k + 1);   /* past the HUD's six: copies of the first */
         g_tag.obj[k] = o1 ? fe_clone(c, pkg, o1, nm) : 0;
         if (g_tag.obj[k] && !g_tag.probe){ g_tag.probe = g_tag.obj[k]; g_tag.probe_hash = MR32(g_tag.obj[k] + 0x10u); }
         if (!g_tag.obj[k] && k == TAG_DUEL) rlog("[roam] f=%ld no copy of ONLINE_PLAYER_1 for the outrun's line of text\n", rh_frame());
@@ -2921,7 +2935,9 @@ static uint32_t flag_texture(CPU *c, int i){
 #define FL_LBN          40
 #define FL_TOP          (FL_LB + FL_LBN)   /* the line at the top's: panel, rule, glyph (du_hud) */
 #define FL_TOPN         18
-#define FL_ALL          (FL_TOP + FL_TOPN)
+#define FL_DH           (FL_TOP + FL_TOPN) /* drift mode's HUD: the drift event's three backings (dh_draw) */
+#define FL_DHN          3
+#define FL_ALL          (FL_DH + FL_DHN)
 typedef struct { uint32_t hud, like, obj[FL_ALL]; uint8_t looked[FL_ALL], shown[FL_ALL], alpha[FL_ALL]; uint32_t tex[FL_ALL]; int said;
                  uint32_t probe, probe_hash; } FlagSet;   /* (probe: the first image made, its hash: tags_live) */
 static FlagSet g_fls[2], *g_flp = &g_fls[0];
@@ -5995,11 +6011,122 @@ static int64_t g_mp_hud_at;                   /* free roam's HUD was up, no dial
 /* the host's free-roam buttons (horn, drift: roam_vita.cpp) are taken only while it is */
 int roam_game_hud_up(void){ return roam_plat_now_us() - g_mp_hud_at < 250000; }
 #endif
+#if FLAGS && defined(ROAM_VITA_DRIFT)
+/* ---- drift mode's HUD, as a drift event's -------------------------------------------------------------------------
+ * Free roam's HUD (HUD_SingleRace) has none of the drift event's objects, so drift mode draws copies of its own texts
+ * and images where HUD_Drift.fng (GLOBAL\InGameDrift.bun) has them, in its fonts, colours and sizes.  From the package
+ * (positions there are from the screen's middle, 640 x 480; here from the top left; a group's added to its objects'):
+ *  - under the rear view mirror: SP_Drift_Title "DRIFT" (0, -153): ConduitMdITC_TT14i, scale 1, (202,244,138), centred
+ *    across, from its top; SP_Drift_Point (0, -123): Font_ConduitMdITCTT38bi, scale 1, the same colour, centred;
+ *  - top left, its group at (-196, -185): "Best:" (-85, -8) TT14i 0.9 (192,192,192) from its left; BestDrift (56, -10)
+ *    TT14i 1.0 (202,244,138) to its right; BestDriftBacking (-56, 0) 256 x 32 Drift_Style_Points_Backing, white at 120;
+ *  - its group at (-224, -117): "Total:" (-56, -7) TT14i 0.9 (192,192,192); SP_DRIFT_TOTAL (83, -7) TT14i 0.9
+ *    (207,233,242) at 200, to its right; Style_Point_Backing_03 (55, 1) 256 x 32 3rdperson_BoxTime, white at 200;
+ *  - the multiplier's group at (-185, -66): drift_multiplier_text (-82, -79) Font38bi 0.9 (48,207,48) centred;
+ *    NextSpeeed_Trap_Indicator "GAIN X2 WITH" (51, -101) TT14i 0.9 (170,170,170) to its right; its points
+ *    SpeedTrap_Speed_DATA (47, -81) TT14i 0.9 (202,244,138) to its right; CurrentSpeed_Trap_Backing_01 (-23.6, -81)
+ *    154.9 x 40 White16x16, black at 150.
+ * The left ones keep to the screen's left edge (widescreen place 1), the drift to the middle (0).  The HUD's D-pad
+ * widget (group 0x3345911D, free roam's own, where the drift event has its panels) is hidden while they show and given
+ * back after.  The texts and when they show: drift.c drift_vita_hud. */
+#define DH_TEX_BEST     0x51052532u   /* DRIFT_STYLE_POINTS_BACKING (InGameFreeRoam's HUD textures) */
+#define DH_TEX_TOTAL    0x6fd193f6u   /* 3RDPERSON_BOXTIME (InGameCommon) */
+#define DH_DPAD         0x3345911du   /* HUD_SingleRace: the D-pad widget's group */
+#define DH_LIME         0xcaf48au
+#define DH_GREY         0xc0c0c0u
+static int g_dh_drawn; static uint32_t g_dh_dpad, g_dh_hud; static int g_dh_dpad_was;   /* the widget (of HUD g_dh_hud), and whether it showed */
+static void dh_text(CPU *c, int i, uint32_t pkg, const char *tx, uint32_t rgb, uint8_t a, float x, float y, float sc, uint32_t just){
+    int k = TAG_DH0 + i;
+    if (!tx || !tx[0]){ tag_hide(c, k); return; }
+    uint32_t obj = tag_obj(c, k, pkg);
+    if (!obj) return;
+    ui_place(obj);
+    tag_text_rgba(c, k, obj, tx, rgb, a);
+    if ((MR32(obj + 0x6cu) & 0xfu) != just){ MR32(obj + 0x6cu) = (MR32(obj + 0x6cu) & ~0xfu) | just; MR32(obj + 0x1cu) |= 0x400002u; }   /* the package's Sj */
+    uint32_t ap[2] = { gvec(g_gmem + TAG_SCR + 0x20u, x - 320.f, y - 240.f, 0.4f), 0 };
+    rh_call(c, FN_FE_POS, obj, 0, 2, ap);
+    uint32_t as[2] = { gvec(g_gmem + TAG_SCR + 0x30u, sc, sc, 1.f), 0 };
+    rh_call(c, FN_FE_SCALE, obj, 0, 2, as);
+    if (!g_tag.shown[k]) gcall1(c, FN_FE_SHOW, 0, obj);
+    g_tag.shown[k] = 1;
+}
+/* an image of the package's: its middle at x, y, w x h */
+static void dh_img(CPU *c, int k, uint32_t pkg, uint32_t tex, float x, float y, float w, float h, uint32_t rgb, uint8_t a){
+    static uint32_t seen[4]; static int8_t have[4];   /* (looked up once each) */
+    int j = 0;
+    while (j < 4 && seen[j] && seen[j] != tex) j++;
+    if (j < 4 && seen[j] != tex){ seen[j] = tex; have[j] = ui_tex_loaded(c, tex) ? 1 : -1;
+        if (have[j] < 0) rlog("[roam] f=%ld drift HUD: texture %08x not loaded: a plain backing\n", rh_frame(), tex); }
+    if (j >= 4 || have[j] < 0){ tex = FLAG_TEMPLATE; if (rgb) rgb = 0x202020u; }
+    ui_img(c, FL_DH + k, pkg, tex, x - w * 0.5f, y - h * 0.5f, x + w * 0.5f, y + h * 0.5f, 0.f, 0.f, 1.f, 1.f, rgb, a, 0.42f);
+}
+static void dh_dpad(CPU *c, uint32_t pkg, int hide){
+    if (g_dh_dpad && g_dh_hud != g_tag.hud) g_dh_dpad = 0;   /* another HUD's (that one is gone) */
+    if (hide){
+        if (!g_dh_dpad){
+            uint32_t a[2] = { pkg, DH_DPAD }, o = rh_call(c, FN_FE_FIND, 0, 0, 2, a);
+            if (!ok(o, 0x20)) return;
+            g_dh_dpad = o; g_dh_hud = g_tag.hud; g_dh_dpad_was = !(MR32(o + 0x1cu) & 1u);
+        }
+        if (!(MR32(g_dh_dpad + 0x1cu) & 1u)) gcall1(c, FN_FE_HIDE, 0, g_dh_dpad);
+    } else if (g_dh_dpad){
+        if (g_dh_dpad_was) gcall1(c, FN_FE_SHOW, 0, g_dh_dpad);
+        g_dh_dpad = 0;
+    }
+}
+static void dh_hide(CPU *c){
+    for (int i = 0; i < TAG_DHN; i++) tag_hide(c, TAG_DH0 + i);
+    ui_hide_imgs(c, FL_DH, FL_DHN);
+    if (g_dh_dpad && g_dh_hud != g_tag.hud) g_dh_dpad = 0;
+    if (g_dh_dpad) gcall1(c, g_dh_dpad_was ? FN_FE_SHOW : FN_FE_HIDE, 0, g_dh_dpad);
+    g_dh_dpad = 0;
+    g_dh_drawn = 0;
+}
+static void dh_draw(CPU *c, uint32_t pkg){
+    extern int drift_vita_hud(char *pts, char *mult, char *gain_txt, char *gain, char *total, char *best, int n);
+    char pts[24], mult[24], gl[24], gn[24], tot[24], best[24];
+    int on = drift_vita_hud(pts, mult, gl, gn, tot, best, 24);
+#ifdef ROAM_LOBBY_PANEL
+    if (g_lb_drawn) on = 0;                      /* a race lobby's panel has the top left */
+#endif
+    if (!on){ if (g_dh_drawn) dh_hide(c); return; }
+    int popup = (on & 2) != 0;
+    g_ui_place = 0;                              /* under the rear view mirror */
+    dh_text(c, DH_TITLE, pkg, popup ? "DRIFT" : "", DH_LIME, 255, 320.f, 87.f, 1.f, 1u);
+    dh_text(c, DH_PTS, pkg, popup ? pts : "", DH_LIME, 255, 320.f, 117.f, 1.f, 5u);
+    g_ui_place = 1;                              /* the top left */
+    dh_img(c, 0, pkg, DH_TEX_BEST, 68.f, 55.f, 256.f, 32.f, 0xffffffu, 120);
+    dh_text(c, DH_BEST_L, pkg, "Best:", DH_GREY, 255, 39.f, 47.f, 0.9f, 0u);
+    dh_text(c, DH_BEST, pkg, best, DH_LIME, 255, 180.f, 45.f, 1.f, 2u);
+    dh_img(c, 1, pkg, DH_TEX_TOTAL, 151.f, 124.f, 256.f, 32.f, 0xffffffu, 200);
+    dh_text(c, DH_TOT_L, pkg, "Total:", DH_GREY, 255, 40.f, 116.f, 0.9f, 0u);
+    dh_text(c, DH_TOT, pkg, tot, 0xcfe9f2u, 200, 179.f, 116.f, 0.9f, 2u);
+    /* the multiplier's box while a drift is up (its group's FadeIn and fadeout) */
+    if (popup){
+        dh_img(c, 2, pkg, FLAG_TEMPLATE, 111.4f, 93.f, 154.9f, 40.f, 0x000000u, 150);
+        dh_text(c, DH_MULT, pkg, mult, 0x30cf30u, 255, 53.f, 95.f, 0.9f, 5u);
+        dh_text(c, DH_GAIN_L, pkg, gl, 0xaaaaaau, 255, 186.f, 73.f, 0.9f, 2u);
+        dh_text(c, DH_GAIN, pkg, gn, DH_LIME, 255, 182.f, 93.f, 0.9f, 2u);
+    } else {
+        ui_hide_imgs(c, FL_DH + 2, 1);
+        for (int i = DH_MULT; i <= DH_GAIN; i++) tag_hide(c, TAG_DH0 + i);
+    }
+    g_ui_place = -1;
+    dh_dpad(c, pkg, 1);
+    if (!g_dh_drawn) rlog("[roam] f=%ld drift HUD: the drift event's panels up (best %s, total %s)\n", rh_frame(), best, tot);
+    g_dh_drawn = 1;
+}
+#endif
 static void du_hud(CPU *c, int64_t host){
     uint32_t pl = rd32(G_PLAYER1), hud = pl && ok(pl, PL_HUD + 4u) ? rd32(pl + PL_HUD) : 0;
     uint32_t pkg = hud && ok(hud, 0x14) ? rd32(hud + 0x10u) : 0;
     if (!hud || hud != g_tag.hud || !ok(pkg, 0x20) || !g_gmem) return;
     hud_key_glyphs(c, hud, pkg);
+#if FLAGS && defined(ROAM_VITA_DRIFT)
+    /* drift mode's own panels, the drift event's (dh_draw) */
+    if (g_in_roam && hud_on_top(pkg) && !rd32(0x00838974u /* a dialog up */)) dh_draw(c, pkg);
+    else if (g_dh_drawn) dh_hide(c);
+#endif
     char tx[TAG_DUEL_MAX] = {0};
 #if MPRACES
     if (g_in_roam && hud_on_top(pkg) && !rd32(0x00838974u /* a dialog up */)) g_mp_hud_at = host;
@@ -6040,7 +6167,7 @@ static void du_hud(CPU *c, int64_t host){
     if (!tx[0] && g_in_roam && hud_on_top(pkg) && !rd32(0x00838974u /* a dialog up */)){ extern int roam_host_notice_line(char *tx, int n); roam_host_notice_line(tx, (int)sizeof tx); }
 #endif
 #ifdef ROAM_VITA_DRIFT
-    /* ...else drift mode's: a press's answer, the drift under way and its multiplier, the points (drift.c) */
+    /* ...else drift mode's: a press's answer (drift.c; its points are the drift event's panels: dh_draw) */
     if (!tx[0] && g_in_roam && hud_on_top(pkg)){ extern int drift_vita_line(char *tx, int n); drift_vita_line(tx, (int)sizeof tx); }
 #endif
     if (!tx[0]){ if (g_tag.shown[TAG_DUEL]) tag_hide(c, TAG_DUEL); ui_hide_imgs(c, FL_TOP, FL_TOPN); return; }

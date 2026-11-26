@@ -542,8 +542,7 @@ void drift_battle_end(void){
 
 #ifdef DRIFT_VITA
 /* The HUD's top line for drift mode (roam_game.c du_hud, when nothing of free roam's has it): a press's answer for a
- * moment, then while the handling is on the drift under way with its multiplier, else the points so far.  The values
- * are publish()'s (D.val: the page's status in the browser). */
+ * moment ("Drift mode on").  The points are not on it any more: they have the drift event's own HUD (drift_vita_hud). */
 static void commas(char *o, int n, double v){
     long x = (long)v; char t[24]; int l = snprintf(t, sizeof t, "%ld", x < 0 ? 0L : x), j = 0;
     for (int i = 0; i < l && j < n - 1; i++){ if (i && (l - i) % 3 == 0 && j < n - 2) o[j++] = ','; o[j++] = t[i]; }
@@ -555,16 +554,32 @@ int drift_vita_line(char *tx, int n){
         snprintf(tx, (size_t)n, "%s", g_said == 1 ? "Drift mode on" : g_said == 2 ? "Drift mode off" : "Drift mode stays on in a drift battle");
         return 1;
     }
-    if (!D.on || B.on) return 0;   /* (a drift battle's line is roam_game.c's db_line) */
-    char a[24], b[24];
+    return 0;
+}
+/* Drift mode's HUD as a drift event's (HUD_Drift.fng; roam_game.c dh_draw puts it where that package has it): the
+ * texts it shows, from publish()'s values (D.val).  The drift event's style points (0x4C85D0) print them so:
+ *  - the drift under way under the rear view mirror, "%$d" (FEPrintf's $: thousands with commas) under the DRIFT title,
+ *    shown while the drift counts and for a moment after it is banked (the popup's timer), gone when it is lost;
+ *  - the multiplier "X%$d" (the DriftCar's level), "GAIN X<level + 1> WITH" (the language's 0xE03EF7A4) and the points
+ *    still to get there (+0x20), the gain's two gone at X5;
+ *  - Total: the points banked ("%$d" of the DriftScore's total at a bank), Best: the most of one drift.
+ * 0 when drift mode's handling is off (or a drift battle's line has it); 1 the panels; 3 the panels and the drift */
+#define DH_POPUP_FRAMES 45            /* the drift's points stay this long after it is banked (1.5 s) */
+int drift_vita_hud(char *pts, char *mult, char *gain_txt, char *gain, char *total, char *best, int n){
+    static long at = -1000; static double last;
+    pts[0] = mult[0] = gain_txt[0] = gain[0] = total[0] = best[0] = 0;
+    if (!D.on || B.on){ at = -1000; return 0; }
+    long f = autotest_frame();
     int lvl = (int)D.val[2], st = (int)D.val[6];
-    if ((st == 0 || st == 1) && D.val[7] > 0){ commas(a, sizeof a, D.val[7]); snprintf(tx, (size_t)n, "Drift  %s  x%d", a, lvl); }
-    else if (st == 4) snprintf(tx, (size_t)n, "Drift lost");
-    else {
-        commas(a, sizeof a, D.total); commas(b, sizeof b, D.best);
-        snprintf(tx, (size_t)n, "Drift mode  %s points  (best drift %s)", a, b);
-    }
-    return 1;
+    if (lvl < 1 || lvl > 5) lvl = 1;
+    if ((st == 0 || st == 1) && D.val[7] > 0){ last = D.val[7]; at = f; }
+    else if (st == 4) at = -1000;                                    /* lost (a wall): no points to show */
+    snprintf(mult, (size_t)n, "X%d", lvl);
+    if (lvl < 5 && D.val[3] > 0){ snprintf(gain_txt, (size_t)n, "GAIN X%d WITH", lvl + 1); commas(gain, n, D.val[3]); }
+    commas(total, n, D.total); commas(best, n, D.best);
+    if (f - at >= DH_POPUP_FRAMES || f < at) return 1;
+    commas(pts, n, last);
+    return 3;
 }
 #endif
 
