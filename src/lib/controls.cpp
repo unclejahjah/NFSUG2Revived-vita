@@ -248,7 +248,7 @@ int takeShowoffPresses()
 }
 
 static std::atomic<bool> s_hornHeld{false};
-// the HORN touch button's zone, panel pixels (960 x 544): a little larger than the button drawn (908..954, 300..340)
+// the HORN touch button's zone, panel pixels (960 x 544): a little larger than the red disc drawn (middle 937, 318, 34 across)
 static const float HornTouchX0 = 896.0f, HornTouchY0 = 290.0f, HornTouchY1 = 350.0f;
 static std::atomic<uint64_t> s_hornLiveUs{0};
 
