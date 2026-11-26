@@ -599,10 +599,12 @@ int roam_host_showoff_presses(void)
 // drift.c: the drift button's presses since the last frame, taken in the world only (G_FLOW 6: elsewhere the button
 // stays the game's)
 int roam_win_committed(uint32_t a);
+extern "C" int roam_game_hud_up(void);   // roam_game.c: free roam's HUD up, nothing over it
 int roam_host_drift_presses(void)
 {
     const uint32_t flow = 0x008654a4u;
-    if (nfsu2_guest_base && roam_win_committed(flow) && *reinterpret_cast<uint32_t*>(nfsu2_guest_base + flow) == 6u)
+    if (nfsu2_guest_base && roam_win_committed(flow) && *reinterpret_cast<uint32_t*>(nfsu2_guest_base + flow) == 6u
+        && roam_game_hud_up())
         win32::controls::setDriftLive(pf::ticksUs());
     return win32::controls::takeDriftPresses();
 }
@@ -739,6 +741,8 @@ int roam_host_horn_held(void)
     // (asked each frame free roam's world runs, and only then: the button is the horn's while it is)
     const char* kind = roam_opt("NFSU2_ROAM_HORN");
     if (kind && !strcasecmp(kind, "off"))
+        return 0;
+    if (!roam_game_hud_up())   // (the World Map, the pause menu: the button is the game's)
         return 0;
     win32::controls::setHornLive(pf::ticksUs());
     return win32::controls::hornHeld() ? 1 : 0;

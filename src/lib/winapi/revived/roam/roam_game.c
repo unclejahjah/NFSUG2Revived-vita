@@ -5992,6 +5992,8 @@ static int lb_panel(CPU *c, uint32_t pkg, int64_t host);
 static void lb_hide(CPU *c);
 #endif
 static int64_t g_mp_hud_at;                   /* free roam's HUD was up, no dialog over it (the lobby's panel shows) */
+/* the host's free-roam buttons (horn, drift: roam_vita.cpp) are taken only while it is */
+int roam_game_hud_up(void){ return roam_plat_now_us() - g_mp_hud_at < 250000; }
 #endif
 static void du_hud(CPU *c, int64_t host){
     uint32_t pl = rd32(G_PLAYER1), hud = pl && ok(pl, PL_HUD + 4u) ? rd32(pl + PL_HUD) : 0;
@@ -9105,7 +9107,13 @@ static void say_frame(int64_t host, int in_roam, uint8_t st){
     g_say.nocount = no;
 #ifdef ROAM_SAY_TAGS
     extern void roam_host_say_live(int live);
+#if MPRACES
+    /* (the HUD up, no menu or dialog over it: on the World Map the chat button is the game's, 2026-11-26 Triangle
+     * there set no route) */
+    roam_host_say_live(in_roam && st == RC_ST_ROAM && !g_racing && host - g_mp_hud_at < 250000);
+#else
     roam_host_say_live(in_roam && st == RC_ST_ROAM && !g_racing);
+#endif
 #endif
     int pick = roam_plat_say_pick();
     if (g_say.test_pick >= 0){ pick = g_say.test_pick; g_say.test_pick = -1; }
