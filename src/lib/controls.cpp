@@ -256,6 +256,19 @@ void setHornLive(uint64_t nowUs)
     s_hornLiveUs.store(nowUs, std::memory_order_relaxed);
 }
 
+bool hornTouchOn()
+{
+    static std::atomic<unsigned> s_generation{~0u};
+    static std::atomic<bool> s_on{true};
+    const unsigned generation = pf::Config::generation();
+    if (s_generation.load(std::memory_order_acquire) != generation)
+    {
+        s_on.store(pf::Config::getBool("horn_touch_button", true), std::memory_order_relaxed);
+        s_generation.store(generation, std::memory_order_release);
+    }
+    return s_on.load(std::memory_order_relaxed);
+}
+
 bool hornHeld()
 {
     return s_hornHeld.load(std::memory_order_relaxed);
@@ -1039,7 +1052,7 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
         m_hold[0] = {};
     // the HORN touch button above the N2O meter, on the screen's right edge (roam_game.c hb_draw draws it there):
     // touched and held, in free roam proper, it honks too, whatever horn_button is
-    if (hornAt && nowUs - hornAt < 250000)
+    if (hornAt && nowUs - hornAt < 250000 && hornTouchOn())
         for (int i = 0; i < pad.touchCount; ++i)
         {
             const float x = pad.touches[i].x * PanelWidth, y = pad.touches[i].y * PanelHeight;

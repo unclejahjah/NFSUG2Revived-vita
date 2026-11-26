@@ -302,6 +302,9 @@ const Item FreeRoamExtras[] = {
       "Your horn in free roam: the players near you hear it from your car. Off: you have none, theirs still sound." },
     { "Horn button", Cfg, "horn_button", Choice, OPTIONS(HornButtons), "off", 0, nullptr,
       "Hold it to honk in free roam (the HORN touch button above the N2O meter honks too). A short D-pad press is still the game's (World Map)." },
+    { "Horn on screen", Cfg, "horn_touch_button", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "The red horn button on the screen's right edge, above the N2O meter: touch and hold it to honk. Off: it is "
+      "hidden and touches there do nothing." },
     { "Drift button", Cfg, "drift_button", Choice, OPTIONS(DriftButtons), "dpad_right", 0, nullptr,
       "Hold it in free roam to switch drift mode on or off (a short D-pad press is still Read SMS): the drift "
       "events' handling, camera and points while you drive around. With it on, a challenge is a drift battle: most points in 90 seconds wins $100." },
@@ -1065,7 +1068,7 @@ bool applyLive(int g, int i)
     static const char* const Live[] = { "log_info", "garage_stick", "garage_stick_deadzone", "steering", "fast_travel",
                                         "free_look_ease_back", "free_look_swing", "camera_stick", "camera_stick_speed",
                                         "quick_chat_button",
-                                        "horn_button", "drift_button" };
+                                        "horn_button", "horn_touch_button", "drift_button" };
     const Item& it = item(g, i);
     // The stance's switch: stance_vita.c reads the .ini again at the next car it draws.
     static const char* const StanceKeys[] = { "Stance" };
