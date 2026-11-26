@@ -599,6 +599,15 @@ static void link_watch(link_seen *k, int64_t now){
                 k->vip ? "the page lost the server's switch and keeps reconnecting" : "the page is still connecting to the server's switch");
     }
 }
+/* The game thread waits on this lock (roam_game.c's "lock" in a slow frame: 359 ms at a 15-player join on the Vita,
+ * 2026-11-26): a hold of 15 ms or more is logged, with what it was for, at most 30 times a run. */
+static void held_long(const char *what, int first, int n, int64_t since){
+    static int said;
+    int64_t us = roam_plat_now_us() - since;
+    if (us < 15000 || said >= 30) return;
+    said++;
+    fprintf(stderr, "[roam] network: the lock held %.1f ms for %s (%d bytes, first byte %d)\n", (double)us / 1000.0, what, n, first);
+}
 static void web_stats_log(const char *when){
     double tws = MB->tx_wait_ms_sum, twm = MB->tx_wait_ms_max; uint32_t twn = MB->tx_wait_n;
     fprintf(stderr, "[roam] virtual LAN %s: sent %llu, received %llu, dropped while offline %llu, send errors %llu (not on the LAN %llu, queue full %llu), "
@@ -619,6 +628,7 @@ static void *net_main(void *u){
     link_seen ls = { 0, 0, 0, 0, t_start };
     while (!atomic_load(&g_stop)){
         int64_t now = roam_plat_now_us();
+        int64_t held_at;
         uint32_t bell = ld(&MB->rx_bell);
         if (ld(&MB->rx_head) == MB->rx_tail){
             int64_t wait = next_tick - now;
@@ -634,7 +644,7 @@ static void *net_main(void *u){
         for (int k = 0; k < 256 && tail != ld(&MB->rx_head); k++, tail++){
             const net_slot *s = rx_slot(tail);
             uint32_t ip = s->src_ip; uint16_t sport = s->src_port; int n = (int)s->len; int take = 0;
-            roam_plat_lock();
+            roam_plat_lock(); held_at = roam_plat_now_us();
             /* (player 2's session, co-op: the datagrams to its port) */
             rc_session *to = s->dst_port == port ? g_s : g_s2 && s->dst_port == g_port2 ? g_s2 : 0;
             if (n >= 0 && n <= (int)NET_MAX_PAYLOAD && to){
@@ -655,12 +665,16 @@ static void *net_main(void *u){
                     else imp_queue(now, ip, sport, s->data, n);
                 } else rc_receive(to, ip, sport, s->data, n, now);
             }
+            held_long("a datagram", n > 0 ? s->data[0] : -1, n, held_at);
             roam_plat_unlock();
             st(&MB->rx_tail, tail + 1);
         }
         if (IMP.on){ roam_plat_lock(); imp_release(now); roam_plat_unlock(); }
         if (now >= next_tick){
-            roam_plat_lock(); rc_tick(g_s, now); if (g_s2) rc_tick(g_s2, now); where_watch(now); roam_plat_unlock();
+            roam_plat_lock(); held_at = roam_plat_now_us();
+            rc_tick(g_s, now); if (g_s2) rc_tick(g_s2, now); where_watch(now);
+            held_long("the tick", -1, 0, held_at);
+            roam_plat_unlock();
             next_tick = now + 10000;
         }
         if (now >= next_stats){ roam_plat_lock(); web_stats_log("stats"); roam_plat_unlock(); next_stats = now + 30000000; }

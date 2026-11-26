@@ -12,7 +12,7 @@
 namespace
 {
 
-const uint32_t Probed[] = {0x413440, 0x5b5350, 0x639ce0, 0x5aec20, 0x63a440, 0x63a360, 0x63a610, 0x63a5a0, 0x5f5010, 0x5f46a0, 0x63ae70, 0x57ef60, 0x63a1b0, 0x637840, 0x633b00, 0x633c30, 0x633b90, 0x57cac0, 0x43cd10, 0x638190, 0x631e20, 0x634800, 0x61ff40, 0x615280, 0x636840, 0x6204d0, 0x61fe10, 0x60c280, 0x61f700, 0x48f6a0, 0x61c9d0, 0x61c570, 0x57ca10, 0x579b90, 0x610e00, 0x488f10, 0x48b8b0};
+const uint32_t Probed[] = {0x413440, 0x5b5350, 0x639ce0, 0x5aec20, 0x63a440, 0x63a360, 0x63a610, 0x63a5a0, 0x5f5010, 0x5f46a0, 0x63ae70, 0x57ef60, 0x63a1b0, 0x637840, 0x633b00, 0x633c30, 0x633b90, 0x57cac0, 0x43cd10, 0x638190, 0x631e20, 0x634800, 0x61ff40, 0x615280, 0x636840, 0x6204d0, 0x61fe10, 0x60c280, 0x61f700, 0x48f6a0, 0x61c9d0, 0x61c570, 0x57ca10, 0x579b90, 0x610e00, 0x488f10, 0x48b8b0, 0x57c5b0, 0x57b5d0, 0x57c4a0, 0x5798f0, 0x440e50, 0x488ff0};
 const int ProbeN = sizeof(Probed) / sizeof(Probed[0]);
 bool s_on = false;
 int s_thread = 0;   // the thread probing (roam's, the game's main thread): calls on others are not counted
@@ -106,6 +106,12 @@ void sub_579b90_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_610e00_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_488f10_guest(win32::WinApplication* app, x86::CPU& cpu);
 void sub_48b8b0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_57c5b0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_57b5d0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_57c4a0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_5798f0_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_440e50_guest(win32::WinApplication* app, x86::CPU& cpu);
+void sub_488ff0_guest(win32::WinApplication* app, x86::CPU& cpu);
 
 namespace native
 {
@@ -330,6 +336,42 @@ void sub_48b8b0(win32::WinApplication* app, x86::CPU& cpu)
 {
     const Probe probe(36);
     sub_48b8b0_guest(app, cpu);
+}
+
+void sub_57c5b0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    const Probe probe(37);
+    sub_57c5b0_guest(app, cpu);
+}
+
+void sub_57b5d0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    const Probe probe(38);
+    sub_57b5d0_guest(app, cpu);
+}
+
+void sub_57c4a0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    const Probe probe(39);
+    sub_57c4a0_guest(app, cpu);
+}
+
+void sub_5798f0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    const Probe probe(40);
+    sub_5798f0_guest(app, cpu);
+}
+
+void sub_440e50(win32::WinApplication* app, x86::CPU& cpu)
+{
+    const Probe probe(41);
+    sub_440e50_guest(app, cpu);
+}
+
+void sub_488ff0(win32::WinApplication* app, x86::CPU& cpu)
+{
+    const Probe probe(42);
+    sub_488ff0_guest(app, cpu);
 }
 
 }
