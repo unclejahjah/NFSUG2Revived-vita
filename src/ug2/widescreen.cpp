@@ -10,6 +10,7 @@
 #include <platform/config.h>
 #include <platform/gxm.h>
 #include <platform/log.h>
+#include <platform/time.h>
 
 #include <algorithm>
 #include <cctype>
@@ -94,8 +95,16 @@ struct Box
 std::unordered_map<x86::reg32, Box> s_unitNow, s_unitLast;
 
 // Objects whose place their maker set (free roam's panels: separate objects, each piece of a panel would else be
-// placed on its own and the panel come apart).
-std::unordered_map<x86::reg32, Place> s_setPlace;
+// placed on its own and the panel come apart), and when. The maker sets it each frame it draws one; a place not set
+// for SetPlaceUs is forgotten, as the object may be gone and its memory another object's (the minimap's blips took a
+// hidden quick chat panel's place and left the minimap, 2026-11-26).
+struct SetPlace
+{
+    Place place;
+    uint64_t atUs;
+};
+std::unordered_map<x86::reg32, SetPlace> s_setPlace;
+const uint64_t SetPlaceUs = 250000;
 
 bool uiLog()
 {
@@ -305,8 +314,13 @@ void renderObject(win32::WinApplication* app, x86::CPU& cpu)
     {
         unit = topGroup(object);
         s_unitNow[unit].add(box);
-        const auto set = s_setPlace.find(object);
-        const bool fixed = set != s_setPlace.end() ? (place = set->second, true) : fixedPlace(s_package, rc::ld32(render + 0x14), &place);
+        auto set = s_setPlace.find(object);
+        if (set != s_setPlace.end() && pf::ticksUs() - set->second.atUs > SetPlaceUs)
+        {
+            s_setPlace.erase(set);
+            set = s_setPlace.end();
+        }
+        const bool fixed = set != s_setPlace.end() ? (place = set->second.place, true) : fixedPlace(s_package, rc::ld32(render + 0x14), &place);
         const bool image = type == TypeImage || type == TypeColoredImage;
         if (!fixed && image && box.x0 <= 1.0f && box.x1 >= 639.0f)
             place = Place::Full;
@@ -374,6 +388,7 @@ extern "C" void ug2_widescreen_place(uint32_t object, int place)
     if (place < 0 || place > 2)
         ug2::widescreen::s_setPlace.erase(object);
     else
-        ug2::widescreen::s_setPlace[object] = place == 1 ? ug2::widescreen::Place::Left
-                                            : place == 2 ? ug2::widescreen::Place::Right : ug2::widescreen::Place::Centre;
+        ug2::widescreen::s_setPlace[object] = { place == 1 ? ug2::widescreen::Place::Left
+                                              : place == 2 ? ug2::widescreen::Place::Right : ug2::widescreen::Place::Centre,
+                                                pf::ticksUs() };
 }
