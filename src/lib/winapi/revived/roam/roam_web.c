@@ -77,6 +77,7 @@
 #include <string.h>
 #include <strings.h>
 #include <pthread.h>
+#include <unistd.h>
 #include <time.h>
 #include <stdatomic.h>
 
@@ -100,8 +101,29 @@ static struct {
     double   rxw_sum, rxw_max; uint64_t rxw_n;     /* page queued -> network thread took it, ms */
 } W;
 
-void roam_plat_lock(void){ pthread_mutex_lock(&g_mu); }
+/* Threads other than the network thread waiting for the lock.  The network thread runs above the game thread and
+ * takes the lock once per datagram: in a burst (a 15-player join) it unlocked and took it again before the game
+ * thread ran, hundreds of times in a row, so the game waited 0.4 to 0.8 s with no single long hold (the Vita,
+ * 2026-11-26).  It now steps aside while one waits (net_let_in). */
+static atomic_int g_waiting;
+static pthread_t  g_net_self;
+static atomic_int g_net_self_on;
+static uint32_t   g_let_in;           /* times it stepped aside (network thread only) */
+void roam_plat_lock(void){
+    if (atomic_load(&g_net_self_on) && pthread_equal(pthread_self(), g_net_self)){ pthread_mutex_lock(&g_mu); return; }
+    if (pthread_mutex_trylock(&g_mu) == 0) return;
+    atomic_fetch_add(&g_waiting, 1);
+    pthread_mutex_lock(&g_mu);
+    atomic_fetch_sub(&g_waiting, 1);
+}
 void roam_plat_unlock(void){ pthread_mutex_unlock(&g_mu); }
+/* the network thread, the lock just released: while another thread waits for it, sleep until that one has it
+ * (at most 2 ms; it holds it a frame's part) */
+static void net_let_in(void){
+    if (!atomic_load(&g_waiting)) return;
+    g_let_in++;
+    for (int i = 0; i < 20 && atomic_load(&g_waiting); i++) usleep(100);
+}
 int64_t roam_plat_now_us(void){
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
     return (int64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
@@ -612,17 +634,18 @@ static void web_stats_log(const char *when){
     double tws = MB->tx_wait_ms_sum, twm = MB->tx_wait_ms_max; uint32_t twn = MB->tx_wait_n;
     fprintf(stderr, "[roam] virtual LAN %s: sent %llu, received %llu, dropped while offline %llu, send errors %llu (not on the LAN %llu, queue full %llu), "
                     "filtered %llu (from this browser's own endpoints %llu); page: switch rtt %.2f ms, peers on the switch %u, RX ring full %u, oversize %u; "
-                    "C->page wait mean %.3f ms max %.2f ms, page->C wait mean %.3f ms max %.2f ms\n",
+                    "C->page wait mean %.3f ms max %.2f ms, page->C wait mean %.3f ms max %.2f ms; stepped aside for the game thread %u times\n",
             when, (unsigned long long)g_st.sent, (unsigned long long)g_st.recv, (unsigned long long)W.offline,
             (unsigned long long)g_st.send_err, (unsigned long long)W.unreachable, (unsigned long long)W.ring_full,
             (unsigned long long)W.filtered, (unsigned long long)W.own, MB->switch_rtt_ms, ld(&MB->switch_peers), ld(&MB->rx_full_drop), ld(&MB->rx_oversize),
-            twn ? tws / twn : 0.0, twm, W.rxw_n ? W.rxw_sum / (double)W.rxw_n : 0.0, W.rxw_max);
+            twn ? tws / twn : 0.0, twm, W.rxw_n ? W.rxw_sum / (double)W.rxw_n : 0.0, W.rxw_max, g_let_in);
 }
 /* the host's say on this thread (the Vita: above the game's, so the game never waits on roam_plat_lock behind a
  * thread that holds it and is not running) */
 __attribute__((weak)) void roam_host_net_thread(void){}
 static void *net_main(void *u){
     (void)u;
+    g_net_self = pthread_self(); atomic_store(&g_net_self_on, 1);
     roam_host_net_thread();
     int64_t next_tick = 0, t_start = roam_plat_now_us(), next_stats = t_start + 30000000;
     link_seen ls = { 0, 0, 0, 0, t_start };
@@ -668,6 +691,7 @@ static void *net_main(void *u){
             held_long("a datagram", n > 0 ? s->data[0] : -1, n, held_at);
             roam_plat_unlock();
             st(&MB->rx_tail, tail + 1);
+            net_let_in();
         }
         if (IMP.on){ roam_plat_lock(); imp_release(now); roam_plat_unlock(); }
         if (now >= next_tick){
@@ -675,6 +699,7 @@ static void *net_main(void *u){
             rc_tick(g_s, now); if (g_s2) rc_tick(g_s2, now); where_watch(now);
             held_long("the tick", -1, 0, held_at);
             roam_plat_unlock();
+            net_let_in();
             next_tick = now + 10000;
         }
         if (now >= next_stats){ roam_plat_lock(); web_stats_log("stats"); roam_plat_unlock(); next_stats = now + 30000000; }
@@ -737,7 +762,7 @@ void roam_plat_stop(uint8_t reason){
     atomic_store(&g_stop, 1);
     __atomic_add_fetch(&MB->rx_bell, 1, __ATOMIC_SEQ_CST);
     vlan_atomic_notify((int *)&MB->rx_bell, 1);
-    pthread_join(g_thr, 0); g_thr_on = 0;
+    pthread_join(g_thr, 0); g_thr_on = 0; atomic_store(&g_net_self_on, 0);
     roam_plat_lock(); web_stats_log("closed"); roam_plat_unlock();
     st(&MB->mode, NET_MODE_CLOSED);
     set_want(0);
