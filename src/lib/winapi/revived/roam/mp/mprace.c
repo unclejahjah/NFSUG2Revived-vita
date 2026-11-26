@@ -119,9 +119,6 @@ int career_fe_active(const char *name);
 #define PAUSE_HELD      0x13cu
 #define MSG_BUTTON      0x0c407210u
 #define MSG_BUTTON1     0xc519bfc0u   /* PAD_BUTTON1: Host LAN Server */
-#define MSG_PAD_ACCEPT  0x406415e3u   /* the pad's messages to the top screen, as a key press would send them */
-#define MSG_PAD_BACK    0x911ab364u
-#define MSG_PAD_LEFT    0x9120409eu
 #define S_LOBBY         0x0078f320u   /* "PC_OL_Lobby.fng": UI_OLMAIN's Lobby icon (0x4BC6C0) switches to it on Accept */
 #define MSG_LAN_EXIT    0xd05fc3a3u   /* UI_OLMAIN: "exit LAN mode?" Yes */
 #define MSG_CRIB_GO     0x451e768eu   /* UI_CareerCrib: "Return to Explore Mode?" Yes */
@@ -300,20 +297,15 @@ static const char *ol_detour(void){
     for (int i = 0; i < OL_DETOURS_N; i++) if (on(OL_DETOURS[i])) return OL_DETOURS[i];
     return 0;
 }
-/* A key of the trip: the pad's message (Accept, Back, Left) to the screen the step is on, by name, through 0x55DDA0,
- * as the help bar's buttons send theirs.  The Vita's synthesized keyboard taps never reached the front end (the game
- * builds no keyboard action map here, and the autosave's screen ignored them too, 2026-11-24).  Not to the top
- * package: in the LAN menus that is GarageMain.fng, the garage behind them, and Create Game's Accept went there */
-static CPU *g_tap_cpu;
-static uint32_t gstr_tmp(CPU *c, const char *s);
+/* A key of the trip: the pad's button the player would press for it (mp_vita.c autotest_tap: Cross, Circle, the
+ * D-pad's Left while the trip holds the pad), for the screen the step is on.  The synthesized keyboard's never
+ * reached the front end on the Vita (2026-11-24), and the pad's messages sent to a screen by name (0x55DDA0) moved
+ * the lobby but not UI_QRModeSelect's list (2026-11-26) */
+void autotest_tap(unsigned dik, long frames);
 static void tap_to(const char *pkg, unsigned dik){
     if (!pkg) pkg = M.scr;
-    if (!g_tap_cpu || !pkg) return;
-    uint32_t msg = dik == K_LEFT ? MSG_PAD_LEFT : dik == K_ESC ? MSG_PAD_BACK : MSG_PAD_ACCEPT;
-    uint32_t a[2] = { msg, gstr_tmp(g_tap_cpu, pkg) };
-    if (!a[1]) return;
-    fprintf(stderr, "[mprace] f=%ld %s to %s\n", autotest_frame(), dik == K_LEFT ? "Left" : dik == K_ESC ? "Back" : "Accept", pkg);
-    call(g_tap_cpu, FN_FE_SEND, 0, 2, a);
+    fprintf(stderr, "[mprace] f=%ld %s on %s\n", autotest_frame(), dik == K_LEFT ? "Left" : dik == K_ESC ? "Circle" : "Cross", pkg ? pkg : "?");
+    autotest_tap(dik, 6);
 }
 static void keys(const char *k){ snprintf(M.keys, sizeof M.keys, "%s", k); M.nkeys = (int)strlen(M.keys); M.key_at = 0; }
 static int keys_run(long f){
@@ -2107,7 +2099,6 @@ static uint32_t gstr_tmp(CPU *c, const char *s){
 }
 
 void mprace_frame(CPU *c){
-    g_tap_cpu = c;
     clk_step();
     note_net_car();
     if (M.phase == MPR_IDLE || M.phase == MPR_DONE || M.phase == MPR_FAILED){ M.owns = 0; return; }

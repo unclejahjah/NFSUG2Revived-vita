@@ -135,6 +135,9 @@ public:
     static void tapKey(const controls::KeyCode& key);
     // While held, the pad holds no keys or buttons and no sticks (host code drives the game's menus). Any thread.
     static void setPadHeld(bool held);
+    // While the pad is held: one button (controls::bit) pressed for the game for about 100 ms, as the player would,
+    // then released (free roam's races driving the game's menus: Cross, Circle, D-pad Left). Any thread.
+    static void tapButton(uint32_t inputs);
     // The pad's inputs at the last pump (controls::bit), held or not: for host code's own chords
     static uint32_t rawInputs();
     // For an editor that only appends and deletes at its end: clearing a field skips the End key.

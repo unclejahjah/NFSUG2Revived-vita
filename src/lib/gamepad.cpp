@@ -90,6 +90,9 @@ bool                    s_releasePending;
 bool                    s_buttonReader;     // getTouch(button) has been called: presses and releases are kept
 Gamepad::TouchMap       s_touchMap;
 std::atomic<bool>       s_padHeld(false);   // setPadHeld
+uint32_t                s_tapInputs;        // tapButton: pressed while the pad is held
+uint64_t                s_tapUntil;         // ... until then (0: from the next pump)
+bool                    s_tapGap;           // ... then released for as long before the next
 
 // Under s_mutex: one finger drives the mouse until it lifts.
 void trackTouch(const controls::PadSample& pad, bool busy)
@@ -301,13 +304,35 @@ void pump()
     }
     const uint32_t pressed = pad.inputs & ~s_padInputs;
     s_padInputs = pad.inputs;
-    controls::State state = s_mapper.update(pad, now);
+    controls::PadSample mapped = pad;
+    if (s_padHeld)
+    {
+        // host code drives the menus: none of the player's inputs, only its taps
+        if (s_tapInputs && !s_tapUntil)
+            s_tapUntil = now + 100000;
+        else if (s_tapInputs && now >= s_tapUntil)
+        {
+            s_tapInputs = s_tapGap ? 0 : s_tapInputs;
+            s_tapGap = !s_tapGap;
+            s_tapUntil = s_tapGap ? now + 100000 : 0;
+        }
+        mapped = controls::PadSample();
+        mapped.inputs = s_tapInputs && !s_tapGap ? s_tapInputs : 0;
+    }
+    else
+    {
+        s_tapInputs = 0;
+        s_tapGap = false;
+        s_tapUntil = 0;
+    }
+    controls::State state = s_mapper.update(mapped, now);
     if (s_imeOpen || !s_typing.empty())
         s_releaseWait = pad.inputs & ~(controls::bit(controls::RearL2) | controls::bit(controls::RearR2) |
                                        controls::bit(controls::RearL3) | controls::bit(controls::RearR3));
     else
         s_releaseWait &= pad.inputs;
-    const bool busy = s_imeOpen || !s_typing.empty() || s_releaseWait != 0 || s_padHeld;
+    const bool typing = s_imeOpen || !s_typing.empty() || s_releaseWait != 0;
+    const bool busy = typing || s_padHeld;     // (held: the state is the taps' alone, mapped above)
     trackTouch(pad, busy);
     if (!busy && state.openSettings)
         s_settingsWanted = true;
@@ -341,7 +366,7 @@ void pump()
     }
     if (s_field.active)
         state.buttons &= ~(controls::buttonMask(controls::Circle) | controls::buttonMask(controls::Cross));
-    if (busy)
+    if (typing)
     {
         state.buttons = 0;
         state.keys = 0;
@@ -515,6 +540,16 @@ void Gamepad::tapKey(const controls::KeyCode& key)
 uint32_t Gamepad::rawInputs()
 {
     return s_padInputs;
+}
+
+void Gamepad::tapButton(uint32_t inputs)
+{
+    pf::LwLockGuard lock(s_mutex);
+    if (s_tapInputs)
+        return;     // (one at a time: the trip spaces its taps)
+    s_tapInputs = inputs;
+    s_tapGap = false;
+    s_tapUntil = 0;
 }
 
 void Gamepad::setPadHeld(bool held)

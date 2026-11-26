@@ -918,17 +918,15 @@ uint64_t roam_win_ns(void)
     return sceKernelGetProcessTimeWide() * 1000ull;
 }
 
-// A key for the trip (mp_vita.c autotest_tap): the three it presses, through the synthesized keyboard.
+// A key for the trip (mp_vita.c autotest_tap): the pad's button the player would press, while the pad is held
+// (Enter Cross, Escape Circle, Left the D-pad's); the synthesized keyboard's never reached the front end.
 void roam_vita_tap(unsigned dik)
 {
-    static const win32::controls::KeyCode Enter = { 0x0D, 0x1C, false };
-    static const win32::controls::KeyCode Escape = { 0x1B, 0x01, false };
-    static const win32::controls::KeyCode Left = { 0x25, 0x4B, true };
     switch (dik)
     {
-    case 0x1C: win32::Gamepad::tapKey(Enter); break;
-    case 0x01: win32::Gamepad::tapKey(Escape); break;
-    case 0xCB: win32::Gamepad::tapKey(Left); break;
+    case 0x1C: win32::Gamepad::tapButton(win32::controls::bit(win32::controls::Cross)); break;
+    case 0x01: win32::Gamepad::tapButton(win32::controls::bit(win32::controls::Circle)); break;
+    case 0xCB: win32::Gamepad::tapButton(win32::controls::bit(win32::controls::DpadLeft)); break;
     default: roam_log("[mprace] no key 0x%02x on the Vita", dik); break;
     }
 }

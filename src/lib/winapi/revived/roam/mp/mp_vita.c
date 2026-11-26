@@ -3,8 +3,8 @@
  *
  *  - the screens: the top front-end package (autotest.c autotest_top_fng) and whether a package is active anywhere
  *    on the FEng lists (career.c career_fe_active), the same reads of the game's memory;
- *  - keys for the trip: mprace.c sends the pad's messages to the top screen itself (the synthesized keyboard taps of
- *    autotest_tap, Gamepad::tapKey, never reached the front end);
+ *  - keys for the trip (autotest_tap): the pad's Cross, Circle and Left pressed while the trip holds it (the keyboard taps of
+ *    Gamepad::tapKey never reached the front end; Gamepad::tapButton, roam_vita.cpp roam_vita_tap);
  *  - the career's cars (garage.c garage_find): the game's own 91-record table only (no extra garage slots here);
  *  - texts of our own for the race card's buttons (language.c language_add_text): answered by the game's text lookup
  *    0x4FF9D0 (src/ug2/menu_entry.cpp asks roam_lang_text), in guest memory;
