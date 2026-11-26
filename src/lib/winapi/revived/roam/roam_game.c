@@ -5771,6 +5771,13 @@ __attribute__((unused)) static int ui_glyph_of(const char *key){
     for (unsigned i = 0; key && i < sizeof by / sizeof by[0]; i++) if (!strcmp(key, by[i][0])) return by[i][1][0] - '0';
     return -1;
 }
+/* widescreen (src/ug2/widescreen.cpp, the Vita's): the game moves each HUD object on its own to the screen's left or
+ * right edge, or keeps it centred, by where it is; a panel's pieces are objects of their own, so a panel's would part
+ * (its corners and edges to the edges, its middle and texts not).  While a panel draws, g_ui_place is the place all of
+ * its pieces take (0 centre, 1 left, 2 right); -1: each its own, as before */
+__attribute__((weak)) void ug2_widescreen_place(uint32_t object, int place);
+static int g_ui_place = -1;
+static void ui_place(uint32_t obj){ if (ug2_widescreen_place && obj) ug2_widescreen_place(obj, g_ui_place); }
 #if FLAGS
 /* image k: texture tex over x0..x1, y0..y1 (HUD units from the top left), its texture's corners u0,v0 (top left) and
  * u1,v1, colour rgb (0xRRGGBB) at strength a */
@@ -5779,6 +5786,7 @@ static void ui_img(CPU *c, int k, uint32_t pkg, uint32_t tex, float x0, float y0
     if (!(x1 - x0 > 0.05f) || !(y1 - y0 > 0.05f)){ flag_hide(c, k); return; }   /* (a piece with no room: hidden, not left where it was) */
     uint32_t o = flag_obj(c, k, pkg), d = o ? rd32(o + 0x2cu) : 0;
     if (!o || !ok(d, 0x54)) return;
+    ui_place(o);
     /* no pivot and no turn, whatever had them (a ring's segments turn theirs) */
     if (MRF32(d + 0x10u) != 0.f || MRF32(d + 0x14u) != 0.f || MRF32(d + 0x28u) != 0.f || MRF32(d + 0x2cu) != 0.f || MRF32(d + 0x30u) != 0.f || MRF32(d + 0x34u) != 1.f){
         MRF32(d + 0x10u) = 0.f; MRF32(d + 0x14u) = 0.f; MRF32(d + 0x18u) = 0.f;
@@ -5877,6 +5885,7 @@ static void ui_hide_imgs(CPU *c, int k, int n){
 static void ui_text(CPU *c, int k, uint32_t pkg, const char *tx, uint32_t rgb, float x, float y, float sc, int align){
     uint32_t obj = tag_obj(c, k, pkg);
     if (!obj) return;
+    ui_place(obj);
     tag_text_rgb(c, k, obj, tx, rgb);
     if ((MR32(obj + 0x6cu) & 0xfu) != 4u){ MR32(obj + 0x6cu) = (MR32(obj + 0x6cu) & ~0xfu) | 4u; MR32(obj + 0x1cu) |= 0x400002u; }   /* from its left */
     float w = tag_width(tx) * sc;
@@ -5999,7 +6008,7 @@ static void du_hud(CPU *c, int64_t host){
 #endif
 #ifdef ROAM_LOBBY_PANEL
     /* a race lobby of ours, or one we are in: its panel on the left, the players and what Enter does (no top line) */
-    if (g_in_roam && hud_on_top(pkg) && !rd32(0x00838974u /* a dialog up */)) lb_panel(c, pkg, host);
+    if (g_in_roam && hud_on_top(pkg) && !rd32(0x00838974u /* a dialog up */)){ g_ui_place = 1; lb_panel(c, pkg, host); g_ui_place = -1; }
     else if (g_lb_drawn) lb_hide(c);
 #endif
     if (!tx[0] && g_in_roam && hud_on_top(pkg) && g_du.st == DU_IDLE && !g_du.icon && !rd32(0x00838974u /* a dialog up */)) mp_line(host, tx, sizeof tx);   /* the race lobby's, else the outrun's */
@@ -6021,7 +6030,7 @@ static void du_hud(CPU *c, int64_t host){
     }
 #ifdef ROAM_SAY_TAGS
     /* quick chat's choices while its button is held: their box on the right (qc_panel) */
-    if (g_in_roam && hud_on_top(pkg)) qc_panel(c, pkg);
+    if (g_in_roam && hud_on_top(pkg)){ g_ui_place = 2; qc_panel(c, pkg); g_ui_place = -1; }
     else if (g_qc_drawn) qc_hide(c);
     /* the host's line when there is none of ours: the phrase just said (roam_vita.cpp) */
     if (!tx[0] && g_in_roam && hud_on_top(pkg)){ extern int roam_host_hud_line(char *tx, int n); roam_host_hud_line(tx, (int)sizeof tx); }
@@ -6045,12 +6054,14 @@ static void du_hud(CPU *c, int64_t host){
     int glyph = g >= 0 && ui_glyph_ok(c, g);
     if (g >= 0 && !glyph){ char t[TAG_DUEL_MAX]; snprintf(t, sizeof t, "%s  %s", GL_SAY[g], line); snprintf(line, sizeof line, "%s", t); tw = tag_width(line) * sc; }
     float w = tw + pad * 2.f + (glyph ? gs + 6.f : 0.f), x = 320.f - w * 0.5f, y = 62.f, h = 24.f;
+    g_ui_place = 0;
     ui_panel(c, FL_TOP, pkg, x, y, w, h, 0, 0xffffffu, 255, UI_Z);
     ui_hide_imgs(c, FL_TOP + UI_PANEL_N, 1);
     ui_outline(c, FL_TOP + 9, pkg, x, y, w, h, UI_R, UI_LIME, 255, 0.41f);
     if (glyph) ui_glyph(c, FL_TOP + UI_PANEL_N + 1, pkg, g, x + pad + gs * 0.5f, y + h * 0.5f, gs);
     else ui_hide_imgs(c, FL_TOP + UI_PANEL_N + 1, 1);
     ui_text(c, TAG_DUEL, pkg, line, 0xffffffu, x + pad + (glyph ? gs + 6.f : 0.f), y + h * 0.5f, sc, 0);
+    g_ui_place = -1;
 #if FLAGS
     /* once a line: where its pieces are (the Vita showed a stray dark bar the panel's height away from it, 11-25) */
     static char said[TAG_DUEL_MAX];

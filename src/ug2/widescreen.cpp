@@ -93,6 +93,10 @@ struct Box
 // HUD units: extents of this flush and of the last flush of the same package.
 std::unordered_map<x86::reg32, Box> s_unitNow, s_unitLast;
 
+// Objects whose place their maker set (free roam's panels: separate objects, each piece of a panel would else be
+// placed on its own and the panel come apart).
+std::unordered_map<x86::reg32, Place> s_setPlace;
+
 bool uiLog()
 {
     return pf::cachedStatic([] { return pf::Config::getBool("ui_log", false); });
@@ -301,7 +305,8 @@ void renderObject(win32::WinApplication* app, x86::CPU& cpu)
     {
         unit = topGroup(object);
         s_unitNow[unit].add(box);
-        const bool fixed = fixedPlace(s_package, rc::ld32(render + 0x14), &place);
+        const auto set = s_setPlace.find(object);
+        const bool fixed = set != s_setPlace.end() ? (place = set->second, true) : fixedPlace(s_package, rc::ld32(render + 0x14), &place);
         const bool image = type == TypeImage || type == TypeColoredImage;
         if (!fixed && image && box.x0 <= 1.0f && box.x1 >= 639.0f)
             place = Place::Full;
@@ -362,3 +367,13 @@ void sub_51a5d0(win32::WinApplication* app, x86::CPU& cpu) { widescreen::renderO
 void sub_5c7ec0(win32::WinApplication* app, x86::CPU& cpu) { widescreen::projection(app, cpu); }
 
 }}
+
+// The place of an FE object of free roam's (roam_game.c): 0 centre, 1 left, 2 right, -1 its own extent's again.
+extern "C" void ug2_widescreen_place(uint32_t object, int place)
+{
+    if (place < 0 || place > 2)
+        ug2::widescreen::s_setPlace.erase(object);
+    else
+        ug2::widescreen::s_setPlace[object] = place == 1 ? ug2::widescreen::Place::Left
+                                            : place == 2 ? ug2::widescreen::Place::Right : ug2::widescreen::Place::Centre;
+}
