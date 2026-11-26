@@ -192,8 +192,8 @@ const Option ChatButtons[] = { { "dpad_down", "Hold D-pad Down" }, { "dpad_up", 
 const Option Phrases[] = { { "0", "Hey!" }, { "1", "Nice car!" }, { "2", "Thanks!" }, { "3", "Bye!" }, { "4", "Yes" }, { "5", "No" }, { "6", "Sorry!" }, { "7", "lol" }, { "8", "Follow me!" }, { "9", "Wait up!" }, { "10", "Let's go!" }, { "11", "Nice!" }, { "12", "Race?" }, { "13", "Join my race!" }, { "14", "gg" }, { "15", "One more?" }, { "16", "Yo!" }, { "17", "Hi all!" }, { "18", "Welcome!" }, { "19", "Welcome back!" }, { "20", "Long time no see!" }, { "21", "Good luck!" }, { "22", "Have fun!" }, { "23", "Gotta go!" }, { "24", "See you around!" }, { "25", "Good night!" }, { "26", "brb" }, { "27", "Back!" }, { "28", "Sure!" }, { "29", "Maybe" }, { "30", "Okay" }, { "31", "Nope" }, { "33", "On my way!" }, { "41", "ty" }, { "42", "np" }, { "44", "My bad!" } };
 
 // Social: friends, then crews just beneath, then quick chat, each under its heading row.
+// (13 rows at most on a page: the game's options list draws no text past its 13th, 2026-11-26)
 const Item Social[] = {
-    { "Friends", Cfg, "", Heading, nullptr, 0, "", 0, nullptr, nullptr },
     { "Add friend by name", Ini, "AddFriend", Text, nullptr, 0, "", 24, "Type a name",
       "Send a friend request to a player by their claimed nfsu2.xyz name. Or meet them in free roam: touch front "
       "bumpers for 3 seconds. Needs your passphrase (Multiplayer)." },
@@ -252,8 +252,8 @@ const Item FreeRoam[] = {
       "How far ahead a car is predicted when its updates are late." },
 };
 
-// NFSU2 Revived's other free-roam features, a page of their own: the game's options list drew no text for the rows
-// past about the 16th (Free Roam had 21; 2026-11-26 the last ones were invisible, but still changed with Left/Right).
+// NFSU2 Revived's other free-roam features, a page of their own: the game's options list draws no text for the rows
+// past the 13th (Free Roam had 21; 2026-11-26 the last ones were invisible, but still changed with Left/Right).
 const Item FreeRoamExtras[] = {
     { "Player messages", Ini, "Messages", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "A line at the top of the screen when a player joins free roam, leaves, goes into a race or opens a race "
@@ -280,7 +280,7 @@ const Item FreeRoamExtras[] = {
 };
 
 
-// System: the Sound, Display and Performance groups, each under its heading row.
+// System: the Sound and Display groups, each under its heading row (Performance has its own page).
 const Item AudioVideo[] = {
     { "Sound", Cfg, "", Heading, nullptr, 0, "", 0, nullptr, nullptr },
     { "Hardware music decoding", Cfg, "music_hw_decode", Choice, OPTIONS(OnOff), "on", 0, nullptr,
@@ -305,7 +305,10 @@ const Item AudioVideo[] = {
       "How the game's movies play: the converted .mp4 files where they are there, else the original VP6 ones." },
     { "Optimised particles", Cfg, "optimised_particles", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "Cheaper tyre smoke and other particles, close to the original picture. Off is exactly as the original." },
-    { "Performance", Cfg, "", Heading, nullptr, 0, "", 0, nullptr, nullptr },
+};
+
+// Performance, a page of its own (System had 17 rows, and the game's list drew none past the 13th)
+const Item Performance[] = {
     { "Third CPU core", Cfg, "use_core3", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "Use the Vita's third processor core when it can be unlocked." },
     { "Third core work", Cfg, "core3_tasks", Choice, OPTIONS(Core3Tasks), "helpers", 0, nullptr,
@@ -369,6 +372,7 @@ const Page Pages[] = {
     { "Free Roam extras", OPTIONS(FreeRoamExtras) },
     { "Social", OPTIONS(Social) },
     { "System", OPTIONS(AudioVideo) },
+    { "Performance", OPTIONS(Performance) },
     { "Controller", OPTIONS(Controller) },
     { "Game", OPTIONS(Game) },
     { "Saves", OPTIONS(Saves) },
