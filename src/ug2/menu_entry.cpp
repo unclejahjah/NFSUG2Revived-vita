@@ -926,7 +926,9 @@ void sub_4b8470(win32::WinApplication* app, x86::CPU& cpu)
     s_editRow = 0;
     s_rows.clear();
     s_restartShown = false;
-    const int count = s_group < options::groupCount() ? options::itemCount(s_group) : 0;
+    // (the Car Shop's Stance page is a group past Vita Settings' own: groupCount() leaves it out)
+    const bool known = s_group >= 0 && (s_group < options::groupCount() || s_group == options::stanceGroup());
+    const int count = known ? options::itemCount(s_group) : 0;
     for (int i = 0; s_rowClass && i < count; ++i)
     {
         const reg32 row = callGuest(app, cpu, OperatorNew, 0, { RowSize });
