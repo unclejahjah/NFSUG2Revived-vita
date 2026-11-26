@@ -92,6 +92,9 @@ NATIVE_OVERRIDES = [
     0x4aee30, 0x4b6230, 0x4b8470, 0x4ff9d0,
     # ... and the race pause menu's options list, UI_PauseOptions (0x4d9418 calls it directly)
     0x4c4bd0,
+    # ... and the Car Shop's Stance entry after Rims in the Body Shop's list (thiscall screen (2 label hashes), ret 8; its
+    # one caller is the list's setup 0x545B50): menu_entry.cpp
+    0x53a620,
     # Free roam's multiplayer races (src/ug2/mprace_hooks.cpp): UI_Pause's message handler (the race's Quit) and
     # EngageRaceDialog's (the race card's Solo or Multiplayer question)
     0x4c2170, 0x499c00,

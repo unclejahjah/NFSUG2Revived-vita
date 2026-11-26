@@ -1,9 +1,11 @@
 /* stance_vita.c -- a car's stance on the Vita port (after nfsu2-web's runtime/stance.c, MIT, its drawing part): the
  * wheels' camber, front and rear, how far they stand out, and the tires' width, as the car is drawn; the car drives as
- * in the original game.  Yours are the .ini's (Vita Settings, Free roam: Stance and its five rows) for whichever car
- * you drive out in the world; a friend's come with their car's record in free roam (roam_core.c RC_EXT_STANCE), and
- * nfsu2.xyz's players' per car stances show on their cars here too.  No Body Shop page: the browser's is a patch of
- * the game's own Options screen, which the Vita's translation does not take.
+ * in the original game.  Yours are set per car, as in the browser: in the Car Shop's page (Customize, Body Shop, Stance
+ * after Rims: src/ug2/menu_entry.cpp) for the car you drive (the career's, else Quick Race's), kept per profile in
+ * scripts/NFSU2Stance.ini, and shown on that car out in the world while the .ini's Stance (Vita Settings, Mods) is on;
+ * a car with none of its own is drawn as the game draws it.  A friend's come with their car's record in free roam
+ * (roam_core.c RC_EXT_STANCE), and nfsu2.xyz's players' per car stances show on their cars here too.  While the Body
+ * Shop or the page is open the front end's car is drawn with its stance (stance_fe_preview).
  *
  * The game (v1.2 NA), in the car's drawing 0x620AE0 (thiscall render info, 12 arguments, ret 0x30):
  *   - Front camber: the angle is int(7.0 [0x7A6754] * f * 65536) / 360, f = [0x7A6750] when that is not 0 (a tweak,
@@ -34,36 +36,215 @@ int roam_host_ini_value(const char *key, char *out, int n);   /* roam_vita.cpp: 
 #define RI_WHEEL_Y     0x400u        /* ... each wheel's sideways place, two floats (the car's left: below 0) */
 #define RI_TIRE_W      0x420u        /* ... each wheel's tire width, m */
 
-static StanceV g_mine; static int g_mine_on = 0; static long g_mine_read = -1000;
+static int g_mine_on = 0; static long g_mine_read = -1000; static int g_mine_stale = 1;
+static int g_fe_preview = 0;
 static StanceV g_friend[STANCE_FRIENDS]; static uint32_t g_friend_car[STANCE_FRIENDS];
 
-static int16_t clamp16(int v, int lo, int hi){ return (int16_t)(v < lo ? lo : v > hi ? hi : v); }
-static float ini_num(const char *key, float def){
-    char b[32];
-    if (!roam_host_ini_value(key, b, (int)sizeof b) || !b[0]) return def;
-    char *e = 0; float v = strtof(b, &e);
-    return e != b && v == v ? v : def;
+/* the .ini's Stance changed (Vita Settings, the Car Shop's page): read again at the next car drawn */
+void stance_reload(void){ g_mine_stale = 1; }
+/* the front end's car drawn with the player's stance (on: the Body Shop or its Stance page is open) */
+void stance_fe_preview(int on){
+    if (on != g_fe_preview) fprintf(stderr, "[stance] f=%ld the front end's car: %s\n", autotest_frame(), on ? "its stance" : "the game's");
+    g_fe_preview = on;
 }
-/* the player's own, from the .ini (read again every 3 s or so: Vita Settings may have changed it) */
+
+static int16_t clamp16(int v, int lo, int hi){ return (int16_t)(v < lo ? lo : v > hi ? hi : v); }
+int stance_ok(const StanceV *v){
+    return v->fc >= STANCE_CAMBER_MIN && v->fc <= STANCE_CAMBER_MAX && v->rc >= STANCE_CAMBER_MIN && v->rc <= STANCE_CAMBER_MAX
+        && v->fo >= STANCE_OFFSET_MIN && v->fo <= STANCE_OFFSET_MAX && v->ro >= STANCE_OFFSET_MIN && v->ro <= STANCE_OFFSET_MAX
+        && v->tw >= STANCE_TIRE_MIN && v->tw <= STANCE_TIRE_MAX;
+}
+
+/* ---- the player's cars (as the browser's stance.c, player 1 only) ------------------------------------------------ */
+#define G_CAREER_CAR    0x00863480u   /* the career car's handle */
+#define G_QR_CAR        0x0083aab8u   /* the car's handle in Quick Race, LAN, Online */
+#define G_PROFILE_NAME  0x0083a9e0u   /* player 1's profile: +0 its name (32 bytes), +0x20 1: one is loaded */
+#define G_FECARS        0x0083ad90u   /* player 1's front-end cars: +0x9BD8 the 91 records' table */
+#define FC_TABLE        0x9bd8u
+#define FC_TABLE_N      91u
+#define R_HANDLE        0x08u         /* a car record: its handle */
+#define R_TYPE          0x20u         /* ... its car type */
+#define G_FE_RIDE       0x008392c0u   /* the front end's ride of the car */
+#define RIDE_COILOVERS  0x363u        /* ride: the two suspension parts the game's camber comes from (0x59A420) */
+#define RIDE_PLATES     0x364u
+#define GAME_CAMBER     7.0f          /* [0x7A6754] */
+#define STANCE_FILE     "ux0:data/NeedForSpeedUnderground2/scripts/NFSU2Stance.ini"
+
+typedef struct { uint32_t handle, type; StanceV v; } Entry;
+static struct { Entry e[STANCE_CARS]; int n; char name[33]; int loaded; } g_cars;   /* the profile's of name */
+static struct { int open; uint32_t handle, type; StanceV v; float game_fc; } M;    /* the page's car, while open */
+
+static uint32_t driven(void){ return MR32(G_GAMEMODE) == 1u ? MR32(G_CAREER_CAR) : MR32(G_QR_CAR); }
+static uint32_t record(uint32_t h){
+    if (!h) return 0;
+    for (uint32_t i = 0; i < FC_TABLE_N; i++){
+        uint32_t r = MR32(G_FECARS + FC_TABLE + 4u * i);
+        if (r && guest_ok(r, R_TYPE + 4u) && MR32(r + R_HANDLE) == h) return r;
+    }
+    return 0;
+}
+/* player 1's profile now ("" none) */
+static const char *profile(void){
+    static char nm[33];
+    nm[0] = 0;
+    if (MR8(G_PROFILE_NAME + 0x20u))
+        for (int k = 0; k < 32; k++) if (!(nm[k] = (char)MR8(G_PROFILE_NAME + (uint32_t)k))) break;
+    nm[32] = 0;
+    return nm;
+}
+
+/* the file: a [profile] section each, a line a car: <handle> = <car type> <front camber> <rear> <front offset> <rear>
+ * <tires' width> (hex, then stance.h's units) */
+static void load_profile(const char *name){
+    g_cars.n = 0; g_cars.loaded = 1;
+    snprintf(g_cars.name, sizeof g_cars.name, "%s", name);
+    FILE *f = fopen(STANCE_FILE, "r");
+    if (!f) return;
+    char line[256]; int in = 0;
+    while (fgets(line, sizeof line, f)){
+        char *l = line; while (*l == ' ' || *l == '\t') l++;
+        if (*l == '['){
+            char *e = strchr(l, ']'); if (e) *e = 0;
+            in = name[0] && !strcasecmp(l + 1, name);
+            continue;
+        }
+        unsigned h, t; int a[5];
+        if (!in || *l == ';' || sscanf(l, "%x = %x %d %d %d %d %d", &h, &t, &a[0], &a[1], &a[2], &a[3], &a[4]) != 7) continue;
+        if (!h || g_cars.n == STANCE_CARS) continue;
+        Entry *e = &g_cars.e[g_cars.n];
+        e->handle = h; e->type = t;
+        e->v.fc = (int16_t)a[0]; e->v.rc = (int16_t)a[1]; e->v.fo = (int16_t)a[2]; e->v.ro = (int16_t)a[3]; e->v.tw = (uint16_t)a[4];
+        if (stance_ok(&e->v)) g_cars.n++;
+    }
+    fclose(f);
+    fprintf(stderr, "[stance] profile %s: %d car%s with a stance of their own\n", name[0] ? name : "(none)", g_cars.n, g_cars.n == 1 ? "" : "s");
+}
+/* the file again with this profile's section as it is now (the others' kept as they were) */
+static void save_profile(void){
+    if (!g_cars.name[0]) return;                       /* (no profile: kept until the game ends) */
+    char *keep = 0; size_t kn = 0, kcap = 0;
+    FILE *f = fopen(STANCE_FILE, "r");
+    if (f){
+        char line[256]; int in = 0;
+        while (fgets(line, sizeof line, f)){
+            char *l = line; while (*l == ' ' || *l == '\t') l++;
+            if (*l == '['){
+                char nm[64]; snprintf(nm, sizeof nm, "%s", l + 1);
+                char *e = strchr(nm, ']'); if (e) *e = 0;
+                in = !strcasecmp(nm, g_cars.name);
+            }
+            if (in) continue;
+            size_t n = strlen(line);
+            if (kn + n + 1 > kcap){ kcap = (kn + n + 1) * 2; char *b = realloc(keep, kcap); if (!b) break; keep = b; }
+            memcpy(keep + kn, line, n); kn += n; keep[kn] = 0;
+        }
+        fclose(f);
+    }
+    f = fopen(STANCE_FILE, "w");
+    if (!f){ free(keep); fprintf(stderr, "[stance] %s could not be written\n", STANCE_FILE); return; }
+    if (!kn) fputs("; NFSU2Stance.ini: each car's stance (Customize, Body Shop, Stance), per profile:\n"
+                   "; car handle = car type, front camber, rear camber (tenths of a degree), front offset, rear offset (mm),\n"
+                   "; tires' width (per cent). Vita Settings > Mods > Stance turns them on or off.\n", f);
+    else fwrite(keep, 1, kn, f);
+    if (g_cars.n){
+        if (kn && keep[kn - 1] != '\n') fputc('\n', f);
+        fprintf(f, "[%s]\n", g_cars.name);
+        for (int i = 0; i < g_cars.n; i++){
+            const Entry *e = &g_cars.e[i];
+            fprintf(f, "%08x = %08x %d %d %d %d %u\n", e->handle, e->type, e->v.fc, e->v.rc, e->v.fo, e->v.ro, e->v.tw);
+        }
+    }
+    fclose(f); free(keep);
+}
+/* the cars of the profile now */
+static void cars_now(void){
+    const char *p = profile();
+    if (!g_cars.loaded || strcasecmp(g_cars.name, p)) load_profile(p);
+}
+static Entry *entry(uint32_t h){
+    if (!h) return 0;
+    cars_now();
+    for (int i = 0; i < g_cars.n; i++) if (g_cars.e[i].handle == h) return &g_cars.e[i];
+    return 0;
+}
+
+/* the player's own: the page's while it is open, else the driven car's (its car type as set: not a car traded since) */
 static const StanceV *mine(void){
     long f = autotest_frame();
-    if (f - g_mine_read >= 90 || f < g_mine_read){
-        g_mine_read = f;
+    if (g_mine_stale || f - g_mine_read >= 90 || f < g_mine_read){
+        g_mine_read = f; g_mine_stale = 0;
         char on[8] = "";
         roam_host_ini_value("Stance", on, (int)sizeof on);
-        StanceV v;
-        v.fc = clamp16((int)lroundf(ini_num("FrontCamber", 0.f) * 10.f), STANCE_CAMBER_MIN, STANCE_CAMBER_MAX);
-        v.rc = clamp16((int)lroundf(ini_num("RearCamber", 0.f) * 10.f), STANCE_CAMBER_MIN, STANCE_CAMBER_MAX);
-        v.fo = clamp16((int)lroundf(ini_num("FrontOffset", 0.f)), STANCE_OFFSET_MIN, STANCE_OFFSET_MAX);
-        v.ro = clamp16((int)lroundf(ini_num("RearOffset", 0.f)), STANCE_OFFSET_MIN, STANCE_OFFSET_MAX);
-        v.tw = (uint16_t)clamp16((int)lroundf(ini_num("TireWidth", 100.f)), STANCE_TIRE_MIN, STANCE_TIRE_MAX);
         int now = on[0] == '1';
-        if (now != g_mine_on || memcmp(&v, &g_mine, sizeof v))
-            fprintf(stderr, "[stance] f=%ld my car: %s (camber %d/%d, offset %d/%d mm, tires %u %%)\n", f, now ? "on" : "off",
-                    v.fc, v.rc, v.fo, v.ro, v.tw);
-        g_mine = v; g_mine_on = now;
+        if (now != g_mine_on) fprintf(stderr, "[stance] f=%ld your cars' stances: %s\n", f, now ? "on" : "off");
+        g_mine_on = now;
     }
-    return g_mine_on ? &g_mine : 0;
+    if (M.open) return &M.v;
+    if (!g_mine_on) return 0;
+    uint32_t h = driven(), r = record(h);
+    Entry *e = entry(h);
+    return e && r && MR32(r + R_TYPE) == e->type ? &e->v : 0;
+}
+
+/* ---- the Car Shop's page (menu_entry.cpp, options_menu.cpp's Car rows) ------------------------------------------- */
+static float game_camber(uint32_t ride){
+    if (!guest_ok(ride, RIDE_PLATES + 1u)) return 0;
+    return GAME_CAMBER * (0.5f * (MR8(ride + RIDE_COILOVERS) != 0) + 0.5f * (MR8(ride + RIDE_PLATES) != 0));
+}
+/* the page opens on the car driven: its stance, else the game's look (its front camber from its suspension) */
+void stance_menu_open(void){
+    M.handle = driven();
+    uint32_t r = record(M.handle);
+    M.type = r ? MR32(r + R_TYPE) : 0;
+    M.game_fc = game_camber(G_FE_RIDE);
+    Entry *e = entry(M.handle);
+    if (e && e->type == M.type) M.v = e->v;
+    else { memset(&M.v, 0, sizeof M.v); M.v.fc = (int16_t)lroundf(M.game_fc * 10); M.v.tw = 100; }
+    M.open = 1;
+    fprintf(stderr, "[stance] the car %08x (type %08x): camber %d/%d, offset %d/%d mm, tires %u %% (%s)\n", M.handle, M.type,
+            M.v.fc, M.v.rc, M.v.fo, M.v.ro, M.v.tw, e && e->type == M.type ? "its own" : "the game's");
+}
+/* ... and closes: the car keeps the values, or none of its own when they are the game's look */
+void stance_menu_close(void){
+    if (!M.open) return;
+    M.open = 0;
+    if (!M.handle || !record(M.handle)){ fprintf(stderr, "[stance] the page's car has no record: not kept\n"); return; }
+    StanceV stock = { (int16_t)lroundf(M.game_fc * 10), 0, 0, 0, 100 };
+    int same = !memcmp(&M.v, &stock, sizeof stock);
+    Entry *e = entry(M.handle);
+    if (same){
+        if (e){ int i = (int)(e - g_cars.e); memmove(e, e + 1, sizeof *e * (size_t)(g_cars.n - 1 - i)); g_cars.n--; }
+    } else {
+        if (!e && g_cars.n < STANCE_CARS) e = &g_cars.e[g_cars.n++];
+        if (e){ e->handle = M.handle; e->type = M.type; e->v = M.v; }
+    }
+    save_profile();
+    fprintf(stderr, "[stance] the car %08x: %s\n", M.handle, same ? "the game's stance" : "a stance of its own");
+}
+/* a row's value as text (the .ini's units: degrees, mm, per cent), and a new one */
+static int16_t *field(const char *key, int *tenths){
+    *tenths = 0;
+    if (!strcmp(key, "FrontCamber")){ *tenths = 1; return &M.v.fc; }
+    if (!strcmp(key, "RearCamber")){ *tenths = 1; return &M.v.rc; }
+    if (!strcmp(key, "FrontOffset")) return &M.v.fo;
+    if (!strcmp(key, "RearOffset")) return &M.v.ro;
+    if (!strcmp(key, "TireWidth")) return (int16_t *)&M.v.tw;
+    return 0;
+}
+int stance_menu_get(const char *key, char *out, int n){
+    int t; int16_t *v = field(key, &t);
+    if (!v || n <= 0) return 0;
+    if (t) snprintf(out, (size_t)n, "%g", *v * 0.1);
+    else snprintf(out, (size_t)n, "%d", key[0] == 'T' ? (int)*(uint16_t *)v : (int)*v);
+    return 1;
+}
+void stance_menu_set(const char *key, const char *value){
+    int t; int16_t *v = field(key, &t);
+    if (!v || !value) return;
+    float x = strtof(value, 0);
+    if (t) *v = clamp16((int)lroundf(x * 10.f), STANCE_CAMBER_MIN, STANCE_CAMBER_MAX);
+    else if (key[0] == 'T') *(uint16_t *)v = (uint16_t)clamp16((int)lroundf(x), STANCE_TIRE_MIN, STANCE_TIRE_MAX);
+    else *v = clamp16((int)lroundf(x), STANCE_OFFSET_MIN, STANCE_OFFSET_MAX);
 }
 
 /* ---- friends' (roam_game.c, RC_EXT_STANCE) ---------------------------------------------------------------------- */
@@ -99,10 +280,12 @@ static struct {
     float    keep_y[8], keep_w[4];
 } D;
 
-/* the stance the car of render info ri is drawn with, 0: the game's (out in the world only) */
+/* the stance the car of render info ri is drawn with, 0: the game's (out in the world; in the front end only the
+ * Car Shop's car, while stance_fe_preview has it) */
 static const StanceV *of_drawn(uint32_t ri){
     uint32_t car = guest_rd32(ri + RI_CAR);
-    if (MR32(G_FLOW) != 6u || !car) return 0;
+    if (MR32(G_FLOW) != 6u) return g_fe_preview ? mine() : 0;   /* (the browser's page: every car the front end draws) */
+    if (!car) return 0;
     if (car == guest_rd32(guest_rd32(SPLIT_PLAYERS_INDEX) + PL_CAR)) return mine();
     for (int k = 0; k < STANCE_FRIENDS; k++) if (g_friend_car[k] == car) return &g_friend[k];
     return 0;

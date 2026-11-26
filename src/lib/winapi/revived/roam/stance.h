@@ -26,6 +26,14 @@ const StanceV *stance_mine(int p);                    /* player p's car's, 0: no
 int  stance_wire_mine(int16_t v[5]);                 /* roam_game.c: RC_EXT_STANCE */
 void stance_wire_car(int k, uint32_t car, int has, const int16_t v[5]);
 void stance_forget(void);
+void stance_reload(void);                             /* the .ini changed: read again at the next car drawn */
+void stance_fe_preview(int on);                       /* the front end's car drawn with its stance */
+/* the Car Shop's page (menu_entry.cpp): opened on the car driven, its rows' values (the .ini's units) and closed (kept
+ * in scripts/NFSU2Stance.ini) */
+void stance_menu_open(void);
+void stance_menu_close(void);
+int  stance_menu_get(const char *key, char *out, int n);
+void stance_menu_set(const char *key, const char *value);
 /* modpacks.c, MODPARTS.DAT: player p's stances as its entries (8 words: handle, car type, the cambers, the offsets,
  * the tires' width, 0, 0, STANCE_KIND) -> how many; a profile of player p (its name) loaded: none until stance_load
  * gives each of its file's (1 taken); a car gone (traded), a car moved to another record */
