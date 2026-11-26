@@ -563,22 +563,32 @@ int drift_vita_line(char *tx, int n){
  *  - the multiplier "X%$d" (the DriftCar's level), "GAIN X<level + 1> WITH" (the language's 0xE03EF7A4) and the points
  *    still to get there (+0x20), the gain's two gone at X5;
  *  - Total: the points banked ("%$d" of the DriftScore's total at a bank), Best: the most of one drift.
- * 0 when drift mode's handling is off (or a drift battle's line has it); 1 the panels; 3 the panels and the drift */
+ * The drift's points in its colours (0x4AB780 picks one of the popup's three, set by 0x4F7AD0 and 0x4C7EA0): lime
+ * (202,244,138); orange (255,128,32) while the DriftCar's +0x18 or +0x3C is over 1 (0x4C7EA0 from the drift part's
+ * update 0x4DA590: the drift about to end); red (207,48,48) once it is lost (a wall), shown so for the popup's time.
+ * 0 when drift mode's handling is off (or a drift battle's line has it); 1 the panels; 3 the panels and the drift;
+ * | 4 the drift orange, | 8 red */
 #define DH_POPUP_FRAMES 45            /* the drift's points stay this long after it is banked (1.5 s) */
 int drift_vita_hud(char *pts, char *mult, char *gain_txt, char *gain, char *total, char *best, int n){
-    static long at = -1000; static double last;
+    static long at = -1000; static double last; static int lost;
     pts[0] = mult[0] = gain_txt[0] = gain[0] = total[0] = best[0] = 0;
     if (!D.on || B.on){ at = -1000; return 0; }
     long f = autotest_frame();
     int lvl = (int)D.val[2], st = (int)D.val[6];
     if (lvl < 1 || lvl > 5) lvl = 1;
-    if ((st == 0 || st == 1) && D.val[7] > 0){ last = D.val[7]; at = f; }
-    else if (st == 4) at = -1000;                                    /* lost (a wall): no points to show */
+    if ((st == 0 || st == 1) && D.val[7] > 0){ last = D.val[7]; at = f; lost = 0; }
+    else if (st == 4 && !lost && f - at < DH_POPUP_FRAMES){ lost = 1; at = f; }   /* lost (a wall): its points in red */
     snprintf(mult, (size_t)n, "X%d", lvl);
     if (lvl < 5 && D.val[3] > 0){ snprintf(gain_txt, (size_t)n, "GAIN X%d WITH", lvl + 1); commas(gain, n, D.val[3]); }
     commas(total, n, D.total); commas(best, n, D.best);
     if (f - at >= DH_POPUP_FRAMES || f < at) return 1;
     commas(pts, n, last);
+    if (lost) return 3 | 8;
+    uint32_t rc = racer(), dc = rc ? guest_rd32(rc + RC_DRIFTCAR) : 0;
+    if (guest_ok(dc, 0x40u) && (st == 0 || st == 1)){
+        float a = MRF32(dc + 0x18u), b = MRF32(dc + 0x3cu);
+        if (a > 1.f || b > 1.f) return 3 | 4;
+    }
     return 3;
 }
 #endif

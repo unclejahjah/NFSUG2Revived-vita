@@ -6079,7 +6079,7 @@ static void dh_draw(CPU *c, uint32_t pkg){
     int popup = (on & 2) != 0;
     g_ui_place = 0;                              /* under the rear view mirror */
     dh_text(c, DH_TITLE, pkg, popup ? "DRIFT" : "", DH_LIME, 255, 320.f, 87.f, 1.f, 1u);
-    dh_text(c, DH_PTS, pkg, popup ? pts : "", DH_LIME, 255, 320.f, 117.f, 1.f, 5u);
+    dh_text(c, DH_PTS, pkg, popup ? pts : "", on & 8 ? 0xcf3030u : on & 4 ? 0xff8020u : DH_LIME, 255, 320.f, 117.f, 1.f, 5u);   /* lost red, ending orange */
     g_ui_place = 1;                              /* the left, above the minimap */
     /* Best, the multiplier and Total in one translucent grey box with the game's menus' rounded corners (ui_panel's
      * white pieces, tinted: Jah 2026-11-26, the three in a single box, corners as the native UI), round the texts'
