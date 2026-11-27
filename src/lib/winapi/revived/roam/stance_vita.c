@@ -33,6 +33,7 @@ int roam_host_ini_value(const char *key, char *out, int n);   /* roam_vita.cpp: 
 #define CD_ARG_WHEELS2 0x1cu
 #define WHEEL_MX       0x40u
 #define RI_CAR         0u            /* render info: its car */
+#define RI_RIDE        4u            /* ... its ride (the game's camber from its suspension parts) */
 #define RI_WHEEL_Y     0x400u        /* ... each wheel's sideways place, two floats (the car's left: below 0) */
 #define RI_TIRE_W      0x420u        /* ... each wheel's tire width, m */
 
@@ -355,9 +356,8 @@ void stance_forget(void){ memset(g_friend_car, 0, sizeof g_friend_car); }
 /* ---- the drawing ------------------------------------------------------------------------------------------------- */
 static struct {
     int      on;
-    uint32_t keep_c[3];
-    uint32_t mx[4];                  /* the rear wheels' matrices turned: argument 5's and 7's, wheels 2 and 3 */
-    float    keep_mx[4][12];
+    uint32_t mx[8];                  /* the wheels' matrices turned: argument 5's and 7's, wheels 0 to 3 */
+    float    keep_mx[8][12];
     uint32_t ri;
     float    keep_y[8], keep_w[4];
 } D;
@@ -392,31 +392,36 @@ void stance_draw_begin(CPU *c){
     const StanceV *s = of_drawn(ri);
     if (!s) return;
     D.on = 1; D.ri = ri;
-    D.keep_c[0] = MR32(G_CAMBER_F); D.keep_c[1] = MR32(G_CAMBER_DEG); D.keep_c[2] = MR32(G_CAMBER_K);
-    MRF32(G_CAMBER_F) = 1.0f; MRF32(G_CAMBER_DEG) = s->fc * 0.1f; MRF32(G_CAMBER_K) = 0.0f;
     for (int k = 0; k < 8; k++){
         float y = D.keep_y[k] = MRF32(ri + RI_WHEEL_Y + 4u * (uint32_t)k), o = (k < 4 ? s->fo : s->ro) * 0.001f;
         MRF32(ri + RI_WHEEL_Y + 4u * (uint32_t)k) = y + (y < 0 ? -o : o);
     }
     for (int k = 0; k < 4; k++){ D.keep_w[k] = MRF32(ri + RI_TIRE_W + 4u * (uint32_t)k); MRF32(ri + RI_TIRE_W + 4u * (uint32_t)k) = D.keep_w[k] * s->tw * 0.01f; }
-    float a = s->rc * 0.1f * 3.14159265f / 180.0f;
+    /* The cambers, as turns of the wheels' matrices before the call. The browser sets the front's through the camber
+     * constants at 0x7A6750; those are in .rdata, which the Vita's translation folds into the code (--fold-rdata), so
+     * writing them changes nothing and the game turns the front wheels by its own camber (its suspension parts': 0, 3.5
+     * or 7 degrees) whatever the stance. So the front wheels are turned here by the difference, and the game's turn
+     * after it (M x Rx(a), the same axis) makes it the stance's: wheel 0 by +, wheel 1 by - (as the game). The rear
+     * wheels, which the game never tilts, by the stance's camber: wheel 2 by -, wheel 3 by +. */
+    const float rad = 3.14159265f / 180.0f;
+    float front = (s->fc * 0.1f - game_camber(guest_rd32(ri + RI_RIDE))) * rad, rear = s->rc * 0.1f * rad;
     uint32_t w[2] = { guest_rd32(c->esp + CD_ARG_WHEELS), guest_rd32(c->esp + CD_ARG_WHEELS2) };
     for (int set = 0; set < 2; set++){
-        int ok = a != 0 && guest_ok_bytes(w[set], 4u * WHEEL_MX);
-        for (int i = 2; i < 4; i++){
-            uint32_t m = ok ? w[set] + WHEEL_MX * (uint32_t)i : 0;
-            D.mx[set * 2 + (i - 2)] = m;
-            if (m) turn(m, i == 2 ? -a : a, D.keep_mx[set * 2 + (i - 2)]);   /* wheel 2 on the right, as wheel 1 */
+        int ok = guest_ok_bytes(w[set], 4u * WHEEL_MX);
+        for (int i = 0; i < 4; i++){
+            float a = i < 2 ? front : rear;
+            uint32_t m = ok && fabsf(a) > 1e-5f ? w[set] + WHEEL_MX * (uint32_t)i : 0;
+            D.mx[set * 4 + i] = m;
+            if (m) turn(m, i == 0 || i == 3 ? a : -a, D.keep_mx[set * 4 + i]);
         }
     }
 }
 void stance_draw_end(void){
     if (!D.on) return;
     D.on = 0;
-    MR32(G_CAMBER_F) = D.keep_c[0]; MR32(G_CAMBER_DEG) = D.keep_c[1]; MR32(G_CAMBER_K) = D.keep_c[2];
     for (int k = 0; k < 8; k++) MRF32(D.ri + RI_WHEEL_Y + 4u * (uint32_t)k) = D.keep_y[k];
     for (int k = 0; k < 4; k++) MRF32(D.ri + RI_TIRE_W + 4u * (uint32_t)k) = D.keep_w[k];
-    for (int k = 0; k < 4; k++){
+    for (int k = 0; k < 8; k++){
         if (!D.mx[k]) continue;
         for (int j = 0; j < 12; j++) MRF32(D.mx[k] + 4u * (uint32_t)j) = D.keep_mx[k][j];
     }
