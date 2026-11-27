@@ -20,6 +20,8 @@ enum class Action
 
 // The game folder (the one with save/).
 void configure(const std::string& gameFolder);
+// The save folder (save_dir, else the game folder's save/), without a trailing '/'.
+std::string saveRoot();
 // Starts an action on its thread; false while one runs, or when it cannot start (the status says why).
 bool start(Action action);
 bool busy();

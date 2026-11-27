@@ -29,7 +29,8 @@ void stance_forget(void);
 void stance_reload(void);                             /* the .ini changed: read again at the next car drawn */
 void stance_fe_preview(int on);                       /* the front end's car drawn with its stance */
 /* the Car Shop's page (menu_entry.cpp): opened on the car driven, its rows' values (the .ini's units) and closed (kept
- * in scripts/NFSU2Stance.ini) */
+ * in the profile's MODPARTS.DAT, as the browser keeps them); the game wrote a save: written again */
+void stance_saved(void);
 void stance_menu_open(void);
 void stance_menu_close(void);
 int  stance_menu_get(const char *key, char *out, int n);

@@ -23,6 +23,7 @@ extern "C"
 #include <platform/time.h>
 #include <lib/winapp.h>
 #include <platform/log.h>
+#include <platform/cloud_saves.h>
 #include <recomp.h>
 
 #include <psp2/kernel/processmgr.h>
@@ -587,6 +588,16 @@ int roam_host_ini_value(const char* key, char* out, int n)
     const std::string v = iniValue(key);
     snprintf(out, size_t(n), "%s", v.c_str());
     return 1;
+}
+
+// stance_vita.c: a file beside a profile, in the save folder as the game makes it ("NFS Underground 2/<name>/"; the
+// Vita's file system ignores case)
+extern "C" int roam_host_profile_file(const char* profile, const char* file, char* out, int n)
+{
+    if (!profile || !profile[0] || !file || !out || n <= 0)
+        return 0;
+    const int w = snprintf(out, size_t(n), "%s/NFS Underground 2/%s/%s", pf::cloud::saveRoot().c_str(), profile, file);
+    return w > 0 && w < n;
 }
 
 // showoff.c: Select + L presses since the last frame

@@ -21,12 +21,13 @@
 // Options screen (UI_Options.fng) comes on page 4, which the game has no entries for: here the rows of options_menu's
 // Stance group (the Mods page's switch, then the driven car's own stance: stance_vita.c's stance_menu_*), with the
 // garage's camera on the car's front (0x4C2100) and the car drawn with the values as they are set. The car keeps
-// them when the page closes (scripts/NFSU2Stance.ini, per profile and car). Its Back (the fade's end with +0x138 0x911AB364)
+// them when the page closes, kept as the browser keeps them: the profile's MODPARTS.DAT (stance_vita.c). Its Back (the fade's end with +0x138 0x911AB364)
 // goes to the Body Shop again, not to the Options menu.
 
 #include "menu_entry.h"
 #include "options_menu.h"
 
+#include <lib/file.h>
 #include <lib/gamepad.h>
 #include <platform/log.h>
 #include <lib/winapp.h>
@@ -44,6 +45,7 @@ extern "C" void stance_reload(void);
 extern "C" void stance_fe_preview(int on);
 extern "C" void stance_menu_open(void);
 extern "C" void stance_menu_close(void);
+extern "C" void stance_saved(void);
 
 namespace ug2
 {
@@ -385,7 +387,7 @@ void stanceClosed(win32::WinApplication* app, x86::CPU& cpu, const char* how)
     rc::st32(OptionsPage, s_pageWas);
     ratingShow(app, cpu);
     options::save();
-    stance_menu_close();    // the car keeps its stance (scripts/NFSU2Stance.ini)
+    stance_menu_close();    // the car keeps its stance (the profile's MODPARTS.DAT)
     stance_reload();
     pf::logInfo("menu entry: Stance page closed (%s)", how);
 }
@@ -394,6 +396,13 @@ void stanceClosed(win32::WinApplication* app, x86::CPU& cpu, const char* how)
 void stanceFrame(win32::WinApplication* app, x86::CPU& cpu)
 {
     ++s_frames;
+    // the game wrote a save: the stances' cars' fingerprints written again beside the profile, as the browser does
+    static unsigned saves = win32::File::saveCommits();
+    if (win32::File::saveCommits() != saves)
+    {
+        saves = win32::File::saveCommits();
+        stance_saved();
+    }
     if (s_stanceGoing && s_frames - s_goingSince > unsigned(FadeFrames))
     {
         s_stanceGoing = false;
