@@ -8011,9 +8011,61 @@ static void js_results(MpJs *j){
     if (mprace_credit() != MPC_NONE) js_int(j, "credit", mprace_credit());
     if (mprace_credited() < 0) js_int(j, "credited", -1);
 }
+#ifdef ROAM_LOBBY_PANEL
+/* The trip's cover on the Vita, as the browser's (nfsu2-web lobby.ts drawCover): over the game's menus on the way to
+ * the race and back, the race (its kind, stage, track, laps), its players or, on the way back, its results, and where
+ * the trip is (mprace_step).  The host draws it (ug2/tripcover.cpp) from lines of text, each led by its look: '#' the
+ * title, '~' small and grey, '-' a divider, ' ' plain, '*' ours, '!' a friend's, '>' the step; a tab puts the rest on
+ * the right */
+void roam_vita_cover(const char *lines);
+static void mp_cover(void){
+    if (g_mp.st != MP_TRIP || !mprace_covered()){ roam_vita_cover(0); return; }
+    char b[1200]; int n = 0; uint32_t r = g_mp.l.race;
+#define CV(...) do { if (n < (int)sizeof b) n += snprintf(b + n, sizeof b - (size_t)n, __VA_ARGS__); } while (0)
+    char kind[24]; snprintf(kind, sizeof kind, "%s", race_kind(r)); if (kind[0] >= 'a' && kind[0] <= 'z') kind[0] -= 32;
+    CV("#%s\n", kind);
+    if (r){
+        char tn[64] = "", where[128] = ""; int w = 0;
+        int heats = MR8(r + 0x34u) == 2u && MR8(r + 0x7eu) >= 2u && MR8(r + 0x7eu) <= 3u ? MR8(r + 0x7eu) : 1;
+        if (MR8(r + 0x37u) >= 1u && MR8(r + 0x37u) <= 9u) w += snprintf(where + w, sizeof where - (size_t)w, "Stage %u", MR8(r + 0x37u));
+        if (heats > 1) w += snprintf(where + w, sizeof where - (size_t)w, "%s%d heats", w ? " - " : "", heats);
+        else { track_name(MR16(r + 0x18u), MR8(r + 0x1au) & 1, tn, sizeof tn); if (tn[0]) w += snprintf(where + w, sizeof where - (size_t)w, "%s%s", w ? " - " : "", tn); }
+        uint8_t ty = MR8(r + 0xfu); int laps = MR8(r + 0x1bu), lo = ty == 2 ? 4 : 2;
+        if (MR8(r + 0x34u) != 2u && (ty == 0 || ty == 2 || ty == 5) && laps > 1){
+            laps = laps < lo ? lo : laps > 10 ? 10 : laps;
+            w += snprintf(where + w, sizeof where - (size_t)w, "%s%d laps", w ? " - " : "", laps);
+        }
+        if (w > 0) CV("~%s\n", where);
+    }
+    CV("-\n");
+    MpResult res[MPRACE_RESULTS_MAX]; int nr = mprace_results(res, MPRACE_RESULTS_MAX), place = 0;
+    if (nr > 0){
+        CV(" Results\n");
+        for (int k = 0; k < nr; k++){
+            const char *nm = res[k].name[0] ? res[k].name : "?";
+            for (int i = 0; i < g_mp.l.n && i < RC_LOBBY_MAX; i++) if (res[k].name[0] && !strcasecmp(g_mp.lan[i], res[k].name)){ nm = g_mp.names[i]; break; }
+            char what[32] = "";
+            if (!res[k].finished) snprintf(what, sizeof what, "DNF");
+            else if (res[k].points > 0) snprintf(what, sizeof what, "%d points", res[k].points);
+            else if (res[k].time > 0.f){ int cs = (int)(res[k].time * 100.f + .5f); snprintf(what, sizeof what, "%d:%02d.%02d", cs / 6000, cs / 100 % 60, cs % 100); }
+            char lead[4]; if (res[k].finished) snprintf(lead, sizeof lead, "%d", ++place); else snprintf(lead, sizeof lead, "-");
+            if (res[k].ours && mprace_prize() > 0) CV("*%s  %s\t%s   +$%d\n", lead, nm, what, mprace_prize());
+            else CV("%c%s  %s\t%s\n", res[k].ours ? '*' : ' ', lead, nm, what);
+        }
+    } else {
+        for (int i = 0; i < g_mp.l.n && i < RC_LOBBY_MAX; i++)
+            CV("%c%s%s\n", g_mp.l.ids[i] == g_s.conf.self_id ? '*' : g_mp.friend_mask >> i & 1u || g_mp.crew_mask >> i & 1u ? '!' : ' ',
+               g_mp.names[i], i ? "" : "\t(host)");
+    }
+    CV("-\n>%s...\n", mprace_step()[0] ? mprace_step() : "Loading");
+#undef CV
+    roam_vita_cover(b);
+}
+#endif
 static void mp_panel(int64_t host, int in_roam){
     static char last[1200];
 #ifdef ROAM_LOBBY_PANEL
+    mp_cover();
     g_mp_panel = 0; (void)last; return;          /* no page around the game: lb_panel draws the lobby in it */
 #endif
     if (!g_mp_panel) return;

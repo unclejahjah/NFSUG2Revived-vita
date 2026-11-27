@@ -54,6 +54,11 @@ public:
     void setGamma(float gamma);
     // Display rectangle of a width x height window: the largest centred one of its aspect (4:3 is pillarboxed).
     static Rect windowRect(uint32_t width, uint32_t height);
+    // A picture over the whole display (960x544 A8B8G8R8, stride 960), shown over every image while on: the trip of
+    // a free roam race through the game's menus (ug2/tripcover.cpp). Its pixels are written in place by any one
+    // thread; null when there is no memory for it. Kept once made.
+    uint32_t* overlayPixels();
+    void showOverlay(bool on);
 
     // ---- Direct3D frames and resources: game thread only ----
 

@@ -299,6 +299,10 @@ struct Device::Impl
     Present                 pendingPresent = {};
     Rect                    layerValid = {};            // valid area of the front image of the current window
     std::atomic<uint32_t>   gammaBits{0x3f800000};      // float
+    // overlayPixels / showOverlay
+    SceUID                  overlayUid = InvalidUid;
+    uint32_t*               overlayData = nullptr;
+    std::atomic<bool>       overlayOn{false};
 
     // Direct3D frames: recorded on the game thread, queued (at most one per slot) for the render thread.
     FrameRenderer           frames;
@@ -349,6 +353,7 @@ struct Device::Impl
     int  updateLayer(uint32_t width, uint32_t height);
     void drawQuad(const Rect& display, float u0, float v0, float u1, float v1, const SceGxmTexture* texture,
                   bool textured);
+    void drawOverlay();
     void queueDisplay(uint32_t vblanks, uint32_t frameIndex);
 };
 
@@ -818,12 +823,37 @@ void Device::Impl::present(const Present& image, uint32_t frameIndex)
     if (perf::enabled())
         endSceneTime = perf::now();
     shown = image;
+    drawOverlay();
 
     stall::mark(stall::g_gxm.render, "ime");
     // A running system dialog is drawn over the finished image.
     if (ime::prepareFrame())
         ime::drawFrame(displayData[backBuffer], DisplayWidth, DisplayHeight, DisplayStride, displaySync[backBuffer]);
     queueDisplay(1, frameIndex);
+}
+
+// The overlay picture over the whole display, after the image under it.
+void Device::Impl::drawOverlay()
+{
+    if (!overlayOn.load(std::memory_order_acquire) || !overlayData)
+        return;
+    stall::mark(stall::g_gxm.render, "overlay");
+    sceGxmBeginScene(context, 0, displayTarget, nullptr, nullptr, displaySync[backBuffer], &displaySurface[backBuffer],
+                     nullptr);
+    sceGxmSetViewportEnable(context, SCE_GXM_VIEWPORT_ENABLED);
+    sceGxmSetViewport(context, 0.5f * DisplayWidth, 0.5f * DisplayWidth, 0.5f * DisplayHeight, -0.5f * DisplayHeight,
+                      0.0f, 1.0f);
+    sceGxmSetRegionClip(context, SCE_GXM_REGION_CLIP_NONE, 0, 0, DisplayWidth - 1, DisplayHeight - 1);
+    sceGxmSetCullMode(context, SCE_GXM_CULL_NONE);
+    sceGxmSetFrontDepthFunc(context, SCE_GXM_DEPTH_FUNC_ALWAYS);
+    sceGxmSetFrontDepthWriteEnable(context, SCE_GXM_DEPTH_WRITE_DISABLED);
+    blitPrograms();
+    SceGxmTexture texture;
+    sceGxmTextureInitLinear(&texture, overlayData, SCE_GXM_TEXTURE_FORMAT_A8B8G8R8, DisplayWidth, DisplayHeight, 0);
+    sceGxmTextureSetMinFilter(&texture, SCE_GXM_TEXTURE_FILTER_POINT);
+    sceGxmTextureSetMagFilter(&texture, SCE_GXM_TEXTURE_FILTER_POINT);
+    drawQuad(Rect{ 0, 0, DisplayWidth, DisplayHeight }, 0, 0, 1, 1, &texture, true);
+    sceGxmEndScene(context, nullptr, nullptr);
 }
 
 void Device::Impl::blitPrograms()
@@ -1059,6 +1089,7 @@ void Device::Impl::presentFrame(const render::Frame& frame, uint32_t frameIndex)
     if (perf::enabled())
         endSceneTime = perf::now();
     shown = Present{};
+    drawOverlay();
     stall::mark(stall::g_gxm.render, "ime");
     if (ime::prepareFrame())
         ime::drawFrame(displayData[backBuffer], DisplayWidth, DisplayHeight, DisplayStride, displaySync[backBuffer]);
@@ -1229,6 +1260,37 @@ void Device::setGamma(float gamma)
     uint32_t bits;
     memcpy(&bits, &gamma, sizeof(bits));
     m_impl->gammaBits.store(bits);
+}
+
+uint32_t* Device::overlayPixels()
+{
+    Impl& impl = *m_impl;
+    if (!impl.overlayData && impl.overlayUid == InvalidUid)
+    {
+        const uint32_t size = alignUp(DisplayWidth * DisplayHeight * 4, 4096);
+        SceUID uid = sceKernelAllocMemBlock("gxm_overlay", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, size, nullptr);
+        void* mem = nullptr;
+        if (uid >= 0 && sceKernelGetMemBlockBase(uid, &mem) >= 0
+            && sceGxmMapMemory(mem, size, SCE_GXM_MEMORY_ATTRIB_READ) >= 0)
+        {
+            impl.overlayData = static_cast<uint32_t*>(mem);
+            impl.overlayUid = uid;
+            logInfo("gxm: overlay picture %u KB", size / 1024);
+        }
+        else
+        {
+            if (uid >= 0)
+                sceKernelFreeMemBlock(uid);
+            impl.overlayUid = SceUID(-2);       // (not again)
+            logInfo("gxm: no memory for the overlay picture (0x%08x)", uid);
+        }
+    }
+    return impl.overlayData;
+}
+
+void Device::showOverlay(bool on)
+{
+    m_impl->overlayOn.store(on && m_impl->overlayData, std::memory_order_release);
 }
 
 Rect Device::windowRect(uint32_t width, uint32_t height)

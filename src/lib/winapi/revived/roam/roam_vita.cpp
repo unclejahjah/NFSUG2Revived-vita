@@ -8,6 +8,7 @@
 // link (revived_link.cpp) carries to the server's switch and its free-roam hub, so the Vita meets the players of
 // nfsu2.xyz. That needs network=revived.
 #include <freeroam.h>
+#include <tripcover.h>
 #include <winapi/revived.h>
 #include <lib/memmap.h>
 #include <lib/guestmodule.h>
@@ -57,6 +58,7 @@ void drift_frame(struct CPU* c);     // drift.c: drift mode (drift_button) and d
 void roam_vita_tap(unsigned dik);
 int roam_vita_can_host(void);
 const char* roam_vita_no_host_why(void);
+void roam_vita_cover(const char* lines);
 void roam_vita_host_room_release(void);
 int roam_host_hud_line(char* tx, int n);
 int roam_host_chat_menu(const char** keys, const char** texts, int max);
@@ -988,6 +990,12 @@ void roam_vita_host_room_release(void)
         s_hostRoom = 0;
         pf::logInfo("server.dll: its %u KB given back until free roam is loaded again", ServerStateBytes / 1024);
     }
+}
+
+// the trip's cover over the game's menus (roam_game.c mp_cover)
+void roam_vita_cover(const char* lines)
+{
+    ug2::tripcover::set(lines);
 }
 
 // mod packs (runtime/modpacks.c): none on the Vita, every part is the game's own
