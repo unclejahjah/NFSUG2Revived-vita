@@ -326,7 +326,7 @@ bool request(const std::string& host, const char* method, const Keys& keys,
 
 // ---- The saves here ---------------------------------------------------------------------------------------------------
 
-std::string saveRoot()
+std::string localSaveRoot()
 {
     std::string root = Config::getString("save_dir", "");
     if (root.empty())
@@ -427,7 +427,7 @@ void walk(const std::string& root, const std::string& below, Local* local)
 Local readLocal()
 {
     Local local;
-    walk(saveRoot(), "", &local);
+    walk(localSaveRoot(), "", &local);
     return local;
 }
 
@@ -553,7 +553,7 @@ bool restore(const std::vector<Entry>& theirs, const Local& local)
         return fail("Cloud has no saves");
     if (!backUp(local))
         return false;
-    const std::string root = saveRoot();
+    const std::string root = localSaveRoot();
     std::map<std::string, bool> theirsHas;
     for (const Entry& e : take)
     {
@@ -784,6 +784,12 @@ void* worker(void* argument)
     return nullptr;
 }
 
+}
+
+// The anonymous namespace's save folder, for code outside this file (stance_vita.c's MODPARTS.DAT path).
+std::string saveRoot()
+{
+    return localSaveRoot();
 }
 
 void configure(const std::string& gameFolder)
