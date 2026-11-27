@@ -35,7 +35,7 @@ namespace
 // ---- The settings ---------------------------------------------------------------------------------------------------
 
 // NeedForSpeedUnderground2.cfg, scripts/NFSU2FreeRoam.ini's [FreeRoam], Extra Options' [Gameplay], or the Car Shop's
-// Stance page's car (stance_vita.c's stance_menu_*: kept per car in scripts/NFSU2Stance.ini when the page closes)
+// Stance page's car (stance_vita.c's stance_menu_*: kept per car in the profile's MODPARTS.DAT when the page closes)
 enum Store { Cfg, Ini, Extra, Car };
 // Action: a row that does something (the cloud saves'). Heading: a group's name inside a page, a row that sets nothing.
 enum Kind { Choice, Text, Secret, Action, Heading };
@@ -476,7 +476,7 @@ const char IniTemplate[] =
     "CarSounds = 1\n"
     "; the show-off: Select + L opens the hood, the trunk, the doors (1 on, 0 off)\n"
     "ShowOff = 1\n"
-    "; your cars' stances (1 on), each set in Customize's Body Shop, Stance (kept in NFSU2Stance.ini)\n"
+    "; your cars' stances (1 on), each set in Customize's Body Shop, Stance (kept beside the profile)\n"
     "Stance = 0\n"
     "\n"
     "; outruns with other players: stay near one and press Engage to challenge them (1 on, 0 off)\n"
