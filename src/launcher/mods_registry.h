@@ -11,7 +11,18 @@
 
 namespace ug2 { namespace mods {
 
-enum Id { EuCarContent, Count };
+// The Extra Options features in modreq::SettingId order.
+enum Id
+{
+    EuCarContent,
+    LapMinimum, LapMaximum,
+    DriftMaximumMultiplier, DriftPlusSign, DriftShowWithoutMultiplying, DriftHideNiftyMessages,
+    ShowOutrun, ShowSubs, ShowSpecialVinyls, AnyTrackInAnyRaceMode, FreeRunTrackSelect, OutrunTrackSelect,
+    EnableHiddenCameraModes, RemoveRaceBarriers, RemoveLockedAreaBarriers, ShowPercentOn1LapRaces,
+    StartingCash, UnlockAllThings, NeonBrightness,
+    VisualRepRemover,
+    Count
+};
 
 // One key of a mod's PC ini. A supported key has a feature in the registry below; flip the flag when one is added.
 struct IniKey
@@ -59,7 +70,7 @@ struct Source
     bool downloadable() const { return !download.url.empty() && !download.files.empty(); }
 };
 
-enum SourceId { ExtraOptions, SourceCount };
+enum SourceId { ExtraOptions, NoVisualRep, SourceCount };
 
 // A supported key: its name, section, key and requirements are the shared setting's (mods_require.h), or for a
 // launcher-only entry its own.
@@ -93,15 +104,14 @@ bool get(const std::string& file, const char* section, const char* key, std::str
 
 std::string pathIn(const std::string& folder, const char* relative);
 bool fileExists(const std::string& file);
-bool isOn(const std::string& value);    // an Extra Options number, as it reads one
-// The mod's own default for the key, when the ini lacks it.
-bool onByDefault(const Mod& mod);
 
 struct State
 {
     bool iniFound = false;
     bool unreadable = false;            // the ini exists but cannot be read (pf::readTextFile); the mod is off
-    bool on = false;                    // the ini's key is 1
+    bool keyFound = false;              // the readable ini has the key
+    double value = 0;                   // as the mod reads it, when keyFound; a missing key is vanilla
+    bool on = false;                    // keyFound and the value non-zero
     bool met = false;                   // modreq::Setting::requirementsMet
     std::string requirements;           // modreq::Setting::requirementsString
 };

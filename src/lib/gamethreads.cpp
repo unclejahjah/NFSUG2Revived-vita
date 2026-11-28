@@ -1,6 +1,7 @@
 #include <lib/scheduler.h>
 #include <lib/timer.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 
 // The guest threads of SPEED2.EXE, started through the CRT's _beginthreadex thunk or the EA thread trampoline. The
 // DNS, network pump, TAPI and serial threads start only for network or modem play.
@@ -19,7 +20,7 @@ void configureGameThreads()
     setThreadRole(0x0074BA50, pf::cores::Helper, "network pump");
     setThreadRole(0x00750900, pf::cores::Helper, "TAPI");
     setThreadRole(0x00757390, pf::cores::Helper, "serial");
-    if (pf::Config::getBool("ea_timer_unlocked", true))
+    if (NFSU_DEV_BOOL("ea_timer_unlocked", true))
         Timer::setUnlockedCallback(0x006F5B4D);
 }
 

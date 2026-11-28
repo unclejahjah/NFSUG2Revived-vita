@@ -5,6 +5,7 @@
 #include "ownscreens.h"
 
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/log.h>
 #include <recomp.h>
 
@@ -51,7 +52,7 @@ std::string readString(reg32 address)
 
 void install()
 {
-    if (!pf::Config::getBool("ps2_prompts", true))
+    if (!NFSU_DEV_BOOL("ps2_prompts", true))
         return;
     for (const char* screen : Screens)
     {

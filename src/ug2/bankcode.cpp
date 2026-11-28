@@ -63,8 +63,8 @@ const Settings& settings()
 {
     return pf::cachedStatic([]
     {
-        const Settings r = { NFSU_NATIVE_SETTING("bank_native"), pf::Config::getBool("shadow_bank", false),
-                             pf::Config::getBool("bank_cache_check", false) };
+        const Settings r = { NFSU_NATIVE_SETTING("bank_native"), NFSU_DEV_BOOL("shadow_bank", false),
+                             NFSU_DEV_BOOL("bank_cache_check", false) };
         pf::logInfo("bank code: %u translated routines, %s%s%s, %u library functions called in place",
                     unsigned(g_translationCount), r.native ? "native" : "interpreted",
                     r.native && r.shadow ? ", shadow compare" : "", r.check ? ", cache check" : "",

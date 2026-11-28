@@ -9,6 +9,7 @@
 #include <lib/teb.h>
 #include <lib/thread.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/cores.h>
 #include <platform/log.h>
 #include <platform/perf.h>
@@ -55,12 +56,12 @@ std::atomic<bool>       s_hookPending{false};
 std::atomic<uint32_t>   s_hookTail{0};      // ring tail when the pending hook was requested
 std::atomic<uint32_t>   s_hookUs{0};
 std::atomic<int>        s_active{0};        // deliveries running now
-bool                    s_log = false;
-bool                    s_deferNotify = true;
-bool                    s_deferHook = true;
-bool                    s_inlineWithHooks = false;
-bool                    s_hookRelease = false;      // audio_hook_release
-uint32_t                s_hookWaitUs = 10000;       // audio_hook_wait_ms
+NFSU_DEV_VARC(bool, s_log, false, false);
+NFSU_DEV_VARC(bool, s_deferNotify, true, false);
+NFSU_DEV_VARC(bool, s_deferHook, true, true);
+NFSU_DEV_VARC(bool, s_inlineWithHooks, false, true);
+NFSU_DEV_VARC(bool, s_hookRelease, false, true);      // audio_hook_release
+NFSU_DEV_VARC(uint32_t, s_hookWaitUs, 10000, 10000);       // audio_hook_wait_ms
 bool                    s_releasing = false;        // under the execution lock
 win32::MethodPtr        s_unlock = nullptr;
 pf::Semaphore*          s_timer = nullptr;
@@ -84,7 +85,7 @@ std::atomic<bool>       s_stop{false};
 std::atomic<reg32>      s_thread{0};        // thread block of the callback thread
 std::atomic<reg32>      s_mixer{0};         // thread block of the last mixer thread
 std::atomic<int>        s_state{0};         // 0 none, 1 starting, 2 running
-bool                    s_enabled = false;
+NFSU_DEV_VARC(bool, s_enabled, false, true);
 win32::WinApplication*  s_app = nullptr;
 pf::Semaphore*          s_wake = nullptr;
 pf::Semaphore*          s_nap = nullptr;
@@ -314,16 +315,16 @@ void start(win32::WinApplication* app)
 
 void configure(win32::WinApplication& app)
 {
-    const bool requested = pf::Config::getBool("audio_defer", true);
-    const bool unlocked = pf::Config::getString("audio_mixer", "unlocked")[0] == 'u';
-    s_enabled = requested && unlocked;
-    s_log = pf::Config::getBool("audio_defer_log", false);
-    s_deferNotify = pf::Config::getBool("audio_defer_notify", false);
-    s_deferHook = pf::Config::getBool("audio_defer_hook", true);
-    s_inlineWithHooks = pf::Config::getBool("audio_inline_with_hooks", false)
-                     || pf::Config::getBool("audio_engine_inline", true);
-    s_hookRelease = pf::Config::getBool("audio_hook_release", true) && s_deferHook && !s_deferNotify;
-    s_hookWaitUs = uint32_t(pf::Config::getInt("audio_hook_wait_ms", 10)) * 1000;
+    const bool requested = NFSU_DEV_BOOL("audio_defer", true);
+    const bool unlocked = NFSU_DEV_STRING("audio_mixer", "unlocked")[0] == 'u';
+    NFSU_DEV_SET(s_enabled, requested && unlocked);
+    NFSU_DEV_SET(s_log, NFSU_DEV_BOOL("audio_defer_log", false));
+    NFSU_DEV_SET(s_deferNotify, NFSU_DEV_BOOL("audio_defer_notify", false));
+    NFSU_DEV_SET(s_deferHook, NFSU_DEV_BOOL("audio_defer_hook", true));
+    NFSU_DEV_SET(s_inlineWithHooks, NFSU_DEV_BOOL("audio_inline_with_hooks", false)
+                     || NFSU_DEV_BOOL("audio_engine_inline", true));
+    NFSU_DEV_SET(s_hookRelease, NFSU_DEV_BOOL("audio_hook_release", true) && s_deferHook && !s_deferNotify);
+    NFSU_DEV_SET(s_hookWaitUs, uint32_t(NFSU_DEV_INT("audio_hook_wait_ms", 10)) * 1000);
     pf::logInfo("audio defer: %s (audio_defer=%s, audio_mixer=%s), tick hooks %s", s_enabled ? "on" : "off",
                 requested ? "on" : "off", unlocked ? "unlocked" : "locked",
                 !s_enabled || !s_hookRelease ? "on the callback thread" : "at the SND mutex release");

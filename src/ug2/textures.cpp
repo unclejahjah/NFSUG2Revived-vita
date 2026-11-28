@@ -5,6 +5,7 @@
 
 #include <lib/memlog.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/gxm.h>
 #include <platform/log.h>
 #include <platform/sync.h>
@@ -31,8 +32,8 @@ const reg32 LoadStartState = 4, LoadingState = 5;
 
 uint32_t s_retries = 0, s_retried = 0;      // texture_retry: creations tried, textures made
 win32::MethodPtr s_peekMessage = nullptr;
-bool s_releaseAll = true;                   // texture_release_all
-bool s_loadDrain = true;                    // texture_load_drain
+NFSU_DEV_VARC(bool, s_releaseAll, true, true);                   // texture_release_all
+NFSU_DEV_VARC(bool, s_loadDrain, true, true);                    // texture_load_drain
 bool s_firstCreation = false;               // the next creation is the first of a world load
 reg32 s_gameState = 0;
 int s_thread = 0;
@@ -104,8 +105,8 @@ void peekMessageHook(win32::WinApplication* app, x86::CPU& cpu)
 
 void configure(win32::WinApplication& app)
 {
-    s_releaseAll = pf::Config::getBool("texture_release_all", true);
-    s_loadDrain = pf::Config::getBool("texture_load_drain", true);
+    NFSU_DEV_SET(s_releaseAll, NFSU_DEV_BOOL("texture_release_all", true));
+    NFSU_DEV_SET(s_loadDrain, NFSU_DEV_BOOL("texture_load_drain", true));
     s_thread = pf::Thread::currentId();
     pf::logInfo("textures: the game's queued texture releases are done %s (texture_release_all=%s), and %s when a world "
                 "load starts (texture_load_drain=%s)", s_releaseAll ? "as they come, up to 4 ms a frame" : "3 a frame",

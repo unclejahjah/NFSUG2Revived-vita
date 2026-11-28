@@ -5,6 +5,7 @@
 #include "ealayer3.h"
 
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/cores.h>
 #include <platform/log.h>
 #include <platform/mp3dec.h>
@@ -77,8 +78,8 @@ Stream s_streams[MaxStreams];
 win32::MethodPtr s_decode = nullptr;
 win32::MethodPtr s_start = nullptr;
 win32::MethodPtr s_destroy = nullptr;
-bool s_check = false;                       // music_hw_check: both decoders, compared
-const char* s_dumpPath = nullptr;           // music_hw_check_dump: first granules of each stream, both decoders
+NFSU_DEV_VARC(bool, s_check, false, false);                       // music_hw_check: both decoders, compared
+NFSU_DEV_VARC(const char*, s_dumpPath, nullptr, "");           // music_hw_check_dump: first granules of each stream, both decoders
 int s_dumps = 0;
 const uint32_t DumpGranules = 300;
 uint32_t s_clock = 0;                       // granules decoded
@@ -114,7 +115,7 @@ struct Job
 Job s_jobs[MaxStreams];                     // one per entry of s_streams
 pf::Semaphore* s_work = nullptr;
 pf::Semaphore* s_done = nullptr;
-bool s_ahead = true;                        // music_hw_ahead (dev): decode the next frame on the worker
+NFSU_DEV_VARC(bool, s_ahead, true, true);                        // music_hw_ahead (dev): decode the next frame on the worker
 
 Stream* find(reg32 object)
 {
@@ -695,14 +696,14 @@ void configure(win32::WinApplication& app)
                      unsigned(pf::mp3::lastError()));
         return;
     }
-    s_check = pf::Config::getBool("music_hw_check", false);
-    s_ahead = pf::Config::getBool("music_hw_ahead", true);
+    NFSU_DEV_SET(s_check, NFSU_DEV_BOOL("music_hw_check", false));
+    NFSU_DEV_SET(s_ahead, NFSU_DEV_BOOL("music_hw_ahead", true));
     s_work = new pf::Semaphore("music_work", 0);
     s_done = new pf::Semaphore("music_done", 0);
     pf::Thread* thread = new pf::Thread("music_decode", &worker, nullptr, WorkerPriority, 32 * 1024,
                                         pf::cores::mask(pf::cores::Helper));
     thread->start();
-    s_dumpPath = pf::Config::getString("music_hw_check_dump", "");
+    NFSU_DEV_SET(s_dumpPath, NFSU_DEV_STRING("music_hw_check_dump", ""));
     s_decode = app.replaceMethod(DecodeGranule, &decodeHook);
     s_start = app.replaceMethod(StartStream, &startHook);
     s_destroy = app.replaceMethod(Destroy, &destroyHook);

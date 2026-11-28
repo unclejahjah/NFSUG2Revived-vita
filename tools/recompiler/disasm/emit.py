@@ -4,9 +4,10 @@ import re
 
 from . import codegen
 from .codegen import ctx as C
+from . import modswitch
 
 
-# Instruction address -> (the mod's instruction, C++ flag): generated both ways, the flag picks (generate.py).
+# (function entry, instruction address) -> modswitch.Switch: generated both ways, the flag picks (generate.py).
 MOD_SWITCHES = {}
 
 
@@ -22,6 +23,63 @@ def raw(module, fn, ins):
         return '%s %s' % (ins.__class__.__name__, ins.op_str)
     data = module.image.read(ins.address, ins.size)
     return '%08x  %s%s %s %s' % (ins.address, data.hex(), ' ' * max(1, 23 - ins.size * 2), ins.mnemonic, ins.op_str)
+
+
+def instruction_code(ctx, i, ins, expected):
+    """Statements of one instruction generated at index i (ctx.ins may be a mod instruction)."""
+    code = codegen.generate(ctx, ins)
+    return ctx.slot_checks + code
+
+
+def switched(module, fn, function_names, ctx, i, ins, code, expected, switch):
+    """Both ways of a mod switch starting at instruction i; code is the original instruction's."""
+    if switch.kind == 'call':
+        name = ctx.function_name(fn.branch[i][1])
+        call = '%s(app, cpu);' % name
+        if sum(l.count(call) for l in code) != 1:
+            raise AssertionError('0x%x: the call switch finds no single call of %s' % (ins.address, name))
+        native = '%s(app, cpu);' % switch.call
+        if switch.reads:
+            keep = ' '.join('const x86::reg32 keep_%s = cpu.%s; cpu.%s = %s;' % (r, r, r, ctx.reg(r))
+                            for r in switch.reads)
+            back = ' '.join('cpu.%s = keep_%s;' % (r, r) for r in switch.reads)
+            native = '{ %s %s %s }' % (keep, native, back)
+        mod = [l.replace(call, native) for l in code]
+        return modswitch.block(switch.flag, mod, code)
+    if switch.kind in ('operand', 'value'):
+        (_, mod), = switch.mods
+
+        def generate(value=None):
+            m = mod if value is None else switch.sentinel_mods[value]
+            ctx.begin(i)
+            ctx.ins = m
+            lines = instruction_code(ctx, i, m, expected)
+            if ctx.used_slots != expected.get(i, set()):
+                raise AssertionError('0x%x: the mod switch changes promoted stack slot accesses' % ins.address)
+            return lines
+        modded = modswitch.value_lines(switch, generate) if switch.kind == 'value' else generate()
+        return modswitch.block(switch.flag, ['// %s' % raw_bytes(mod)] + modded, code)
+    orig = list(code)
+    for j in range(i + 1, i + switch.span):
+        other = fn.instructions[j]
+        ctx.begin(j)
+        orig += ['// %s' % raw(module, fn, other)] + instruction_code(ctx, j, other, expected)
+        if ctx.used_slots != expected.get(j, set()):
+            raise AssertionError('0x%x: promoted stack slot accesses %s, generated %s'
+                                 % (other.address, expected.get(j), ctx.used_slots))
+    mctx = modswitch.ModCtx(fn, function_names)
+    mod_lines = []
+    used = {}
+    for j, m in switch.mods:
+        mctx.begin(j)
+        mctx.ins = m
+        mod_lines += ['// %s' % raw_bytes(m)] + instruction_code(mctx, j, m, expected)
+        used.setdefault(j, set()).update(mctx.used_slots)
+    for j in range(i, i + switch.span):
+        if used.get(j, set()) != expected.get(j, set()):
+            raise AssertionError('0x%x: the mod switch changes promoted stack slot accesses' % ins.address)
+    declarations = ['bool mf_%s = false;' % f for f in C.CPU_FLAGS if f in mctx.local]
+    return modswitch.block(switch.flag, declarations + mod_lines, orig)
 
 
 def function_body(module, fn, function_names):
@@ -43,7 +101,11 @@ def function_body(module, fn, function_names):
     if fn.entry != 0:
         lines.append('    goto L_entry_0x%08x;' % fn.entry_address)
     fallthrough = False
+    skip_to = 0
     for i, ins in enumerate(fn.instructions):
+        if i < skip_to:
+            fallthrough = ins.mnemonic not in ('jmp', 'ret')
+            continue
         # Labels go before the first instruction at an address (an added jump shares its predecessor's address).
         first = fn.index_of[ins.address] == i
         if first and ins.address in fn.dynamic_targets:
@@ -67,17 +129,10 @@ def function_body(module, fn, function_names):
                 raise AssertionError('0x%x: promoted stack slot accesses %s, generated %s'
                                      % (ins.address, expected.get(i), ctx.used_slots))
             code = ctx.slot_checks + code
-            switch = MOD_SWITCHES.get(ins.address)
+            switch = MOD_SWITCHES.get((fn.entry_address, ins.address))
             if switch is not None:
-                mod, flag = switch
-                ctx.begin(i)
-                ctx.ins = mod
-                modded = codegen.generate(ctx, mod)
-                if ctx.used_slots != expected.get(i, set()):
-                    raise AssertionError('0x%x: the mod switch changes promoted stack slot accesses' % ins.address)
-                modded = ctx.slot_checks + modded
-                code = (['if (%s)' % flag, '{', '    // %s' % raw_bytes(mod)] + ['    ' + l for l in modded]
-                        + ['}', 'else', '{'] + ['    ' + l for l in code] + ['}'])
+                code = switched(module, fn, function_names, ctx, i, ins, code, expected, switch)
+                skip_to = i + switch.span
         lines += ['    ' + l for l in code]
         fallthrough = ins.mnemonic not in ('jmp', 'ret')
     last = fn.n - 1

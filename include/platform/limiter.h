@@ -36,8 +36,13 @@ enum Sum
     SumCount
 };
 
+#ifdef DEV_SETTINGS
 extern bool g_on;
 inline bool on() { return g_on; }
+#else
+constexpr bool g_on = false;
+constexpr bool on() { return false; }
+#endif
 // Main thread, before other threads start.
 void init();
 void add(Sum sum, uint32_t value);

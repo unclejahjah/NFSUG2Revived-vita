@@ -6,6 +6,7 @@
 
 #include <lib/memmap.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/log.h>
 
 #include <cstdio>
@@ -32,8 +33,8 @@ const reg32 LoadChunks = 0x00577AB0;        // cdecl (data, bytes)
 Context s_context = Outside;
 reg32 s_font = 0;
 reg32 s_colors = 0;
-bool s_enabled = false;
-bool s_logTokens = false;
+NFSU_DEV_VARC(bool, s_enabled, false, true);
+NFSU_DEV_VARC(bool, s_logTokens, false, false);
 bool s_packLoaded = false;
 bool s_tintLoaded = false;
 win32::MethodPtr s_eventCallback = nullptr;
@@ -97,8 +98,8 @@ void loadPack(win32::WinApplication* app, x86::CPU& cpu, bool tint)
 
 void configure(win32::WinApplication& app)
 {
-    s_enabled = pf::Config::getBool("ps2_prompts", true);
-    s_logTokens = pf::Config::getBool("pad_log", false);
+    NFSU_DEV_SET(s_enabled, NFSU_DEV_BOOL("ps2_prompts", true));
+    NFSU_DEV_SET(s_logTokens, NFSU_DEV_BOOL("pad_log", false));
     if (s_enabled)
         s_eventCallback = app.replaceMethod(EventCallback, eventHook);
     pf::logInfo("psprompt: PS2 prompts %s", s_enabled ? "on" : "off (ps2_prompts)");

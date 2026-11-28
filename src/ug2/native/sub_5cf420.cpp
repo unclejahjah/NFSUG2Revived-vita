@@ -1303,7 +1303,7 @@ void unloadNotice(const char* what, reg32 from, reg32 size, uint32_t kind, bool 
 void unloadPoison(uint32_t kind, reg32 from, reg32 size)
 {
 #ifdef DEV_TOOLS
-    static const uint32_t kinds = uint32_t(pf::Config::getInt("offload_unload_poison", 0));
+    static const uint32_t kinds = uint32_t(NFSU_DEV_INT("offload_unload_poison", 0));
     if (!(kinds & kind) || s_serial.load() == 0)
         return;
     for (reg32 at = (from + 3) & ~3u; at + 4 <= from + size; at += 4)

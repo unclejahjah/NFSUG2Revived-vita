@@ -3,6 +3,7 @@
 #include <platform/cores.h>
 #include <platform/log.h>
 #include <platform/perf.h>
+#include <platform/switches.h>
 #include <platform/time.h>
 #ifdef __vita__
 #include <psp2/audioout.h>
@@ -104,7 +105,7 @@ x86::reg32 blockMs()
     return s_ms;
 }
 
-bool s_audioLog = false;
+NFSU_DEV_VAR(bool, s_audioLog, false);
 std::atomic<unsigned> s_nextBufferId(0);
 
 #ifndef __vita__
@@ -171,7 +172,7 @@ AudioDevice::AudioDevice()
 {
     m_masterGain[0] = s_unityGain;
     m_masterGain[1] = s_unityGain;
-    s_audioLog = pf::Config::getBool("audio_log", false);
+    NFSU_DEV_SET(s_audioLog, NFSU_DEV_BOOL("audio_log", false));
     if (!configurePort(portRate(s_defaultRate)) && !configurePort(s_fallbackRate))
         return;
     m_running = true;

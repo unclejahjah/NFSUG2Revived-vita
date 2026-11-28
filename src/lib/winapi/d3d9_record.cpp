@@ -146,7 +146,7 @@ public:
     void frame(const render::Frame& f)
     {
         uint32_t h = 2166136261u;
-        static const int first = pf::Config::getInt("debug_draw_hash_from", -1);
+        static const int first = NFSU_DEV_INT("debug_draw_hash_from", -1);
         const uint32_t frameNumber = m_first + m_count;
         const bool each = first >= 0 && frameNumber >= uint32_t(first) && frameNumber < uint32_t(first) + 40;
         for (uint32_t i = 0; i < f.drawCount; ++i)
@@ -558,7 +558,7 @@ bool Resolver::fillState(render::Frame& f, const DrawRecord& record, render::Dra
         return false;
 #ifdef DEV_TOOLS
     // Unwritten constant floats (alpha row 2-3, unused blend factor) would make the draw hash depend on arena reuse.
-    static const bool s_zero = pf::Config::getBool("debug_constants_zero", false);
+    static const bool s_zero = NFSU_DEV_BOOL("debug_constants_zero", false);
     if (s_zero)
     {
         if (vc)
@@ -726,7 +726,7 @@ void Resolver::resolve(render::Frame& f)
         memset(m_alphaCounts, 0, sizeof(m_alphaCounts));
     }
     effectFrameStats();
-    static const bool s_hash = pf::Config::getBool("debug_draw_hash", false);
+    static const bool s_hash = NFSU_DEV_BOOL("debug_draw_hash", false);
     if (s_hash)
         s_drawHash.frame(f);
     s_resolved.store(f.index, std::memory_order_release);

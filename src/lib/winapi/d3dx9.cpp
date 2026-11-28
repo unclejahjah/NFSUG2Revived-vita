@@ -502,9 +502,10 @@ uint32_t s_statFrames = 0;
 
 bool statsEnabled()
 {
-    return pf::cachedStatic([] { return pf::Config::getBool("effect_stats", false); });
+    return NFSU_DEV_BOOL_CACHED("effect_stats", false);
 }
 
+#ifdef DEV_SETTINGS
 // The first effect_trace parameter writes are logged; -1: not read yet.
 int s_traceLeft = -1;
 
@@ -515,6 +516,7 @@ bool tracing()
     bridge::g_hot.trace = s_traceLeft != 0;
     return s_traceLeft > 0;
 }
+#endif
 
 // Guest copy of a name or semantic, kept.
 x86::reg32 guestString(const char* text)
@@ -780,10 +782,16 @@ private:
     void storeWords(int p, const void* data, uint32_t n, Stream* stream);
     void trace(const char* method, int p, const void* data, uint32_t n) const
     {
+#ifdef DEV_SETTINGS
         if (__builtin_expect(bridge::g_hot.trace, 0))
             traceSlow(method, p, data, n);
+#else
+        (void)method; (void)p; (void)data; (void)n;
+#endif
     }
+#ifdef DEV_SETTINGS
     void traceSlow(const char* method, int p, const void* data, uint32_t n) const;
+#endif
 
     Device*         m_device;
     EffectPool*     m_pool;
@@ -886,6 +894,7 @@ const uint8_t* Effect::paramTypes() const
     return s_types[m_kind];
 }
 
+#ifdef DEV_SETTINGS
 void Effect::traceSlow(const char* method, int p, const void* data, uint32_t n) const
 {
     if (!tracing())
@@ -907,6 +916,7 @@ void Effect::traceSlow(const char* method, int p, const void* data, uint32_t n) 
         text[0] = 0;
     pf::logInfo("d3dx9: %s %s %s =%s%s", info().resource, method, fx::s_params[p].name, text, n > 8 ? " ..." : "");
 }
+#endif
 
 // 16 words equal, first word already compared.
 inline bool sameMatrix(const void* a, const void* b)
@@ -1556,7 +1566,7 @@ void copyClamped(float* to, const View& v, uint32_t p, uint32_t n)
 // effect_check: logs the first draw of each pass.
 void checkDraw(const DrawRecord& record, const EffectBinding& b, const float* vc, const float* fc)
 {
-    static const bool s_check = pf::Config::getBool("effect_check", false);
+    static const bool s_check = NFSU_DEV_BOOL("effect_check", false);
     static bool s_checked[EffectCount][MaxPasses];
     const EffectDraw& e = record.effect;
     if (!s_check || e.kind >= EffectCount || e.pass >= MaxPasses || s_checked[e.kind][e.pass])

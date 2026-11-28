@@ -3,9 +3,11 @@
 // and skip stay as they are.
 
 #include "movies.h"
+#include "game_folder.h"
 
 #include <lib/memmap.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/cores.h>
 #include <platform/log.h>
 #include <platform/perf.h>
@@ -909,10 +911,10 @@ void configure(win32::WinApplication& app)
 {
 #ifdef __vita__
     const Mode defaultMode = ModeVp6;
-    const char* const defaultDir = "ux0:data/NeedForSpeedUnderground2/MOVIES";
+    const std::string defaultDir = ug2::gameFolder() + "/MOVIES";
 #else
     const Mode defaultMode = ModeGame;
-    const char* const defaultDir = "";
+    const std::string defaultDir;
 #endif
     static const char* const modes[] = { "vp6preferred", "vp6only" };
     const std::string choice = pf::Config::getString("movies", "");
@@ -933,10 +935,10 @@ void configure(win32::WinApplication& app)
         if (skip >= 2 && !s_introFmvReact)
             s_introFmvReact = app.replaceMethod(IntroFmvReact, introFmvReact);
     }
-    s_dir = pf::Config::getString("movies_dir", defaultDir);
+    s_dir = pf::Config::getString("movies_dir", defaultDir.c_str());
     while (s_dir.size() > 1 && (s_dir.back() == '/' || s_dir.back() == '\\'))
         s_dir.pop_back();
-    const std::string test = pf::Config::getString("movies_selftest", "");
+    const std::string test = NFSU_DEV_STRING("movies_selftest", "");
     if (!test.empty())
         selfTest(test.c_str());
 #ifdef DEV_SETTINGS
@@ -945,7 +947,7 @@ void configure(win32::WinApplication& app)
     static const char* const splits[] = { "off", "on", "core0" };
     s_split = pf::Config::getChoice("movies_vp6_split", splits, 3, SplitCore3);
 #endif
-    const std::string vp6Test = pf::Config::getString("movies_vp6_selftest", "");
+    const std::string vp6Test = NFSU_DEV_STRING("movies_vp6_selftest", "");
     if (!vp6Test.empty())
         selfTestVp6(vp6Test.c_str());
     if (s_mode == ModeGame)

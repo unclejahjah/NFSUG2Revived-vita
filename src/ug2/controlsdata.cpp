@@ -14,9 +14,9 @@ const Scheme Presets[4] =
 {
     //  Triangle      Circle   Cross       Square       L1         R1            D-pad up   right    down          left           L2  R2  L3          R3                  left stick  right stick
     { { ShiftUp,      Nitrous, Handbrake,  ShiftDown }, Brake,     Accelerate, { EnterShop, ReadSms, ChangeCamera, WorldMap  }, { 0,  0,  Hydraulics, HydraulicsBounce }, RoleSteer,  RoleLook },
-    { { ChangeCamera, 0,       Accelerate, Brake     }, Handbrake, Nitrous,    { EnterShop, ShiftUp, 0,            ShiftDown }, { 0,  0,  Hydraulics, HydraulicsBounce }, RoleSteer,  RoleLook },
-    { { ChangeCamera, 0,       0,          LookBack  }, Handbrake, Nitrous,    { EnterShop, ShiftUp, 0,            ShiftDown }, { 0,  0,  Hydraulics, HydraulicsBounce }, RoleSteer,  RoleThrottle },
-    { { ChangeCamera, Nitrous, Handbrake,  LookBack  }, Brake,     Accelerate, { EnterShop, ReadSms, 0,            WorldMap  }, { 0,  0,  Hydraulics, HydraulicsBounce }, RoleSteer,  RoleShift },
+    { { ChangeCamera, 0,       Accelerate, Brake     }, Handbrake, Nitrous,    { EnterShop, ShiftUp, Headlights,   ShiftDown }, { 0,  0,  Hydraulics, HydraulicsBounce }, RoleSteer,  RoleLook },
+    { { ChangeCamera, 0,       0,          LookBack  }, Handbrake, Nitrous,    { EnterShop, ShiftUp, Headlights,   ShiftDown }, { 0,  0,  Hydraulics, HydraulicsBounce }, RoleSteer,  RoleThrottle },
+    { { ChangeCamera, Nitrous, Handbrake,  LookBack  }, Brake,     Accelerate, { EnterShop, ReadSms, Headlights,   WorldMap  }, { 0,  0,  Hydraulics, HydraulicsBounce }, RoleSteer,  RoleShift },
 };
 
 void freeStick(Binds* b, int side);
@@ -54,7 +54,7 @@ const int ControlIndex[ControlCount] = { Triangle, Circle, Cross, Square, L1, R1
 const uint32_t EntryActions[EntryCount] =
 {
     SteerLeft, SteerRight, 0, Accelerate, Brake, Handbrake, Nitrous, ShiftUp, ShiftDown, LookBack, ChangeCamera, EnterShop,
-    WorldMap, ReadSms, CareerStats, Hydraulics, HydraulicsBounce,
+    WorldMap, ReadSms, CareerStats, Hydraulics, HydraulicsBounce, Headlights,
 };
 
 // Pairs a stick carries together: one leaving frees both.
@@ -354,6 +354,7 @@ const char* actionName(uint32_t action)
     case CareerStats:       return "Career";
     case HydraulicsBounce:  return "HydBounce";
     case Hydraulics:        return "Hydraulics";
+    case Headlights:        return "Headlights";
     default:                return "?";
     }
 }

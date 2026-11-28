@@ -175,6 +175,8 @@ int hatAngle(bool up, bool down, bool left, bool right);
 // Set by the pad hook while driving in free roam.
 void setFreeRoam(bool freeRoam);
 bool freeRoam();
+// The Vita inputs (bit(Input)) the mapper saw last.
+uint32_t heldInputs();
 
 // Free-roam touch zones, fixed on the screen: a short tap requests the zone's world action, whatever the buttons
 // do or the HUD shows. The pad hook sends it as the game's joy event.

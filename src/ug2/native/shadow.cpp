@@ -5,6 +5,7 @@
 #ifdef NFSU_NATIVE_SHADOW
 
 #include <platform/log.h>
+#include <platform/switches.h>
 #include <winapi/d3d9_native.h>
 
 #include <algorithm>
@@ -280,7 +281,7 @@ void compare(const Spec& spec, win32::WinApplication* app, x86::CPU& cpu, Body n
         return;
     }
     static const uint32_t rate = pf::cachedStatic([] {
-        return uint32_t(std::max(pf::Config::getInt("native_shadow_rate", 8), 1));
+        return uint32_t(std::max(NFSU_DEV_INT("native_shadow_rate", 8), 1));
     });
     Stats& stats = statsOf(spec);
     if (stats.calls.fetch_add(1, std::memory_order_relaxed) % rate != 0)

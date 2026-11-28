@@ -5,6 +5,7 @@
 // drawing of a frame's scenes (render thread). Used by gxm_device.cpp.
 
 #include <platform/gxm.h>
+#include <platform/switches.h>
 #include <platform/render.h>
 #include <platform/sync.h>
 #include <psp2/gxm.h>
@@ -437,7 +438,7 @@ private:
     uint32_t                m_completed = 0;
     std::vector<Pending>    m_pending;
     LwMutex*                m_heapLock = nullptr;       // texture heap, m_pending and the counts below
-    bool                    m_instantFree = true;       // setting texture_instant_free
+    NFSU_DEV_FIELD(bool, m_instantFree, true);          // setting texture_instant_free
     uint32_t                m_pendingBytes = 0;
     uint32_t                m_textureFailures = 0, m_instantFrees = 0, m_queuedFrees = 0, m_rescued = 0;
     uint32_t                m_peakUsed = 0, m_peakPending = 0;
@@ -465,18 +466,19 @@ private:
 
     // Render thread (and workers, read only while they record).
     std::atomic<bool>           m_precomputed{true};    // precomputed states and draws (setting gxm_precomputed)
-    bool                        m_cullSwap = false;     // D3DCULL_CW drawn as SCE_GXM_CULL_CCW and back (cull_swap)
+    NFSU_DEV_FIELD(bool, m_cullSwap, false);            // D3DCULL_CW drawn as SCE_GXM_CULL_CCW and back (cull_swap)
     Recorder                    m_main;                 // the immediate context
     std::vector<DrawPrograms>   m_programs;             // per draw of the frame being drawn
     std::vector<ScenePlan>      m_plan;
     std::vector<uint32_t>       m_order;                // draw indices of the scenes, carried clears first
-    bool                        m_drawSort = true;      // setting alpha_draw_order
+    NFSU_DEV_FIELD(bool, m_drawSort, true);             // setting alpha_draw_order
     bool                        m_checkPass = false;
-    uint32_t                    m_skipVp = 0, m_skipFp = 0;     // debug_skip_vp/fp: program bit masks not drawn
-    uint32_t                    m_maxDraws = 0;         // debug_max_draws: draws kept per frame, 0 all
+    NFSU_DEV_FIELD(uint32_t, m_skipVp, 0);              // debug_skip_vp: program bit mask not drawn
+    NFSU_DEV_FIELD(uint32_t, m_skipFp, 0);              // debug_skip_fp
+    NFSU_DEV_FIELD(uint32_t, m_maxDraws, 0);            // debug_max_draws: draws kept per frame, 0 all
     std::vector<uint32_t>       m_held;                 // sortScene: alpha-tested draws not placed yet
     SortStats                   m_sortStats;
-    float                       m_sceneScale = 1.0f;    // debug_scene_scale: every scene's viewport scale
+    NFSU_DEV_FIELD(float, m_sceneScale, 1.0f);          // debug_scene_scale: every scene's viewport scale
     uint32_t                    m_sceneSignature = 0, m_sceneLogs = 0, m_sceneLogFrame = 0;
     // The msaa mode of the frame being drawn (Frame::msaaSamples).
     SceGxmMultisampleMode       m_msaa = SCE_GXM_MULTISAMPLE_NONE;

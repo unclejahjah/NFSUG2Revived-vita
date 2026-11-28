@@ -8,6 +8,7 @@
 #include <native/common.h>
 #include <platform/cached.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 
 #include <vector>
 
@@ -48,7 +49,7 @@ void compare(const Spec& spec, win32::WinApplication* app, x86::CPU& cpu, Body n
 
 inline bool enabled()
 {
-    return pf::cachedStatic([] { return pf::Config::getBool("native_shadow", false); });
+    return NFSU_DEV_BOOL_CACHED("native_shadow", false);
 }
 
 inline void call(const Spec& spec, win32::WinApplication* app, x86::CPU& cpu, Body native, Body guest, Declare declare)

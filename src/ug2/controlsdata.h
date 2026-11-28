@@ -14,7 +14,7 @@ enum Action : uint32_t
 {
     ActionNone = 0, Accelerate = 1, Brake = 2, SteerLeft = 3, SteerRight = 4, Handbrake = 5, Nitrous = 6, ShiftUp = 7, ShiftDown = 8, LookBack = 9,
     ChangeCamera = 10, Pause = 12, ResetCar = 14, EnterShop = 15, WorldMap = 16, ReadSms = 17, CareerStats = 18,
-    HydraulicsBounce = 19, Hydraulics = 22,
+    HydraulicsBounce = 19, Hydraulics = 22, Headlights = 23,
 };
 
 // Index of the adapter's buttons in a race map.
@@ -52,7 +52,7 @@ enum Entry
 {
     EntrySteerLeft, EntrySteerRight, EntryFreeLook, EntryAccelerate, EntryBrake, EntryHandbrake, EntryNitrous, EntryShiftUp,
     EntryShiftDown, EntryLookBack, EntryChangeCamera, EntryEnterShop, EntryWorldMap, EntryReadSms, EntryCareerStats,
-    EntryHydraulics, EntryHydraulicsBounce, EntryCount
+    EntryHydraulics, EntryHydraulicsBounce, EntryHeadlights, EntryCount
 };
 
 // One control scheme as plain data: the action of each face button, L, R, d-pad arrow and rear quadrant (0 for none),

@@ -12,6 +12,7 @@
 #include "ownscreens.h"
 #include "psprompt.h"
 #include "options_menu.h"
+#include "translations.h"
 
 #include <lib/gamepad.h>
 #include <lib/memmap.h>
@@ -139,6 +140,7 @@ const Text Entries[] =
     { 0x70a30056, nullptr },
     { 0xeac74624, nullptr },
     { 0x64730aac, nullptr },
+    { 0x3dc6a111, nullptr },
 };
 const int EntryCount = int(sizeof(Entries) / sizeof(Entries[0]));
 static_assert(EntryCount == controlsdata::EntryCount, "one row per controlsdata::Entry");
@@ -263,7 +265,7 @@ void setPlain(win32::WinApplication* app, x86::CPU& cpu, reg32 object, const std
 void setText(win32::WinApplication* app, x86::CPU& cpu, reg32 object, const Text& text)
 {
     if (text.plain)
-        setPlain(app, cpu, object, text.plain);
+        setPlain(app, cpu, object, translations::translate(text.plain));
     else
         setHash(app, cpu, object, text.hash);
 }
@@ -286,7 +288,7 @@ void fitLabel(win32::WinApplication* app, x86::CPU& cpu, reg32 label, const Text
     const reg32 font = psprompt::lastFont();
     if (!font || !label)
         return;
-    const std::string plain = text.plain ? std::string(text.plain) : tableText(text.hash);
+    const std::string plain = text.plain ? translations::translate(text.plain) : tableText(text.hash);
     if (plain.empty())
         return;
     const std::string fitted = diagram::fitLine(plain, RowLabelWidth, [&](const std::string& t) { return measure(app, cpu, font, t); });
@@ -326,7 +328,7 @@ void rowTexts(win32::WinApplication* app, x86::CPU& cpu, const Row& r)
     {
         const int type = controlstore::type(controlslink::backend());
         setHash(app, cpu, label, TextControlType);
-        setPlain(app, cpu, value, controlsdata::controlTypeName(type + 1));
+        setPlain(app, cpu, value, translations::translate(controlsdata::controlTypeName(type + 1)));
         break;
     }
     case KindCustomize:
@@ -339,7 +341,7 @@ void rowTexts(win32::WinApplication* app, x86::CPU& cpu, const Row& r)
         setText(app, cpu, label, Entries[r.index]);
         fitLabel(app, cpu, label, Entries[r.index]);
         if (!shown.empty())
-            setPlain(app, cpu, value, shown);
+            setPlain(app, cpu, value, translations::translate(shown.c_str()));
         else
             setHash(app, cpu, value, TextNone);
         break;

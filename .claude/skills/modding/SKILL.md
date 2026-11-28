@@ -36,7 +36,8 @@ development-only files (`tests/`, `docs/`, `.claude/`, `AGENTS.md`) go in separa
 - Get the mod's source at the tag of that release. Versions can disagree: Extra Options' tag `v5.1.0.1340` has
   `FILEVERSION 5,1,0,1338` in its `.rc`. Note which one you used.
 - Find where the key is read, for example `iniReader.ReadInteger("Gameplay", "UnlockRegionalCars", 1) != 0`.
-  - The third argument is the default for a missing section or key, so a missing key means **on** here.
+  - The third argument is the default for a missing section or key, so a missing key means **on** here. The port
+    keeps that default only for a value that does not parse: a missing key is vanilla (section 7).
   - `!= 0` is how the value is parsed.
   - Then grep the variable the key lands in (`UnlockRegionals`), not just the key name. An option can act in
     several places: start-up patches, code caves, hotkey or per-frame threads, other options' code.
@@ -66,7 +67,7 @@ Guard: the key is on, and `..\CARS\CORSA\` and `..\CARS\PEUGOT106\` each have `T
 | 0x7F7C50, 0x7F7C54 | data | byte ← 0xFF | US-only list ids (CIVIC, RSX) match no car | `modrt::applyPatches` |
 | 0x4DFA83 | .text | `call RegionLockHook` (returns 1) | `UICareerCarLot::BuildCarList` region check always passes | none needed (below) |
 | 0x4E2374 | .text | `call RegionLockHook` | `UIQRCarSelect::BuildCarList` region check always passes | none needed (below) |
-| 0x4FEB9D | .text | `mov ebp, 0x1a` → `0x1c` | `PickRandomCarsOfSomeSort` (0x4FEAF0): AI car list length 26 → 28 | `MOD_SWITCHES`, flag `modrt::euCarsAiList` |
+| 0x4FEB9D | .text | `mov ebp, 0x1a` → `0x1c` | `PickRandomCarsOfSomeSort` (0x4FEAF0): AI car list length 26 → 28 | `MOD_SWITCHES` (operand), flag `modrt::euCarsAiList` |
 | 0x7F6DBE, 0x7F6DBF | data | 0x00 → 0x07, 0x06 | AI car lists' entries 26 and 27 become CORSA and PEUGOT106 | `modrt::applyPatches` |
 
 - **The two hooks need no code.** 0x5022C0 returns 1 unless the car id is in a region list. With the list ids
@@ -82,16 +83,32 @@ Each kind of change has its own home:
 
 - **Data writes** (`.data` or `.rdata`) go in `modrt::applyPatches` (`src/ug2/mods_runtime.cpp`). It runs once,
   after the guest image is mapped and before any game code runs, which is the same point as the mod's `DllMain`.
-- **Operand edits** (a same-length change to an immediate or displacement of a plain instruction) go in
-  `MOD_SWITCHES` in `tools/recompiler/games/ug2.py`: give the address, the original bytes, the mod's bytes and a
-  C++ flag.
-  - The generator emits the instruction both ways, as `if (flag) { mod } else { original }`. It refuses anything
-    that changes the mnemonic or length, branches, or uses different registers or flags.
-  - Define the flag in `src/ug2/mods_runtime.cpp` and set it in `applyPatches`.
+- **Code edits** go in `MOD_SWITCHES` in `tools/recompiler/games/ug2.py` (`tools/recompiler/disasm/modswitch.py`):
+  address, original bytes, the mod's bytes, a C++ flag, and an option. The generator emits the site both ways, as
+  `if (flag) { mod } else { original }`, and refuses any site where the original analysis would not stay valid. Define
+  the flag in `src/ug2/mods_runtime.cpp` and set it in `applyPatches`. Kinds:
+  - *operand*: a same-length edit of an immediate, displacement or scale of one plain instruction, with the same
+    mnemonic and the same registers and flags read and written.
+  - *value* (option `'value'`): an operand edit whose value comes from the ini. The generated code reads the immediate
+    (or a `lea` displacement) from the guest bytes at the address, which `applyPatches` writes as the mod does.
+  - *flow*: the mod's bytes decode to other instructions, each inside one original instruction's bytes: a `jcc`
+    turned `jmp` or another `jcc` with the same target and flags, NOP runs, `setcc` turned `mov al, 1`, a compare and
+    its branch changed together. The generator refuses jumps to new targets, x87, calls, interior jump targets,
+    reads of registers or flags the original does not read, flags set here and read after, and dropped register
+    writes unless the value is already in the register's local on every path.
+  - *call* (option `'call native::name REG... [reads REG...]'`, no mod bytes): a direct call becomes a call of a
+    native with the callee's convention, writing the registers listed. The translated caller keeps registers in
+    locals and stores to `cpu` only what the original callee reads, so a native reads only its arguments and the
+    registers listed after `reads`, which the switch passes in `cpu` for the call. Use it for a code cave that sits next to a call, or for a
+    function the mod jumps away from at its entry, when nothing else points at it: switch each caller. The generator
+    refuses it when the caller keeps a listed register across the call, reads after the call a register the callee
+    always writes and the native does not, or reads flags after it.
   - Regenerate (`tools/build.py` does it when the recompiler changes) and diff the generated code against the
-    old: only the switched instruction may differ.
-- **Other code changes** (NOP runs, call or jump hooks, rewritten branches, code caves) go in a native override
-  of the function that contains the address:
+    generation before the change: dropping each switch back to its original lines must give the old code exactly.
+    Natives in `NATIVE_OVERRIDES` change their callers' code too (cpu.terminate checks), which is why call switches
+    are preferred for caves.
+- **Other code changes** (code caves away from a call, rewritten functions) go in a native override of the function
+  that contains the address:
   1. Add the function to `NATIVE_OVERRIDES` in `tools/recompiler/games/ug2.py`, with a comment naming its file.
   2. Write `src/ug2/native/sub_<hex>.cpp`. When the feature is off it calls `sub_<hex>_guest` unchanged. When on,
      it does exactly what the patched x86 does.
@@ -147,11 +164,20 @@ while it's on, the port's change wins, combine both, or leave this option out.
 
 - **One switch.** The feature is switched only by the mod's ini key: no cfg key, and no other ini.
   - No ini means off: the game stays vanilla.
-  - An existing ini is honoured as the PC mod reads it, so a missing key takes the mod's default.
+  - An existing ini is honoured as the PC mod reads it, except that a missing key or section leaves the game vanilla
+    for that key (user rule, 23 Nov 2026): none of its changes apply, not even the ones the mod makes whatever the
+    key says. Values that are present are read as the mod reads them.
   - The game reads the setting at start-up (`readModSettings`). The feature is active only when the ini says on
     and `requirementsMet()` is true; otherwise it stays off and logs `requirementsString()`.
-- **Shared setting**, `src/ug2/mods_require.{h,cpp}`: add a `SettingId`, plus a `Setting` subclass that has the
-  mod, name, ini path, section and key, and the mod's own requirements. Both the game and the launcher read it.
+- **Shared setting**, `src/ug2/mods_require.{h,cpp}`: add a `SettingId`, plus a `Setting` that has the mod, name,
+  ini path, section and key, the value kind (Bool, Int, Float or Enum with labels), the mod's code default (for a
+  value that does not parse), its shipped value, its vanilla value (the ini value whose patches give the game's own
+  bytes, found in the executable; empty when there is none), the Mods tab's range and step, and the mod's own
+  requirements. Both the game and the launcher read it, through `modreq::parse`, which reads a value as
+  the mod's ini reader does (Extra Options: `std::stoi`, base 16 after `0x`, the code default when that fails;
+  `atof` for decimals).
+- **Changes the mod makes whatever the keys say** (Extra Options' lap limits, drift tables, region, starting cash,
+  neon) belong to a key and apply only when the file has that key (`modrt::present()`).
 - **Game side**, `src/ug2/mods_runtime.{h,cpp}`: `active()`, the data patches, and any state the natives read.
 - **Launcher side**, `src/launcher/mods_registry.{h,cpp}`:
   - add an `Id` and a `Mod` entry;
@@ -159,7 +185,9 @@ while it's on, the port's change wins, combine both, or leave this option out.
   - `comment` is our wording for a line we write;
   - list `overlaps`, and flip the key to `supported = true`.
   - The Mods tab only edits the file. It is typed (bool, int, float or enum, with the mod's range and default),
-    stays editable while requirements are missing, and shows them in orange.
+    stays editable while requirements are missing, and shows them in orange. A row's default and reset value is the
+    key's vanilla value; a key without one gets a first choice Vanilla, which leaves the key out (removing its line).
+    Without the file Save creates it with every key at its vanilla value, the changed ones at theirs.
 - **Docs**: a row in the README's Mods tab table (settings file, key, what it needs), and credit in
   `THIRD_PARTY.md` (mod, authors, licence; behaviour reimplemented, none of its code).
 - **Host tests**, run with `bash tests/run_host_tests.sh <dir>`. Use `tests/eucars.cpp` as the pattern:

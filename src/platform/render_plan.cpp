@@ -182,7 +182,7 @@ uint32_t mergeScenes(Frame& f, Summary* m)
             if (f.scenes[j].target.color == f.scenes[i].target.color)
                 break;
         }
-        static const uint32_t s_limit = uint32_t(Config::getInt("debug_merge_limit", 1000));
+        static const uint32_t s_limit = uint32_t(NFSU_DEV_INT("debug_merge_limit", 1000));
         if (j < i && merges < s_limit && mergePair(f, m, j, i))
         {
             ++merges;
@@ -503,7 +503,7 @@ PlanStats s_stats;
 // Keeps the predecessor's blend operation the renderer drew with.
 void keepBlendOps(Frame& f)
 {
-    static const bool s_exact = Config::getBool("blend_op_exact", true);
+    static const bool s_exact = NFSU_DEV_BOOL("blend_op_exact", true);
     if (s_exact)
         return;
     const DrawState* previous = nullptr;

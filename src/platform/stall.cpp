@@ -4,6 +4,7 @@
 
 #include <platform/config.h>
 #include <platform/crashlog.h>
+#include <platform/switches.h>
 #include <platform/log.h>
 #include <platform/sampler.h>
 #include <platform/sync.h>
@@ -134,14 +135,14 @@ SceUID s_self = -1;
 Thread* s_thread = nullptr;
 Semaphore* s_wake = nullptr;
 std::atomic<bool> s_run{false};
-uint64_t s_stallUs = 8000000;
+NFSU_DEV_VAR(uint64_t, s_stallUs, 8000000);
 bool s_contexts = false;
 uint32_t s_codeLo = 0, s_codeSize = 0;
-int s_priority = Thread::PriorityLow;
-bool s_powerTick = false;        // stall_power_tick: keeps the system from idling into standby
-uint64_t s_crashUs = 0;         // stall_crash: crash for a dump after this long without a present
-bool s_direct = false;          // stall_direct: reports bypass the log mutex
-uint64_t s_heartbeatUs = 0;     // stall_heartbeat: progress lines while running
+NFSU_DEV_VAR(int, s_priority, Thread::PriorityLow);
+NFSU_DEV_VAR(bool, s_powerTick, false);        // stall_power_tick: keeps the system from idling into standby
+NFSU_DEV_VAR(uint64_t, s_crashUs, 0);       // stall_crash: crash for a dump after this long without a present
+NFSU_DEV_VAR(bool, s_direct, false);       // stall_direct: reports bypass the log mutex
+NFSU_DEV_VAR(uint64_t, s_heartbeatUs, 0);     // stall_heartbeat: progress lines while running
 
 uint64_t nowUs()
 {
@@ -678,26 +679,26 @@ int reporterEntry(void*)
 
 void start()
 {
-    if (s_thread || !Config::getBool("stall_report", true))
+    if (s_thread || !NFSU_DEV_BOOL("stall_report", true))
         return;
-    const int seconds = std::max(1, Config::getInt("stall_seconds", 8));
-    s_stallUs = uint64_t(seconds) * 1000000u;
+    const int seconds = std::max(1, Config::getInt("stall_seconds", 8));   // a General key: read in release too
+    NFSU_DEV_SET(s_stallUs, uint64_t(seconds) * 1000000u);
     s_main = sceKernelGetThreadId();
     s_contexts = sampler::calibrate();
     findCode();
-    s_direct = Config::getBool("stall_direct", false);
+    NFSU_DEV_SET(s_direct, NFSU_DEV_BOOL("stall_direct", false));
     if (s_direct)
     {
         std::set_new_handler(&onNoMemory);
         std::set_terminate(&onTerminate);
         signal(SIGABRT, &onAbort);
     }
-    s_heartbeatUs = uint64_t(std::max(0, Config::getInt("stall_heartbeat", 0))) * 1000000u;
-    s_crashUs = uint64_t(std::max(0, Config::getInt("stall_crash", 0))) * 1000000u;
-    s_powerTick = Config::getBool("stall_power_tick", false);
-    const int cpus = Config::getInt("stall_cpu", 0) & 15;
-    s_priority = std::min(int(Thread::PriorityLow), std::max(int(Thread::PriorityHigh),
-                                                            Config::getInt("stall_priority", Thread::PriorityLow)));
+    NFSU_DEV_SET(s_heartbeatUs, uint64_t(std::max(0, NFSU_DEV_INT("stall_heartbeat", 0))) * 1000000u);
+    NFSU_DEV_SET(s_crashUs, uint64_t(std::max(0, NFSU_DEV_INT("stall_crash", 0))) * 1000000u);
+    NFSU_DEV_SET(s_powerTick, NFSU_DEV_BOOL("stall_power_tick", false));
+    const int cpus = NFSU_DEV_INT("stall_cpu", 0) & 15;
+    NFSU_DEV_SET(s_priority, std::min(int(Thread::PriorityLow), std::max(int(Thread::PriorityHigh),
+                                                            NFSU_DEV_INT("stall_priority", Thread::PriorityLow))));
     s_wake = new Semaphore("stall_wake", 0);
     s_run = true;
     s_thread = new Thread("stall_report", &reporterEntry, nullptr, s_priority, 32 * 1024,

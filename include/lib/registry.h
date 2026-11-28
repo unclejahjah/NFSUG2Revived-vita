@@ -38,6 +38,8 @@ Key* root(x86::reg32 handle);
 Key* find(Key* parent, const char* path, bool create);
 // Stores a value and saves the file.
 void setValue(Key* key, const std::string& name, x86::reg32 type, const void* data, x86::reg32 size);
+// Changes a value for this run, not the file.
+void setOverride(Key* key, const std::string& name, x86::reg32 type, const void* data, x86::reg32 size);
 // Stores a value unless the key has one of that name (defaults); saves the file when it adds one.
 void setDefault(Key* key, const std::string& name, x86::reg32 type, const void* data, x86::reg32 size);
 // RegQueryValueExA: ERROR_SUCCESS, ERROR_FILE_NOT_FOUND (2) or ERROR_MORE_DATA (234).

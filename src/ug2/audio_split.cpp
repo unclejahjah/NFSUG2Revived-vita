@@ -7,6 +7,7 @@
 #include <lib/event.h>
 #include <lib/teb.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/log.h>
 #include <platform/perf.h>
 #include <platform/sync.h>
@@ -52,8 +53,8 @@ const int   MaxVoices       = 256;
 enum State { Closed, Rendering, Finishing };
 
 bool s_split = false;                       // audio_mixer_split
-bool s_check = false;                       // audio_split_check
-bool s_watch = false;                       // dev_snd_watch
+NFSU_DEV_VARC(bool, s_check, false, false);                       // audio_split_check
+NFSU_DEV_VARC(bool, s_watch, false, false);                       // dev_snd_watch
 std::atomic<int> s_state{Closed};
 std::atomic<int> s_waiters{0};
 pf::Semaphore* s_done = nullptr;
@@ -564,10 +565,10 @@ void configure(win32::WinApplication& app)
 {
     RC_USE(app);
     s_split = pf::Config::getBool("audio_mixer_split", true)
-              && strcmp(pf::Config::getString("audio_mixer", "unlocked"), "unlocked") == 0
-              && !pf::Config::getBool("audio_snd_yield", false);
-    s_check = s_split && pf::Config::getBool("audio_split_check", false) && pf::perf::enabled();
-    s_watch = (pf::Config::getBool("dev_snd_watch", false) || s_check) && pf::perf::enabled();
+              && strcmp(NFSU_DEV_STRING("audio_mixer", "unlocked"), "unlocked") == 0
+              && !NFSU_DEV_BOOL("audio_snd_yield", false);
+    NFSU_DEV_SET(s_check, s_split && NFSU_DEV_BOOL("audio_split_check", false) && pf::perf::enabled());
+    NFSU_DEV_SET(s_watch, (NFSU_DEV_BOOL("dev_snd_watch", false) || s_check) && pf::perf::enabled());
     if (s_split)
     {
         s_done = new pf::Semaphore("snd_split", 0);

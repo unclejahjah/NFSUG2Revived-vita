@@ -1,6 +1,7 @@
 #include <winapi/waitprobe.h>
 #include <platform/cached.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/log.h>
 #include <platform/time.h>
 
@@ -81,7 +82,7 @@ void report(uint64_t now)
 
 bool enabled()
 {
-    return pf::cachedStatic([] { return pf::Config::getBool("wait_probe", false); });
+    return NFSU_DEV_BOOL_CACHED("wait_probe", false);
 }
 
 void record(Kind kind, uint32_t thread, uint32_t caller, uint32_t handle, uint32_t us, bool timedOut)

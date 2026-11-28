@@ -10,6 +10,7 @@
 #include <lib/memmap.h>
 #include <lib/window.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/gxm.h>
 #include <platform/log.h>
 #include <platform/sync.h>
@@ -107,7 +108,7 @@ std::mutex s_openedLock;
 std::vector<Press> s_script;
 std::atomic<uint32_t> s_raw{0};
 uint64_t s_startUs = 0;
-bool s_logState = false;
+NFSU_DEV_VARC(bool, s_logState, false, true);
 win32::MethodPtr s_queryPerformanceCounter = nullptr;
 win32::MethodPtr s_createFile = nullptr;
 int s_mainThread = 0;
@@ -187,7 +188,7 @@ std::string bootFlowScreen()
 
 bool memLogOn()
 {
-    return pf::Config::getBool("memory_log", false);
+    return NFSU_DEV_BOOL("memory_log", false);
 }
 
 bool isWorldLoad(const std::string& path)
@@ -401,7 +402,7 @@ void scanText(reg32 frame)
     static std::unordered_map<uint64_t, std::vector<size_t>> index;
     if (strings.empty())
     {
-        FILE* f = fopen(pf::Config::getString("fe_scan_file", ""), "rb");
+        FILE* f = fopen(NFSU_DEV_STRING("fe_scan_file", ""), "rb");
         if (!f)
             return;
         std::string data;
@@ -554,7 +555,7 @@ void watchHandlers()
 // Debug aid: logs ASCII strings of guest memory that contain fe_grep (case-insensitive).
 void grepMemory(reg32 frame)
 {
-    const std::string pattern = pf::Config::getString("fe_grep", "");
+    const std::string pattern = NFSU_DEV_STRING("fe_grep", "");
     const uint8_t* base = win32::g_guestBase;
     unsigned shown = 0;
     for (reg32 a = 0x00800000; a < 0x0C000000 && shown < 60; ++a)
@@ -573,7 +574,7 @@ void grepMemory(reg32 frame)
         if (u.find(pattern) != std::string::npos)
         {
             pf::logInfo("fe: grep frame %u %08X %s", unsigned(frame), unsigned(a), t.c_str());
-            if (pf::Config::getBool("fe_grep_words", false))
+            if (NFSU_DEV_BOOL("fe_grep_words", false))
             {
                 char line[600];
                 int n = snprintf(line, sizeof(line), "fe: words %08X:", unsigned(a - 0x80));
@@ -597,14 +598,14 @@ void applyGraphics(reg32 frame, const std::string& cur)
             s_garageFrame = frame;
         return;
     }
-    if (frame - s_garageFrame < uint64_t(pf::Config::getInt("fe_gfx_apply_delay", 300)))
+    if (frame - s_garageFrame < uint64_t(NFSU_DEV_INT("fe_gfx_apply_delay", 300)))
         return;
     s_gfxApplied = true;
     std::string caps;
     for (reg32 a = 0x8764D0; a <= 0x876530; a += 4)
         caps += " " + std::to_string(rc::ld32(a));
     pf::logInfo("fe: gfx option caps 0x8764D0..0x876530:%s", caps.c_str());
-    const std::string list = pf::Config::getString("fe_gfx_apply", "");
+    const std::string list = NFSU_DEV_STRING("fe_gfx_apply", "");
     for (size_t pos = 0; pos < list.size();)
     {
         size_t end = list.find(',', pos);
@@ -909,10 +910,10 @@ void frameHook(win32::WinApplication* app, x86::CPU& cpu)
         s_touchesLast = pad.touchCount;
         s_buttonLast = button;
     }
-    static const unsigned scanEvery = unsigned(pf::Config::getInt("fe_scan_every", 0));
+    static const unsigned scanEvery = unsigned(NFSU_DEV_INT("fe_scan_every", 0));
     if (s_msgApp && s_frame % 30 == 0)
         watchHandlers();
-    static const unsigned grepAt = unsigned(pf::Config::getInt("fe_grep_frame", 0));
+    static const unsigned grepAt = unsigned(NFSU_DEV_INT("fe_grep_frame", 0));
     if (grepAt && s_frame == grepAt)
         grepMemory(s_frame);
     if (scanEvery && s_frame % scanEvery == 0)
@@ -920,7 +921,7 @@ void frameHook(win32::WinApplication* app, x86::CPU& cpu)
     if (s_moviesSkip > 0 || s_skipIntro)
         checkMovies(app, cpu, now, s_frame);
     checkQuit(elapsed, s_frame, gameState);
-    static const bool orbit = pf::Config::getBool("fe_orbit", false);
+    static const bool orbit = NFSU_DEV_BOOL("fe_orbit", false);
     if (orbit && gameState == 4 && s_frame % 30 == 0)
     {
         const reg32 vehicle = rc::ld32(rc::ld32(0x008900AC) + 4);
@@ -929,7 +930,7 @@ void frameHook(win32::WinApplication* app, x86::CPU& cpu)
     }
     if (orbit)
         logOrbit(s_frame);
-    static const bool gfxApply = *pf::Config::getString("fe_gfx_apply", "") != 0;
+    static const bool gfxApply = *NFSU_DEV_STRING("fe_gfx_apply", "") != 0;
     if (gfxApply)
         applyGraphics(s_frame, cur);
     static reg32 s_gfxState = 0;
@@ -946,7 +947,7 @@ void frameHook(win32::WinApplication* app, x86::CPU& cpu)
         pf::logInfo("fe: %s frame %u t=%.1fs game state %u, pending call 0x%08X, screen %s, boot-flow screen %s, FE screen %s",
                     changed ? "state" : "alive", unsigned(frame), double(elapsed) / 1e6, unsigned(state),
                     unsigned(pending), guestString(screen).c_str(), boot.c_str(), cur.c_str());
-    if (changed && pf::Config::getBool("fe_dump", false))
+    if (changed && NFSU_DEV_BOOL("fe_dump", false))
     {
         const reg32 m = rc::ld32(FeManager);
         char line[512];
@@ -998,26 +999,30 @@ void hookFileOpens(win32::WinApplication& app)
 
 void configure(win32::WinApplication& app)
 {
-    const std::string script = pf::Config::getString("boot_script", "");
-    s_logState = pf::Config::getBool("fe_log", true);
-    parseSteps(pf::Config::getString("boot_steps", ""));
+    NFSU_DEV_SET(s_logState, NFSU_DEV_BOOL("fe_log", true));
+#ifdef DEV_SETTINGS
+    const std::string script = NFSU_DEV_STRING("boot_script", "");
+    parseSteps(NFSU_DEV_STRING("boot_steps", ""));
     if (!script.empty() || !s_steps.empty())
     {
         parseScript(script);
         win32::Gamepad::setPollHook(pollHook);
         pf::logInfo("frontend: boot_script with %u entries, times in seconds from the first frame", unsigned(s_script.size()));
     }
+#endif
     s_moviesSkip = atof(pf::Config::getString("movies_skip", "0"));
     static const char* const IntroSkips[] = { "off", "logos", "opening" };
     s_skipIntro = 0;   // skip_intro_movies takes the screens out of the boot flow (movies.cpp)
     (void)IntroSkips;
-    parseQuit(pf::Config::getString("boot_quit_after", ""));
-    if (pf::Config::getBool("fe_msg", false))
+#ifdef DEV_SETTINGS
+    parseQuit(NFSU_DEV_STRING("boot_quit_after", ""));
+    if (NFSU_DEV_BOOL("fe_msg", false))
         s_msgApp = &app;
+#endif
     s_mainThread = pf::Thread::currentId();
     const reg32 import = rc::ld32(QueryPerformanceCounterSlot);
     s_queryPerformanceCounter = app.replaceMethod(import, frameHook);
-    if ((s_logState && pf::Config::getBool("fe_files", true)) || !s_steps.empty() || memLogOn())
+    if ((s_logState && NFSU_DEV_BOOL("fe_files", true)) || !s_steps.empty() || memLogOn())
         hookFileOpens(app);
     pf::logInfo("frontend: per-frame hook on QueryPerformanceCounter 0x%08X, state log %s, game state at 0x%08X", unsigned(import),
                 s_logState ? "on (fe_log)" : "off", unsigned(GameState));

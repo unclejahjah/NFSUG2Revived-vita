@@ -15,6 +15,7 @@
 #include <winapi/kernel32.h>
 #include <platform/log.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/perf.h>
 #include <platform/sync.h>
 #include <platform/time.h>
@@ -44,7 +45,7 @@ static std::atomic<int> s_levelWaiters[scheduler::LevelCount];
 static std::atomic<bool> s_lockHeld{false};
 // Spin iterations between two clock reads of the spin loops.
 static const uint32_t SpinClockMask = 15;
-static uint32_t s_relockSpinUs = 0;     // yield_relock_spin_us
+NFSU_DEV_VAR(uint32_t, s_relockSpinUs, 0);     // yield_relock_spin_us
 
 // Thread blocks and guest stacks of returned runThread calls, reused: timer callbacks run about 125 times a second,
 // and finding 1 MB in the guest memory map takes a long first-fit search.
@@ -161,7 +162,7 @@ WinApplication::WinApplication(const char* appName, x86::reg32 baseAddress, cons
     ,   m_methodShift(32 - s_initialMethodSlotBits)
     ,   m_cpu{}
 {
-    MemMap::init(baseAddress, sections, pf::Config::getBool("guest_memory_split", true),
+    MemMap::init(baseAddress, sections, NFSU_DEV_BOOL("guest_memory_split", true),
                  x86::reg32(std::max(0, pf::Config::getInt("texture_cache_mb", 12)) + 8) * 1024 * 1024);
     m_appName = new MemMap(4096);
     m_appNameW = new MemMap(4096);
@@ -169,7 +170,7 @@ WinApplication::WinApplication(const char* appName, x86::reg32 baseAddress, cons
     ddraw::s_dDrawRegistry->registerSymbols(this);
     kernel32::registerModules(this);
     scheduler::configureGameThreads();
-    s_relockSpinUs = uint32_t(std::max(pf::Config::getInt("yield_relock_spin_us", 0), 0));
+    NFSU_DEV_SET(s_relockSpinUs, uint32_t(std::max(NFSU_DEV_INT("yield_relock_spin_us", 0), 0)));
     Event::init();
     Timer::init();
     com::InitialiseComMemory(this);

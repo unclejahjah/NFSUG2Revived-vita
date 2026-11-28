@@ -9,6 +9,7 @@
 
 namespace ug2 { namespace native { namespace fast {
 
+#ifdef DEV_SETTINGS
 [[gnu::noinline, gnu::cold]] inline bool lookup(signed char& state, const char* key)
 {
     if (state == 0)
@@ -23,6 +24,9 @@ inline bool enabled(signed char& state, const char* key)
         return true;
     return lookup(state, key);
 }
+#else
+inline bool enabled(signed char&, const char*) { return true; }
+#endif
 
 typedef float __attribute__((may_alias)) AlignedFloat;
 typedef float __attribute__((may_alias, aligned(1))) LooseFloat;

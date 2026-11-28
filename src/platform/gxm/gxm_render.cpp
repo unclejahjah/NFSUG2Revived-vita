@@ -494,15 +494,15 @@ bool FrameRenderer::init(SceGxmContext* context, SceGxmShaderPatcher* patcher, v
     m_uploadDone = new CondVar("gxm_uploads", *m_uploadLock);
     m_precomputed = NFSU_RENDER_FAST("gxm_precomputed");
     logInfo("gxm: %s draws", m_precomputed ? "precomputed" : "immediate");
-    m_cullSwap = Config::getBool("cull_swap", false);
+    NFSU_DEV_SET(m_cullSwap, NFSU_DEV_BOOL("cull_swap", false));
     if (m_cullSwap)
         logInfo("gxm: cull winding swapped (cull_swap=on)");
     static const char* const DrawOrders[] = { "sorted", "game" };
-    m_drawSort = Config::getChoice("alpha_draw_order", DrawOrders, 2, 0) == 0;
-    m_skipVp = uint32_t(Config::getInt("debug_skip_vp", 0));
-    m_skipFp = uint32_t(Config::getInt("debug_skip_fp", 0));
-    m_maxDraws = uint32_t(std::max(0, Config::getInt("debug_max_draws", 0)));
-    m_sceneScale = float(std::min(100, std::max(10, Config::getInt("debug_scene_scale", 100)))) / 100.0f;
+    NFSU_DEV_SET(m_drawSort, NFSU_DEV_CHOICE("alpha_draw_order", DrawOrders, 2, 0) == 0);
+    NFSU_DEV_SET(m_skipVp, uint32_t(NFSU_DEV_INT("debug_skip_vp", 0)));
+    NFSU_DEV_SET(m_skipFp, uint32_t(NFSU_DEV_INT("debug_skip_fp", 0)));
+    NFSU_DEV_SET(m_maxDraws, uint32_t(std::max(0, NFSU_DEV_INT("debug_max_draws", 0))));
+    NFSU_DEV_SET(m_sceneScale, float(std::min(100, std::max(10, NFSU_DEV_INT("debug_scene_scale", 100)))) / 100.0f);
     if (m_sceneScale != 1.0f)
         logInfo("gxm: debug: every scene drawn at %.0f%% of its size, in its target's corner (debug_scene_scale)",
                 double(m_sceneScale * 100.0f));
@@ -514,11 +514,11 @@ bool FrameRenderer::init(SceGxmContext* context, SceGxmShaderPatcher* patcher, v
     m_textureHeap = new GpuHeap("gxm_textures", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, 16 * 1024 * 1024,
                                 SCE_GXM_MEMORY_ATTRIB_RW);
     m_heapLock = new LwMutex("gxm_texture_heap");
-    m_instantFree = Config::getBool("texture_instant_free", true);
+    NFSU_DEV_SET(m_instantFree, NFSU_DEV_BOOL("texture_instant_free", true));
     const int heapMb = std::min(std::max(Config::getInt("texture_heap_mb", 0), 0), 1024);
     m_textureHeap->setLimit(uint32_t(heapMb) * 1024 * 1024);
     // Only with instant frees is a freed block known to be out of the GPU's hands.
-    m_textureHeap->setShrink(m_instantFree && Config::getBool("texture_heap_shrink", true));
+    m_textureHeap->setShrink(m_instantFree && NFSU_DEV_BOOL("texture_heap_shrink", true));
     logInfo("gxm: released textures freed %s (texture_instant_free=%s); texture heap in 16 MB chunks, then smaller "
             "ones down to 1 MB for what CDRAM has left, capped at %d MB (texture_heap_mb, 0: no cap)", m_instantFree
             ? "at once when their frames are finished, and finished ones before an allocation fails"
@@ -2649,7 +2649,7 @@ bool FrameRenderer::createWorker(Worker& w)
 
 void FrameRenderer::initLists()
 {
-    if (!Config::getBool("gxm_lists", false))
+    if (!NFSU_DEV_BOOL("gxm_lists", false))
     {
         logInfo("gxm: command lists off (gxm_lists=off)");
         return;
@@ -2658,7 +2658,7 @@ void FrameRenderer::initLists()
     std::vector<int> cores;
     if (cores::core3Waited())
         cores.push_back(3);
-    if (Config::getBool("gxm_core2", true))
+    if (NFSU_DEV_BOOL("gxm_core2", true))
         cores.push_back(2);
     for (size_t i = 0; i <= cores.size(); ++i)
     {

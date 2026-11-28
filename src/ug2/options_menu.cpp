@@ -89,10 +89,9 @@ const Option FreeLookSpeed[] = { { "90", "Slow" }, { "135", "Steady" }, { "180",
 const Option Steering[] = { { "analog", "Analog" }, { "digital", "Digital" } };
 const Option SkipIntro[] = { { "off", "Off" }, { "logos", "Logos" }, { "opening", "Logos and opening" } };
 const Option FrameRate[] = { { "30", "30 fps" }, { "0", "Unlocked" } };
-const Option Preset[] = { { "vita", "Vita" }, { "max", "Max" } };
 const Option LodPixels[] = { { "0", "Off" }, { "64", "64 px" }, { "128", "128 px" }, { "192", "192 px" },
                              { "256", "256 px" } };
-const Option MinPixels[] = { { "0", "Off" }, { "8", "8 px" }, { "16", "16 px" }, { "32", "32 px" }, { "48", "48 px" },
+const Option MinPixels[] = { { "0", "Off" }, { "8", "8 px" }, { "12", "12 px" }, { "16", "16 px" }, { "32", "32 px" }, { "48", "48 px" },
                              { "64", "64 px" } };
 const Option MixRate[] = { { "0", "Game's own" }, { "44100", "44100 Hz" }, { "32000", "32000 Hz" },
                            { "22050", "22050 Hz" } };
@@ -330,12 +329,9 @@ const Item AudioVideo[] = {
     { "Quiet sounds", Cfg, "audio_silence_db", Choice, OPTIONS(Silence), "-60", 0, nullptr,
       "Sounds quieter than this are not mixed, which saves processor time. -60 dB is inaudible; off mixes all." },
     { "Display", Cfg, "", Heading, nullptr, 0, "", 0, nullptr, nullptr },
-    { "Graphics preset", Cfg, "gfx_preset", Choice, OPTIONS(Preset), "vita", 0, nullptr,
-      "Vita is what the port is tuned for; Max turns everything on and is much slower. The game's Display menu "
-      "changes the individual options." },
-    { "Scenery detail distance", Cfg, "dev_world_lod_pixels", Choice, OPTIONS(LodPixels), "0", 0, nullptr,
+    { "Scenery detail distance", Cfg, "dev_world_lod_pixels", Choice, OPTIONS(LodPixels), "64", 0, nullptr,
       "Scenery narrower than this on screen uses its simpler model. More gives speed and more pop-in." },
-    { "Small scenery", Cfg, "dev_world_min_pixels", Choice, OPTIONS(MinPixels), "0", 0, nullptr,
+    { "Small scenery", Cfg, "dev_world_min_pixels", Choice, OPTIONS(MinPixels), "12", 0, nullptr,
       "Scenery smaller than this on screen is not drawn. More gives speed and more pop-in." },
     { "Movies", Cfg, "movies", Choice, OPTIONS(Movies), "vp6preferred", 0, nullptr,
       "How the game's movies play: the converted .mp4 files where they are there, else the original VP6 ones." },

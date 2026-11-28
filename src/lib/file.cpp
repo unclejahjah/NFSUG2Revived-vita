@@ -1,5 +1,6 @@
 #include <lib/file.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/filesystem.h>
 #include <platform/log.h>
 #include <platform/sync.h>
@@ -118,7 +119,7 @@ static const std::string& saveDirectory()
 {
     static const std::string s_directory = []
     {
-        std::string directory = pf::Config::getString("save_dir", "");
+        std::string directory = NFSU_DEV_STRING("save_dir", "");
         if (!directory.empty() && directory.back() != '/')
             directory += '/';
         return directory;
@@ -135,7 +136,7 @@ unsigned File::saveCommits()
 
 static bool saveLogging()
 {
-    static const bool s_log = pf::Config::getBool("save_log", false);
+    static const bool s_log = NFSU_DEV_BOOL("save_log", false);
     return s_log;
 }
 
@@ -480,7 +481,7 @@ static pf::LwMutex& parkedLock()
 
 static bool parking()
 {
-    static const bool s_on = pf::Config::getBool("file_handle_cache", true);
+    static const bool s_on = NFSU_DEV_BOOL("file_handle_cache", true);
     return s_on;
 }
 
@@ -700,7 +701,7 @@ File::File(const char* path, x86::reg32 mode, x86::reg32 flags, x86::reg32 creat
 
     // A save file is written to a temporary file that replaces the old one on close, so a power cut or a closed
     // application leaves the old save whole.
-    static const bool s_atomic = pf::Config::getBool("save_atomic", true);
+    static const bool s_atomic = NFSU_DEV_BOOL("save_atomic", true);
     const size_t slash = m_filename.rfind('/');
     if (s_atomic && m_save && writes && hostExists(m_filename.substr(0, slash == std::string::npos ? 0 : slash))
         && (creationFlags == CREATE_ALWAYS || (creationFlags == TRUNCATE_EXISTING && m_existed)))
@@ -786,7 +787,7 @@ bool File::flush()
 {
     if (m_file < 0 || !m_dirty)
         return true;
-    static const bool s_sync = pf::Config::getBool("save_sync", true);
+    static const bool s_sync = NFSU_DEV_BOOL("save_sync", true);
     if (!s_sync || fsync(m_file) == 0)
     {
         m_dirty = false;
@@ -809,7 +810,7 @@ x86::reg32 File::seek(x86::reg32 mode, x86::sreg32 offset)
     // e.g. the stdin handle: fd 0 cannot be dup'ed. Fail like Windows does for a console handle.
     if (m_file < 0)
         return x86::reg32(-1);
-    static const bool s_lazy = pf::Config::getBool("file_lazy_seek", true);
+    static const bool s_lazy = NFSU_DEV_BOOL("file_lazy_seek", true);
     if (s_lazy && m_readOnly && mode < 2)
     {
         const off_t target = (mode == 1 ? m_position : 0) + offset;

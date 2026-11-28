@@ -421,7 +421,11 @@ struct alignas(32) Hot
     uint8_t     pending = 0;            // queued calls not run yet
     uint8_t     owned = 0;              // a deferral window's thread has its calls queued
     uint8_t     deferDevice = 0;        // deferral has a device: bindings are noted after direct calls
+#ifdef DEV_SETTINGS
     uint8_t     trace = 1;              // effect_trace writes left, or the setting not read yet
+#else
+    static constexpr uint8_t trace = 0;
+#endif
     std::atomic<uint32_t> captures{0};  // threads inside begin()..end()
     reg32       deviceGuest = 0;        // device lookup cache; cleared when objects change
     void*       device = nullptr;

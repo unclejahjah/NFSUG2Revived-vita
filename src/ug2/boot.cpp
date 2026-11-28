@@ -10,6 +10,7 @@
 #endif
 
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/log.h>
 #include <platform/render.h>
 #include <platform/sync.h>
@@ -556,7 +557,7 @@ void shotAt(int raceFrame, int frame, int afterLoad)
     struct Shot { int n; char kind; };
     static const std::vector<Shot> s_frames = [] {
         std::vector<Shot> frames;
-        const char* text = pf::Config::getString("debug_shot_frames", "");
+        const char* text = NFSU_DEV_STRING("debug_shot_frames", "");
         while (text && *text)
         {
             const char kind = (*text == 'f' || *text == 'l') ? *text : 0;
@@ -603,7 +604,7 @@ void frameEnded()
     }
     s_frameState = state;
 #ifdef DEV_TOOLS
-    static const int s_hold = pf::Config::getInt("debug_hold_frame", 0);
+    static const int s_hold = NFSU_DEV_INT("debug_hold_frame", 0);
     shotAt(state == RacingState && s_raceStart ? int(rc::ld32(FramesRendered) - s_raceStart) : -1,
            int(rc::ld32(FramesRendered)), s_loadEnd ? int(rc::ld32(FramesRendered) - s_loadEnd) : -1);
     if (s_hold > 0 && state == RacingState && s_raceStart && rc::ld32(FramesRendered) - s_raceStart == reg32(s_hold))
@@ -656,7 +657,7 @@ void configure(win32::WinApplication& app)
 {
     if (pf::render::particleTagNeeded())
         pf::render::g_drawTag = particleTag;
-    if (pf::Config::getBool("virtual_clock", false))
+    if (NFSU_DEV_BOOL("virtual_clock", false))
     {
         const reg32 import = rc::ld32(QueryPerformanceCounterSlot);
         s_mainThread = pf::Thread::currentId();
@@ -670,42 +671,42 @@ void configure(win32::WinApplication& app)
         s_queryPerformanceCounter = app.replaceMethod(rc::ld32(QueryPerformanceCounterSlot), uncappedClockHook);
         pf::logInfo("boot: frame rate unlocked (frame_rate=0): the game's frame limiter wait is off");
     }
-    if (!pf::Config::getBool("boot_race", false))
+    if (!NFSU_DEV_BOOL("boot_race", false))
     {
         pf::logInfo("boot: boot_race=off, the game starts with its front end");
         frontend::configure(app);
         return;
     }
-    if (pf::Config::getBool("memory_log", false))
+    if (NFSU_DEV_BOOL("memory_log", false))
         frontend::hookFileOpens(app);
-    if (*pf::Config::getString("boot_steps", "") != 0)
+    if (*NFSU_DEV_STRING("boot_steps", "") != 0)
         frontend::configure(app);
-    const std::string mode = pf::Config::getString("boot_mode", "race");
+    const std::string mode = NFSU_DEV_STRING("boot_mode", "race");
     s_settings.freeRoam = mode == "freeroam";
     s_settings.url = mode == "url";
     s_settings.drag = mode == "drag";
     s_settings.drift = mode == "drift";
     if (!s_settings.freeRoam && !s_settings.url && !s_settings.drag && !s_settings.drift && mode != "race")
         pf::logError("boot: boot_mode=%s is not race, url, drag, drift or freeroam, racing", mode.c_str());
-    s_settings.track = pf::Config::getInt("boot_track", s_settings.freeRoam ? FreeRoamTrack
+    s_settings.track = NFSU_DEV_INT("boot_track", s_settings.freeRoam ? FreeRoamTrack
                                                         : s_settings.url ? UrlTrack : s_settings.drag ? DragTrack
                                                         : s_settings.drift ? DriftTrack : DefaultTrack);
-    s_settings.car = pf::Config::getString("boot_car", "");
-    s_settings.aiDriver = !s_settings.freeRoam && pf::Config::getBool("boot_ai_driver", true);
-    s_settings.blindDrive = drive::available && s_settings.freeRoam && pf::Config::getBool("boot_drive", true);
-    s_settings.seed = pf::Config::getBool("boot_seed", true);
-    s_settings.crowd = pf::Config::getBool("boot_crowd", false);
-    s_settings.intro = !s_settings.freeRoam && pf::Config::getBool("boot_intro", false);
-    s_settings.manual = (s_settings.freeRoam || s_settings.drag) && pf::Config::getBool("boot_manual", true);
-    s_settings.upgrades = s_settings.freeRoam ? std::min(std::max(pf::Config::getInt("boot_upgrades", 2), 0), 3) : 0;
-    const int laps = std::min(std::max(pf::Config::getInt("boot_laps", 2), 1), 10);
-    const bool hud = pf::Config::getBool("boot_hud", false);
-    const bool audio = pf::Config::getBool("boot_audio", !pf::Config::getBool("virtual_clock", false));
+    s_settings.car = NFSU_DEV_STRING("boot_car", "");
+    s_settings.aiDriver = !s_settings.freeRoam && NFSU_DEV_BOOL("boot_ai_driver", true);
+    s_settings.blindDrive = drive::available && s_settings.freeRoam && NFSU_DEV_BOOL("boot_drive", true);
+    s_settings.seed = NFSU_DEV_BOOL("boot_seed", true);
+    s_settings.crowd = NFSU_DEV_BOOL("boot_crowd", false);
+    s_settings.intro = !s_settings.freeRoam && NFSU_DEV_BOOL("boot_intro", false);
+    s_settings.manual = (s_settings.freeRoam || s_settings.drag) && NFSU_DEV_BOOL("boot_manual", true);
+    s_settings.upgrades = s_settings.freeRoam ? std::min(std::max(NFSU_DEV_INT("boot_upgrades", 2), 0), 3) : 0;
+    const int laps = std::min(std::max(NFSU_DEV_INT("boot_laps", 2), 1), 10);
+    const bool hud = NFSU_DEV_BOOL("boot_hud", false);
+    const bool audio = NFSU_DEV_BOOL("boot_audio", !NFSU_DEV_BOOL("virtual_clock", false));
     const int trafficLevel = s_settings.url ? 0
-                             : std::min(std::max(pf::Config::getInt("boot_traffic_level", pf::Config::getBool("boot_traffic", false) ? 1 : 0), 0), 3);
+                             : std::min(std::max(NFSU_DEV_INT("boot_traffic_level", NFSU_DEV_BOOL("boot_traffic", false) ? 1 : 0), 0), 3);
     const bool traffic = trafficLevel > 0;
     const int opponents = s_settings.freeRoam ? 0
-                          : std::min(std::max(pf::Config::getInt("boot_opponents", s_settings.url ? UrlOpponents : s_settings.drift ? DriftOpponents : 0), 0), MaxOpponents);
+                          : std::min(std::max(NFSU_DEV_INT("boot_opponents", s_settings.url ? UrlOpponents : s_settings.drift ? DriftOpponents : 0), 0), MaxOpponents);
     pf::logInfo("boot: direct boot into %s (boot_race=off for the front end): track %d, %d laps, car %s, %s, "
                 "%d AI opponents, traffic %s, crowd %s, intro %s, HUD %s, audio %s, seed %s 0x%08X",
                 s_settings.freeRoam ? "free roam (boot_mode=freeroam)" : s_settings.url ? "a URL race (boot_mode=url)" : s_settings.drag ? "a drag race (boot_mode=drag)"
@@ -722,7 +723,7 @@ void configure(win32::WinApplication& app)
     bench::configure(s_settings.freeRoam ? FreeRoamSeconds : 0, s_settings.freeRoam ? FreeRoamWindow : 0);
     if (s_settings.blindDrive)
     {
-        drive::configure(uint32_t(pf::Config::getInt("boot_drive_seed", 1)));
+        drive::configure(uint32_t(NFSU_DEV_INT("boot_drive_seed", 1)));
         bench::setWindowNote(drive::describe);
     }
     set("skip front end", SkipFe, 1);

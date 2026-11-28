@@ -58,7 +58,7 @@ namespace
 std::atomic<x86::reg32> s_thread{0};    // thread block (fs) in the render loop without the lock, else 0
 win32::Mutex* s_lock = nullptr;         // the execution lock that thread gave up
 bool s_changed = true;                  // SND state may have changed under the lock since the driver audit
-bool s_unlocked = false;                // audio_mixer=unlocked
+NFSU_DEV_VARC(bool, s_unlocked, false, true);                // audio_mixer=unlocked
 #ifdef DEV_SETTINGS
 bool s_nativeKernels = true;            // audio_native_kernels
 bool s_neonKernels = false;            // audio_neon_kernels
@@ -66,10 +66,10 @@ bool s_neonKernels = false;            // audio_neon_kernels
 const bool s_nativeKernels = AUDIO_FAST_PATHS != 0;
 const bool s_neonKernels = AUDIO_FAST_PATHS != 0;
 #endif
-bool s_hash = false;                    // audio_hash
-bool s_sndYield = false;                // audio_snd_yield
-bool s_stay = false;                    // audio_mixer_stay
-FILE* s_dump = nullptr;                 // audio_dump: raw 16-bit output blocks
+NFSU_DEV_VARC(bool, s_hash, false, false);                    // audio_hash
+NFSU_DEV_VARC(bool, s_sndYield, false, false);                // audio_snd_yield
+NFSU_DEV_VARC(bool, s_stay, false, true);                    // audio_mixer_stay
+NFSU_DEV_VARC(FILE*, s_dump, nullptr, nullptr);                 // audio_dump: raw 16-bit output blocks
 win32::Event* s_sndMutex = nullptr;     // the SND mutex while the loop runs with audio_snd_yield
 bool s_midLocked = false;               // execution lock taken after a yield failed the render audit
 pf::Semaphore* s_handoff = nullptr;
@@ -597,7 +597,7 @@ bool teardownAudited(reg32 instance, Audit& audit)
 
 // Library entries 5 (0x720036), 38 (0x7200A2) and 39 (0x7201C2) on the paths that only read or clamp the argument's
 // own data; their other paths reach the object layer (0x735430, 0x735490, 0x735550, 0x735080, 0x7356D0).
-bool s_auditObjectCalls = true;             // audio_library_audit
+NFSU_DEV_VARC(bool, s_auditObjectCalls, true, true);             // audio_library_audit
 
 const reg32 LibraryClamp    = 0x720036;
 const reg32 LibraryRead     = 0x7200a2;
@@ -687,8 +687,8 @@ const reg32 NotifyCapacity  = (NotifyStreams - NotifyQueue) / 8;
 const reg32 ChunkCallback   = 0x7224ac;     // frames consumed: SND stream lists only (0x722442, 0x727A12, 0x7279D6)
 const reg32 EngineCallback  = 0x4777f0;     // engine grains (0x466D30): own object and the SND stream queue only
 
-bool s_inlineNotifications = true;          // audio_inline_notifications
-bool s_engineInline = false;                // audio_engine_inline
+NFSU_DEV_VARC(bool, s_inlineNotifications, true, true);          // audio_inline_notifications
+NFSU_DEV_VARC(bool, s_engineInline, false, true);                // audio_engine_inline
 
 bool inlineCallback(reg32 callback)
 {
@@ -1700,7 +1700,7 @@ bool compareKernel(win32::WinApplication* app, Kernel guest, Kernel nativeKernel
 
 void runSelftest(win32::WinApplication& app)
 {
-    if (!pf::Config::getBool("audio_selftest", false))
+    if (!NFSU_DEV_BOOL("audio_selftest", false))
         return;
     const reg32 Size = 0x10000;
     const reg32 base = win32::heap::allocate(Size, true);
@@ -1797,19 +1797,19 @@ void runSelftest(win32::WinApplication& app)
 void configure(win32::WinApplication& app)
 {
     runSelftest(app);
-    const char* const mode = pf::Config::getString("audio_mixer", "unlocked");
-    s_unlocked = strcmp(mode, "unlocked") == 0;
+    const char* const mode = NFSU_DEV_STRING("audio_mixer", "unlocked");
+    NFSU_DEV_SET(s_unlocked, strcmp(mode, "unlocked") == 0);
 #ifdef DEV_SETTINGS
     s_nativeKernels = NFSU_AUDIO_FAST("audio_native_kernels");
     s_neonKernels = NFSU_AUDIO_FAST("audio_neon_kernels");
 #endif
-    s_hash = pf::Config::getBool("audio_hash", false);
-    s_sndYield = s_unlocked && pf::Config::getBool("audio_snd_yield", false);
-    s_stay = s_unlocked && pf::Config::getBool("audio_mixer_stay", true);
-    const char* const dump = pf::Config::getString("audio_dump", "");
+    NFSU_DEV_SET(s_hash, NFSU_DEV_BOOL("audio_hash", false));
+    NFSU_DEV_SET(s_sndYield, s_unlocked && NFSU_DEV_BOOL("audio_snd_yield", false));
+    NFSU_DEV_SET(s_stay, s_unlocked && NFSU_DEV_BOOL("audio_mixer_stay", true));
+    const char* const dump = NFSU_DEV_STRING("audio_dump", "");
     if (s_unlocked && dump[0])
-        s_dump = fopen(dump, "wb");
-    native::s_engineInline = s_unlocked && pf::Config::getBool("audio_engine_inline", true);
+        NFSU_DEV_SET(s_dump, fopen(dump, "wb"));
+    NFSU_DEV_SET(native::s_engineInline, s_unlocked && NFSU_DEV_BOOL("audio_engine_inline", true));
     pf::logInfo("audio mixer: thread %s between render loops (audio_mixer_stay), engine stream callback %s "
                 "(audio_engine_inline)", s_stay ? "stays outside the execution lock" : "takes the execution lock",
                 native::s_engineInline ? "inline" : "locked");
@@ -1818,8 +1818,8 @@ void configure(win32::WinApplication& app)
         s_handoff = new pf::Semaphore("snd_handoff", 0);
         pf::logInfo("audio mixer: hands the SND mutex to a waiting thread between voices and render steps");
     }
-    native::s_inlineNotifications = pf::Config::getBool("audio_inline_notifications", true);
-    native::s_auditObjectCalls = pf::Config::getBool("audio_library_audit", true);
+    NFSU_DEV_SET(native::s_inlineNotifications, NFSU_DEV_BOOL("audio_inline_notifications", true));
+    NFSU_DEV_SET(native::s_auditObjectCalls, NFSU_DEV_BOOL("audio_library_audit", true));
     pf::logInfo("audio mixer: %s (audio_mixer=%s), %s x87 kernels%s, per-chunk notifications %s, object library "
                 "calls %s",
                 s_unlocked ? "outside the execution lock" : "under the execution lock", mode,

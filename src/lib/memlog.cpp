@@ -3,6 +3,7 @@
 #include <lib/memlog.h>
 #include <lib/memmap.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/gxm.h>
 #include <platform/log.h>
 #include <platform/perf.h>
@@ -99,9 +100,9 @@ void tick()
 void configure(uint32_t (*frameCounter)())
 {
     // Written with the info log, so it appears only when log_info=on as well.
-    if (!pf::Config::getBool("memory_log", false))
+    if (!NFSU_DEV_BOOL("memory_log", false))
         return;
-    const int seconds = std::max(1, pf::Config::getInt("memory_log_seconds", 10));
+    const int seconds = std::max(1, NFSU_DEV_INT("memory_log_seconds", 10));
     s_intervalUs = uint64_t(seconds) * 1000000u;
     s_nextUs = pf::ticksUs() + s_intervalUs;
     s_frameCounter = frameCounter;

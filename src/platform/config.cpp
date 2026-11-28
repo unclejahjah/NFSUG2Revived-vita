@@ -163,6 +163,13 @@ bool Config::load(const char* path, const char* missingFileText)
                 s_retiredValues.emplace_back(key, value);
             continue;
         }
+#ifndef DEV_SETTINGS
+        if (const Setting* setting = findSetting(canonicalKey(key)); setting && setting->group == SettingGroup::Developer)
+        {
+            logInfo("config %s ignored: a developer setting, read only by a DEV_SETTINGS build", key);
+            continue;
+        }
+#endif
         const bool known = isKnown(key);
         const char* current = canonicalKey(key);
         const bool alias = current != key;

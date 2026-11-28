@@ -8,6 +8,7 @@
 #include <lib/winapp.h>
 #include <platform/cached.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/gxm.h>
 #include <platform/log.h>
 #include <platform/time.h>
@@ -108,7 +109,7 @@ const uint64_t SetPlaceUs = 250000;
 
 bool uiLog()
 {
-    return pf::cachedStatic([] { return pf::Config::getBool("ui_log", false); });
+    return NFSU_DEV_BOOL_CACHED("ui_log", false);
 }
 
 std::string guestString(x86::reg32 address)

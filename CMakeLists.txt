@@ -31,8 +31,8 @@ endif()
 
 set(VITA_APP_NAME "NFS Underground 2")
 set(VITA_TITLEID  "NFSU2REVD")
-set(NFSU_VERSION  "0.9.0")
-set(VITA_VERSION  "00.90")
+set(NFSU_VERSION  "0.9.1")
+set(VITA_VERSION  "00.91")
 
 option(NFSU_LOG_DEBUG        "Verbose runtime logging" OFF)
 option(NFSU_ASSERT_SOFT      "Log failed assertions instead of trapping" OFF)
@@ -263,6 +263,7 @@ add_executable(NFSU2LAUNCH.elf
   src/launcher/main.cpp src/launcher/cfgui.cpp src/launcher/cfgui_draw.cpp src/launcher/cfgui_assets.cpp
   src/launcher/cfgui_sysfont.cpp src/launcher/mods_edit.cpp src/launcher/save.cpp src/launcher/log.cpp
   src/launcher/mods_registry.cpp src/ug2/mods_require.cpp src/ug2/mods_hook.cpp src/ug2/notice_text.cpp
+  src/ug2/language.cpp src/platform/regfile.cpp
   src/platform/settings.cpp src/platform/cfgfile.cpp src/platform/textfile.cpp)
 # Start-up screen shots on request (shot_c.req) with the game's screenshot writer, development builds only.
 if(DEV_TOOLS)

@@ -11,10 +11,13 @@
 #include "ownscreens.h"
 #include "psbar.h"
 #include "psprompt.h"
+#include "headlights.h"
+#include "controlsdata.h"
 
 #include <lib/controls.h>
 #include <lib/gamepad.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/log.h>
 #include <cmath>
 #include <cstdio>
@@ -59,9 +62,9 @@ const reg32 RequestLegend = 0xC1;           // JOY_EVENT_REQUEST_LEGEND (action 
 const reg32 RequestMessages = 0xC2;         // JOY_EVENT_REQUEST_MESSAGE_SYSTEM (action 17): Read SMS
 
 win32::MethodPtr s_peekMessage = nullptr;
-bool s_log = false;
+NFSU_DEV_VARC(bool, s_log, false, false);
 controls::PadScript s_script;
-bool s_scripted = false;
+NFSU_DEV_VARC(bool, s_scripted, false, false);
 uint64_t s_scriptStep = 0;       // frames since the race map was first active
 int s_layout = -1;
 reg32 s_namesSlot = 0;          // slot whose Controls names pad_log prints next
@@ -182,6 +185,25 @@ void logZonesLive()
 }
 #endif
 
+// Feeds the first pad's Headlights action (a cleared mask bit is held) to headlights::frame.
+void headlightsFrame()
+{
+    bool held = false;
+    for (reg32 slot = Slots; slot < Slots + SlotCount * SlotSize; slot += SlotSize)
+    {
+        if (!padSlot(slot))
+            continue;
+        const unsigned long long mask = rc::ld32(slot + SlotMask) | (unsigned long long)rc::ld32(slot + SlotMask + 4) << 32;
+        held = !(mask & (1ull << controlsdata::Headlights));
+        break;
+    }
+    // Free roam keeps D-pad Down for its own (a race lobby's hold for Friends only, quick_chat_button=dpad_down):
+    // there the Headlights action does not come from it.
+    if (held && controls::freeRoam() && (controls::heldInputs() & controls::bit(controls::DpadDown)))
+        held = false;
+    headlights::frame(win32::g_guestBase, held, rc::ld32(GameState));
+}
+
 // Sends the HUD taps as the game's world action events.
 void sendWorldRequests(win32::WinApplication* app, x86::CPU& cpu)
 {
@@ -202,6 +224,7 @@ void sendWorldRequests(win32::WinApplication* app, x86::CPU& cpu)
 void program(win32::WinApplication* app, x86::CPU& cpu)
 {
     controlslink::frame();
+    headlightsFrame();
     if (s_log)
         logCar();
     const bool driving = rc::ld32(InputMap) != 1;
@@ -299,15 +322,16 @@ namespace padbind
 
 void configure(win32::WinApplication& app)
 {
-    s_log = pf::Config::getBool("pad_log", false);
+    NFSU_DEV_SET(s_log, NFSU_DEV_BOOL("pad_log", false));
+    headlights::reset();
     controlslink::configure();
     pad_defaults::install(controlslink::defaultsType());
     psprompt::configure(app);
     psbar::install();
     carfilter::install();
     controlsshell::configure(app);
-    const char* script = pf::Config::getString("pad_script", "");
-    s_scripted = *script && s_script.load(script);
+    const char* script = NFSU_DEV_STRING("pad_script", "");
+    NFSU_DEV_SET(s_scripted, *script && s_script.load(script));
     s_peekMessage = app.replaceMethod(rc::ld32(PeekMessageSlot), peekMessageHook);
     controls::setHudZones(hudtouch::zones());
     pf::logInfo("padbind: port defaults in the EMS table, then the game's own bindings");

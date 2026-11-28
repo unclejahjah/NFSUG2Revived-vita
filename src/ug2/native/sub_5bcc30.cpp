@@ -62,7 +62,7 @@ alignas(16) const x86::reg32 identity[16] = {0x3f800000u, 0, 0, 0, 0, 0x3f800000
 
 bool retrying()
 {
-    return pf::cachedStatic([] { return pf::Config::getBool("texture_retry", true); });
+    return NFSU_DEV_BOOL_CACHED("texture_retry", true);
 }
 
 // Creates the record's missing texture again, once a frame.

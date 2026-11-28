@@ -681,6 +681,13 @@ bool freeRoam()
     return s_freeRoam;
 }
 
+static std::atomic<uint32_t>           s_inputs(0);
+
+uint32_t heldInputs()
+{
+    return s_inputs;
+}
+
 bool insidePolygon(const ZonePolygon& polygon, float x, float y)
 {
     bool inside = false;
@@ -929,6 +936,7 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
     const bool driving = controls::driving();
     const StickRoles roles = stickRoles();
     const uint32_t inputs = pad.inputs;
+    s_inputs = inputs;
     const uint32_t pressed = inputs & ~m_previous;
     const uint32_t released = m_previous & ~inputs;
     const bool select = (inputs & bit(Select)) != 0;

@@ -82,15 +82,24 @@ const uint64_t SplashUs = 3000000;
 const uint64_t DefaultsHoldUs = 3000000;    // Select held this long sets the tab to its defaults
 
 // One mod the Mods tab offers.
+// How a supported mod key's value is edited: Bool on/off, Int and Float by step within min..max, Enum by label.
+enum class ModKind { Bool, Int, Float, Enum };
+
 struct ModView
 {
     std::string group;                  // the heading: source mod, version and author
     std::string name;
+    ModKind kind = ModKind::Bool;
+    double min = 0, max = 1, step = 1;
+    std::vector<std::string> labels;    // Enum: one per value from min
+    std::string reset;                  // the value Square and Select's reset give; empty: "0"
+    std::string vanilla = "0";          // the value that leaves the game as it is
+    bool vanillaChoice = false;         // Int: a first choice "Vanilla" (value empty) before min, the key left out
     std::vector<std::string> details;   // the description panel, paragraph by paragraph
     std::string requirements;           // unmet: the setting's requirementsString; the value stays editable
     bool enabled = false;               // as the ini says
     bool supported = true;              // false: a key of the mod's ini the port does not implement yet
-    std::string value;                  // an unsupported key's value, shown greyed
+    std::string value;                  // as read: an unsupported key's, shown greyed, or a non-Bool supported key's
     int id = -1;                        // the registry feature (mods::Id) of a supported key
     std::string file;                   // full path of the group's ini
     pf::cfgfile::FileState fileState = pf::cfgfile::FileState::Missing;
@@ -98,6 +107,14 @@ struct ModView
     std::string downloadName;           // the source mod, named in the download pop-up
     uint64_t downloadSpace = 0;         // free bytes a download needs; 0: its files cannot be downloaded
 };
+
+// The Mods tab's value text: "%g" of a number.
+std::string formatModValue(double value);
+std::string resetOf(const ModView& view);
+// One step (Enum: one label, wrapping) or several (Int, Float: clamped, below min the Vanilla choice) from value.
+std::string steppedValue(const ModView& view, const std::string& value, int direction, int steps);
+// As the row shows it: on/off, the Enum's label, Vanilla, or the number.
+std::string shownModValue(const ModView& view, const std::string& value);
 
 // The Mods tab's file checks and downloads, kept out of the screen code; the launcher's is ModDownloads.
 class ModFiles
@@ -133,7 +150,8 @@ enum class Outcome { Running, Boot, SaveAndBoot };
 class Configurator
 {
 public:
-    Configurator(const std::string& cfgText, const std::vector<ModView>& mods, const char* version);
+    Configurator(const std::string& cfgText, const std::vector<ModView>& mods, const char* version,
+                 const std::string& registryText = std::string());
 
     // Starts the splash timer; splash=false opens the manager directly.
     void begin(uint64_t nowUs, bool splash = true);
@@ -152,14 +170,18 @@ public:
     bool changed(const char* key) const;
     int changeCount() const;
     std::vector<pf::cfgfile::Change> configChanges() const;
+    std::vector<pf::cfgfile::Change> registryChanges() const;
+    std::string savedRegistry() const;                      // registry.txt with the changes applied
     std::string savedConfig() const;                        // the cfg text with the changes applied
     int modAt(int row) const { return m_modRows[row].mod; }      // Mods tab row to mod index, -1 for a heading
     int modCount() const { return int(m_mods.size()); }
     const ModView& modView(int index) const { return m_mods[index].view; }
     // Unsupported mod keys on the Mods tab, dev settings on the Config tab; off at start.
     bool showingAll(Tab tab) const { return m_show[int(tab)]; }
-    bool modEnabled(int index) const { return m_mods[index].current; }
-    bool modChanged(int index) const { return m_mods[index].current != m_mods[index].view.enabled; }
+    bool modEnabled(int index) const { return m_mods[index].current != "0"; }
+    // The value as it would be saved: "1" or "0" for a Bool key.
+    const std::string& modValue(int index) const { return m_mods[index].current; }
+    bool modChanged(int index) const { return m_mods[index].current != m_mods[index].initial; }
 
     // Null: every switch just toggles, as before.
     void setModFiles(ModFiles* files) { m_files = files; }
@@ -210,7 +232,8 @@ private:
     struct Mod
     {
         ModView view;
-        bool current;
+        std::string initial;
+        std::string current;
     };
 
     int rowCount() const;
@@ -241,6 +264,7 @@ private:
     void endDownload(bool installed);
 
     std::string m_cfgText;
+    std::string m_registryText;
     std::string m_configPath;
     pf::cfgfile::FileState m_configState = pf::cfgfile::FileState::Readable;
     std::string m_configWarning;
@@ -288,6 +312,7 @@ void drawMessage(Canvas& canvas, const Font& font, const std::vector<std::string
 
 // Shared with the runner and the tests.
 std::string valueOf(const pf::Setting& setting, const std::string& cfgText);
+std::string registryValueOf(const pf::Setting& setting, const std::string& registryText);
 bool atDefault(const pf::Setting& setting, const std::string& value);
 const float StickDeadZone = 0.5f;       // of full deflection, on the stick vector
 const float StickDiagonalBand = 4.5f;   // degrees either side of a diagonal where the stick does nothing

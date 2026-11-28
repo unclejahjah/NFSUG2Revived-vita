@@ -4,6 +4,7 @@
 #include "cfgui.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 namespace ug2 { namespace cfgui {
@@ -490,11 +491,16 @@ int Configurator::drawHints(Painter& p, bool draw) const
             p.face(x + 9, hy, 9, Face::Square);
         x += label(x + 24, "Default") + 48;
     }
-    if (draw)
-        p.face(x + 9, hy, 9, Face::Triangle);
-    const bool shown = m_show[int(m_tab)];
-    x += label(x + 24, config ? (shown ? "Hide dev settings" : "Show dev settings")
-                              : (shown ? "Hide unsupported" : "Show unsupported")) + 48;
+#ifndef DEV_SETTINGS
+    if (!config)
+#endif
+    {
+        if (draw)
+            p.face(x + 9, hy, 9, Face::Triangle);
+        const bool shown = m_show[int(m_tab)];
+        x += label(x + 24, config ? (shown ? "Hide dev settings" : "Show dev settings")
+                                  : (shown ? "Hide unsupported" : "Show unsupported")) + 48;
+    }
     const int badge = draw ? p.badge(x, HintsTop, "SELECT", 22) : p.textWidth("SELECT", FontSmall) + 14;
     const bool flash = m_nowUs < m_flashUntil;
     const char* text = flash ? "Set to default" : "Change all to default (Hold 3 sec.)";
@@ -681,16 +687,24 @@ void Configurator::drawModRows(Painter& p) const
             p.rect(0, y, Width, RowHeight, Bar);
         const int labelWidth = p.textWidth(mod.view.name, FontNormal);
         p.text(Centre - 18 - labelWidth, ty, mod.view.name, selected ? White : Label, FontNormal);
-        if (mod.current != mod.view.enabled)
+        if (mod.current != mod.initial)
             p.circle(Centre - 30 - labelWidth, cy, 3, selected ? White : Green);
         int x = Centre + 14;
-        p.arrow(x, cy, false, selected ? White : Green);
+        const ModView& view = mod.view;
+        const bool stepped = view.kind == ModKind::Int || view.kind == ModKind::Float;
+        const double n = atof(mod.current.c_str());
+        const uint32_t on = selected ? White : Green, off = selected ? rgb(0x5c, 0x8f, 0x68) : DarkGrey;
+        const bool chosen = !mod.current.empty();
+        p.arrow(x, cy, false, !stepped || (chosen && (n > view.min || view.vanillaChoice)) ? on : off);
         x += 14;
-        x += p.text(x, ty, mod.current ? "on" : "off", selected ? White : Green, FontNormal);
-        p.arrow(x + 8, cy, true, selected ? White : Green);
+        x += p.text(x, ty, clip(shownModValue(view, mod.current), 24), selected ? White : Green, FontNormal);
+        p.arrow(x + 8, cy, true, !stepped || !chosen || n < view.max ? on : off);
         x += 14;
-        if (!mod.current)
+        if (mod.current == view.vanilla)
             p.text(x + 16, ty + 3, "(vanilla)", selected ? OnBar : DarkGrey, FontSmall);
+        else if (view.kind != ModKind::Bool)
+            p.text(x + 16, ty + 3, "vanilla " + clip(shownModValue(view, view.vanilla), 24),
+                   selected ? OnBar : DarkGrey, FontSmall);
     }
     p.rect(0, panelTop - 4, Width, 1, Rule);
     const std::vector<PanelLine> lines = onButtons() || !count ? panel(nullptr, onButtons()) : panel(&m_mods[modAt(sel)], false);

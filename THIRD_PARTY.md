@@ -88,7 +88,8 @@ is in `src/ug2/fonts/OFL.txt`.
 ## Mods tab descriptions
 
 The start-up screen's Mods tab quotes each feature's description from its mod's readme, credited to the mod's authors:
-EU Car Content's from the NFSU2 Extra Options readme, by the ExOpts Team.
+Extra Options' from the NFSU2 Extra Options readme, by the ExOpts Team, and the Visual Reputation Remover's from its
+readme, by thelink2012.
 
 ## mINI
 
@@ -114,11 +115,26 @@ carries as `launcher/LICENSES.txt`.
 
 ## NFSU2 Extra Options
 
-The EU Car Content feature, which lifts the game's regional car lock, is based on the Unlock Regional Cars option of
-[NFSU2 Extra Options](https://github.com/ExOptsTeam/NFSU2ExOpts) by the ExOpts Team (nlgxzef and others), GPLv3, and
-is switched by that mod's own settings file. The port makes the same change to the game's data that Extra Options
-makes, the 0xFF byte in each of the four region list entries (`src/ug2/mods_runtime.cpp`), and contains none of Extra
-Options' code.
+The EU Car Content feature, which lifts the game's regional car lock, and the other Extra Options settings of the
+Mods tab are based on [NFSU2 Extra Options](https://github.com/ExOptsTeam/NFSU2ExOpts) 5.1.0.1340 by the ExOpts Team
+(nlgxzef and others), GPLv3, and are switched by that mod's own settings file. The port makes the same changes to the
+game's code and data that Extra Options makes (`src/ug2/mods_runtime.cpp`, `MOD_SWITCHES` in
+`tools/recompiler/games/ug2.py`, `src/ug2/native/exopts.cpp`, `src/ug2/native/exopts_drift.cpp`), reimplemented from
+its behaviour, and contains none of Extra Options' code. The splash screen line it shows and the Mods tab's
+descriptions are quoted from the mod.
+
+The always-on fixes in `PATCHES` (`tools/recompiler/games/ug2.py`) follow the behaviour of Extra Options 5.1.0.1340's
+DamageFix and MegalowPartsFix, by the ExOpts Team; the patches are the port's own.
+
+## NFSU/NFSU2 Visual Reputation Remover
+
+The Visual Rating Removal feature of the Mods tab is based on the NFSU2 half of
+[NFSU/NFSU2 Visual Reputation Remover](https://github.com/thelink2012/novisualrep) 1.1 by thelink2012 (Denilson das
+Mercês Amorim, LINK/2012), MIT License, Copyright (c) 2015 Denilson das Mercês Amorim. The port makes the same two
+changes to the game's code (`MOD_SWITCHES` and `NATIVE_OVERRIDES` in `tools/recompiler/games/ug2.py`,
+`src/ug2/native/novisrep.cpp`, `src/ug2/native/sub_5234c0.cpp`), reimplemented from its behaviour, and contains none of
+its code. Its settings file is the port's own, as the mod has none. The Mods tab's description is quoted from the mod's
+readme.
 
 ## Need for Speed Underground 2
 

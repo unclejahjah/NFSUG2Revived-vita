@@ -5,6 +5,7 @@
 
 #include <lib/gamepad.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/log.h>
 #include <recomp.h>
 
@@ -63,7 +64,7 @@ void screenHandler(win32::WinApplication*, x86::CPU& cpu)
 // ime_test_field=type,max,text: opens the editor on a stand-in screen, as the game's screens do.
 void debugField(win32::WinApplication* app, x86::CPU& cpu)
 {
-    const char* spec = pf::Config::getString("ime_test_field", "");
+    const char* spec = NFSU_DEV_STRING("ime_test_field", "");
     if (s_debugDone || !*spec || rc::ld32(FramesRendered) < DebugFrame)
         return;
     s_debugDone = true;
@@ -130,7 +131,7 @@ void peekMessageHook(win32::WinApplication* app, x86::CPU& cpu)
 void configure(win32::WinApplication& app)
 {
     win32::Gamepad::setTextAppendOnly(true);
-    if (*pf::Config::getString("ime_test_field", ""))
+    if (*NFSU_DEV_STRING("ime_test_field", ""))
         app.registerMethod(ScreenHandler, { "test screen handler", screenHandler });
     s_peekMessage = app.replaceMethod(rc::ld32(PeekMessageSlot), peekMessageHook);
     pf::logInfo("textentry: line editor 0x%08X polled at PeekMessageA, typed back as WM_CHAR", unsigned(Editor));

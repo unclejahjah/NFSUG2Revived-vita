@@ -55,6 +55,8 @@ The port sets the Vita's CPU and GPU clocks itself, so the game runs without an 
 3. On your computer, open the game folder (the one with `SPEED2.EXE`) and copy **everything inside it**, every file
    and folder including `MOVIES`, to `ux0:data/NeedForSpeedUnderground2/` (VitaShell's FTP or USB mode works).
    `SPEED2.EXE` must end up at `ux0:data/NeedForSpeedUnderground2/SPEED2.EXE`, not in a subfolder.
+   The shorter `ux0:data/NFSU2/` works too; it is used only when `ux0:data/NeedForSpeedUnderground2/` does not exist.
+   The paths below are for the long name.
 4. Start the game from the home screen.
 
 If the game closes right away, `ux0:data/NeedForSpeedUnderground2/NeedForSpeedUnderground2.log` says what is missing.
@@ -159,17 +161,31 @@ The manager has two tabs, switched with L and R: **Mods** for PC mod features (s
 
 The start-up screen's Mods tab switches PC mod features the port has rebuilt itself, grouped by the mod they come
 from. Each feature keeps its setting in the mod's own settings file, shared with the PC game, so a PC mod
-user's file works as it is. The game is vanilla by default: with no settings file a mod is off.
+user's file works as it is. The game is vanilla by default: with no settings file a mod is off, and a key (or section)
+missing from the file leaves the game as it is for that key, unlike the PC mod, which then uses its own default. Each
+row's default is the value that leaves the game unchanged; three Extra Options keys have none (`[LapControllers]
+Minimum`, `[Drift] MaximumMultiplier`, `[Gameplay] StartingCash`), so their first choice is Vanilla, which leaves the
+key out of the file. Without the file, Save creates it with every key at that vanilla value except the ones you
+changed; with an existing file only the changed keys are changed in place (Vanilla removes the key's line), every other
+line left as it was. Numbers step with Left and Right within the mod's range, Square sets a row back to vanilla, and
+holding Select does that for the whole tab.
 
 The settings files are under the game folder, `ux0:data/NeedForSpeedUnderground2/`, and can be edited by hand.
 
 | Entry | Settings file | Needs |
 |-------|---------------|-------|
 | ExtraOptions 5.1.0.1340 by ExOpts Team: EU Car Content | `scripts/NFSU2ExtraOptionsSettings.ini`, `UnlockRegionalCars = 1` in `[Gameplay]` | `CARS/CORSA` and `CARS/PEUGOT106`, each with `GEOMETRY.BIN`, `TEXTURES.BIN`, `VINYLS.BIN` and `PARTS_ANIMATIONS.bin`, copied from a European PC copy of the game |
+| ExtraOptions 5.1.0.1340 by ExOpts Team: the options below | the same file, `[LapControllers]` `Minimum`, `Maximum`; `[Drift]` `MaximumMultiplier`, `PlusSign`, `ShowWithoutMultiplying`, `HideNiftyDriftMessages`; `[Menu]` `ShowOutrun`, `ShowSubs`, `ShowSpecialVinyls`, `AnyTrackInAnyRaceMode`, `FreeRunTrackSelect`, `OutrunTrackSelect`; `[Gameplay]` `EnableHiddenCameraModes`, `RemoveRaceBarriers`, `RemoveLockedAreaBarriers`, `ShowPercentOn1LapRaces`, `StartingCash`, `UnlockAllThings`, `NeonBrightness` | nothing more |
+| NFSU/NFSU2 Visual Reputation Remover 1.1 by thelink2012: Visual Rating Removal | `scripts/NFSU2VitaNoVisualRep.ini`, `RemoveVisualRep = 1` in `[NFSU2]`; the mod has no settings file, so the port's own | nothing more |
 
 ### Settings file
 
 With nothing changed the game runs locked to 30 frames a second, in widescreen, with the touch screen as a replacement for a mouse.
+
+Two fixes from NFSU2 Extra Options are always on and have no setting: cracked glass and other car damage show
+outside the crash camera too (DamageFix), and the Megalow performance shop shows its own scenery (MegalowPartsFix).
+Headlights can be bound in Options > Controls > Customize: each press switches the lights off, to low beam and to high
+beam. It is on D-pad down in Control Types 2 to 4; Type 1 has none by default.
 
 The first time the game starts it writes a settings file, `ux0:data/NeedForSpeedUnderground2/NeedForSpeedUnderground2.cfg`.
 Every setting in it is listed at its default behind a `#`. To change one, remove the `#` at the start of its line,
@@ -184,13 +200,12 @@ Delete the file to get a fresh copy on the next start.
 | Setting | Values | What it does |
 |---------|--------|--------------|
 | `frame_rate` | `30` (default), `0` | Locked to 30 frames a second for steady pacing, or unlocked |
-| `gfx_preset` | `vita` (default), `max` | Graphics the port is tuned for, or everything on (much slower). Can be changed in game Options -> Display|
 | `rear_touch` | `on` (default), `off` | Rear touch pad L2, R2, L3, R3 (unbound until set in Options > Controls) |
 | `garage_stick` | `on` (default), `off` | The right stick turns the car in the garage and customisation menus. `garage_stick_deadzone` (default `30`, percent, 0 to 70) tunes it. The right stick does not move menu selections |
 | `free_look_deadzone` | `30` (default), `0` to `70` | Dead zone of the right stick for free look |
 | `stick_cone_angle` | `25` (default), `0` to `45` | Steer/throttle stick: degrees off its axis that still count as a full push; `0` is the PC game's way |
-| `dev_world_lod_pixels` | `0` (default, off), a width in pixels | Experimental. Scenery narrower than this on screen uses its simpler model. `128` gives more speed; higher values show more pop-in. The old name `world_lod_pixels` still works |
-| `dev_world_min_pixels` | `0` (default, off) to `64` | Experimental. Scenery smaller than this on screen is not drawn. More speed, more pop-in. The old name `world_min_pixels` still works |
+| `dev_world_lod_pixels` | `64` (default), `0` (off), a width in pixels | Experimental. Scenery narrower than this on screen uses its simpler model. `128` gives more speed; higher values show more pop-in. The old name `world_lod_pixels` still works |
+| `dev_world_min_pixels` | `12` (default), `0` (off) to `64` | Experimental. Scenery smaller than this on screen is not drawn. More speed, more pop-in. The old name `world_min_pixels` still works |
 | `optimised_particles` | `on` (default), `off` | Cheaper tyre smoke and other particles with a picture close to the original, or exactly as the original game |
 | `music_hw_decode` | `on` (default), `off` | Music decoded by the Vita's hardware MP3 decoder instead of the game's own decoder, which frees the CPU. If the hardware decoder cannot start, the game's decoder plays it |
 | `audio_mix_rate` | `0` (default: the game's choice, 44100 with the Vita preset), `32000`, `22050` | Rate the game mixes its sound at. `32000` matches most of the game's sounds and music and needs less CPU; `22050` is cheaper still but duller |
@@ -208,9 +223,9 @@ Delete the file to get a fresh copy on the next start.
 | `skip_intro_movies` | `off` (default), `logos`, `opening` | Skip the EA, THX and notice movies at start-up, or those and the opening movie |
 | `steering` | `analog` (default), `digital` | Steering as far as the left stick is pushed, or full lock (ramped) past half way, as a keyboard |
 | `free_look_ease_back` | `on` (default), `off` | Free look: let go under 120 degrees round and the camera eases back; further round it cuts back |
-| `horn_button` | `dpad_left` (default, held), `dpad_right`, `rear_l3`, `rear_r3`, `off` | Free roam's horn |
+| `horn_button` | `off` (default: the red horn button on screen), `dpad_left` (held), `dpad_right`, `rear_l3`, `rear_r3` | Free roam's horn |
 | `drift_button` | `dpad_right` (default, held), `dpad_left`, `rear_r3`, `rear_l3`, `off` | Free roam's drift mode switch |
-| `quick_chat_button` | `dpad_down` (default), `dpad_up`, `triangle`, `select` | The button held for free roam's quick chat |
+| `quick_chat_button` | `triangle` (default), `dpad_down`, `dpad_up`, `select` | The button held for free roam's quick chat |
 | `crash_report` | `on` (default), `off` | Write a crash report when the game crashes (see [Crash reports](#crash-reports)) |
 | `stall_seconds` | `8` (default), seconds | How long without a frame before a freeze report is written |
 
@@ -237,8 +252,15 @@ All of these are in Vita Settings (Controller and Game) and in the settings file
   GPS system?": the car is put there. Yes sets the GPS route as before. As the PC mod NFSU2FastTravel does it.
 - **Skip intro movies:** `logos` skips the EA, THX and notice movies, `opening` the opening movie too.
 
-The graphics settings can be changed in the game's own Display menu, and they are kept between sessions. The
-resolution stays at 960x544. 
+The Language row of the start-up screen's Config tab picks the game's language: `default` is the game's own, or
+`french`, `german`, `italian`, `spanish`, `dutch`, `swedish`, `danish`, `korean`, `chinese` or `japanese`. It is kept
+in `registry.txt` (the `Language` value, which the game reads itself), not in the settings file. A language is used
+only if the game folder has its `LANGUAGES/<NAME>.BIN` and `memcard/LOCALE_<NAME>.loc`, copied from a PC copy of the
+game that has them; if not, the game starts in its default language and `registry.txt` keeps your choice.
+
+
+The first start writes graphics values tuned for the Vita. The game's own Display menu changes them, and they are
+kept between sessions. The resolution stays at 960x544.
 
 ## Online and LAN play
 
@@ -290,7 +312,7 @@ On top of the PC plugin, the Vita draws what the browser version's page does:
 
 #### Quick chat
 
-Hold D-pad Down (`quick_chat_button`) in free roam: the top line shows the six phrases. Press Up, Left, Right,
+Hold Triangle (`quick_chat_button`) in free roam: the top line shows the six phrases. Press Up, Left, Right,
 Cross, Circle or Square to send one (by default Hey!, Thanks!, Race?, Follow me!, gg, Nice car!). It shows after
 your name on other players' screens, and as "You: ..." on yours. The phrases are nfsu2.xyz's list; pick them in Vita
 Settings > Social or as `Say1` to `Say6` in the ini. With `quick_chat_button=select` they are Select +
@@ -370,6 +392,16 @@ build you hand out: the addresses only make sense with the matching one.
 - Online play is new: the Vita cannot host a race yet (it needs `server.dll`), and other players' cars loading in
   free roam still cause short dips; see [Status and limits](#status-and-limits).
 - Sound bug where sometimes the music continues playing after entering the pause menu or changing scenes.
+
+### NFSU2 Extra Options
+
+With its settings file in place the game works as with Extra Options 5.1.0.1340 on the PC for the options in the Mods
+tab table, for each key the file has: a key that is missing leaves the game as it is, including the changes the mod
+would make whatever the key says (the lap limits, the drift multiplier's thresholds and score factor, the game region,
+the starting cash of a new career, the neon brightness). The hotkeys, the weather, sound and window options and the rest stay unsupported and are
+never read. The port changes the same game code and data the mod changes, and reads the values the same way: a key
+that is not a number takes the mod's code default, a decimal that is not a number reads as 0. `AnyTrackInAnyRaceMode`
+and `UnlockAllThings` are read at start-up only; there is no hotkey.
 
 ## Build
 

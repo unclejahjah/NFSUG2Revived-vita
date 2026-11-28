@@ -1,5 +1,6 @@
 #include <platform/limiter.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/log.h>
 #include <platform/perf.h>
 
@@ -12,7 +13,9 @@
 
 namespace pf { namespace limiter {
 
+#ifdef DEV_SETTINGS
 bool g_on = false;
+#endif
 
 namespace
 {
@@ -32,7 +35,7 @@ struct SceneSum
 const uint32_t MaxScenes = 48;
 SceneSum s_scenes[MaxScenes];   // render thread
 uint32_t s_sceneCount = 0;
-bool s_sceneFinish = false;
+NFSU_DEV_VAR(bool, s_sceneFinish, false);
 uint64_t s_gameCpu = 0;         // game thread
 uint32_t s_gameGeneration = 0;
 
@@ -46,8 +49,10 @@ double per(Sum sum, Sum count)
 
 void init()
 {
-    g_on = Config::getBool("limiter_log", false);
-    s_sceneFinish = g_on && Config::getBool("debug_scene_finish", false);
+#ifdef DEV_SETTINGS
+    g_on = pf::Config::getBool("limiter_log", false);
+#endif
+    NFSU_DEV_SET(s_sceneFinish, g_on && NFSU_DEV_BOOL("debug_scene_finish", false));
     if (s_sceneFinish)
         logInfo("limiter: debug: GPU finished after every scene (debug_scene_finish): frame times are not normal");
     if (g_on)

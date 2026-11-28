@@ -6,6 +6,7 @@
 
 #include <lib/heap.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/log.h>
 #include <platform/perf.h>
 #include <recomp.h>
@@ -94,8 +95,8 @@ struct Saved
 };
 
 bool s_enabled = false;
-bool s_stats = false;                   // dev_cull_stats
-bool s_check = false;                   // audio_cull_check: decide and measure, skip nothing
+NFSU_DEV_VARC(bool, s_stats, false, false);                   // dev_cull_stats
+NFSU_DEV_VARC(bool, s_check, false, false);                   // audio_cull_check: decide and measure, skip nothing
 float s_threshold = 0.0f;               // linear gain
 reg32 s_fs = 0;                         // thread running the voice render, else 0
 bool s_skip = false;                    // inside a resampler module of a silent voice
@@ -396,11 +397,11 @@ bool enabled()
 void configure(win32::WinApplication& app)
 {
     const char* const text = pf::Config::getString("audio_silence_db", "-60");
-    s_stats = pf::Config::getBool("dev_cull_stats", false);
-    s_check = pf::Config::getBool("audio_cull_check", false);
-    if (pf::Config::getBool("audio_selftest", false))
+    NFSU_DEV_SET(s_stats, NFSU_DEV_BOOL("dev_cull_stats", false));
+    NFSU_DEV_SET(s_check, NFSU_DEV_BOOL("audio_cull_check", false));
+    if (NFSU_DEV_BOOL("audio_selftest", false))
         selfTest(app);
-    if (pf::Config::getBool("audio_snd_yield", false))
+    if (NFSU_DEV_BOOL("audio_snd_yield", false))
     {
         pf::logInfo("audio cull: off while audio_snd_yield is on");
         return;
@@ -427,7 +428,7 @@ void configure(win32::WinApplication& app)
     s_filter[2] = app.replaceMethod(0x72a9b3, &filterHook<2>);
     s_filter[3] = app.replaceMethod(0x72aa55, &filterHook<3>);
     s_cubicOriginal = app.replaceMethod(0x733388, &cubicHook);
-    s_stats = s_stats || s_check;
+    NFSU_DEV_SET(s_stats, s_stats || s_check);
     pf::logInfo("audio cull: voices under %.1f dB (gain %.6f) skip resampler, filters and mix (audio_silence_db)", db,
                 double(s_threshold));
 }

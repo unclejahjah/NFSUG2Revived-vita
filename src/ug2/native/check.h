@@ -7,6 +7,7 @@
 #include <native/shadow.h>
 #include <platform/cached.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 
 #include <atomic>
 
@@ -23,7 +24,7 @@ struct Stats
 // True with phys_native_check=on.
 inline bool enabled()
 {
-    return pf::cachedStatic([] { return pf::Config::getBool("phys_native_check", false); });
+    return NFSU_DEV_BOOL_CACHED("phys_native_check", false);
 }
 
 void compare(Stats& stats, x86::reg8 registers, win32::WinApplication* app, x86::CPU& cpu, shadow::Body native,

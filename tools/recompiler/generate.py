@@ -102,43 +102,9 @@ def apply_patches(image):
 
 
 def mod_switches(image, cs, program):
-    """Instruction address -> (the mod's instruction, C++ flag) for GAME.MOD_SWITCHES; both must have equal effects."""
-    from disasm.codegen import ctx as C
-    switches = {}
-    for address, original, patched, flag in getattr(GAME, 'MOD_SWITCHES', []):
-        original, patched = bytes.fromhex(original), bytes.fromhex(patched)
-        if len(original) != len(patched) or image.read(address, len(original)) != original:
-            sys.exit('mod switch 0x%x: bytes %s, expected %s'
-                     % (address, image.read(address, len(original)).hex(), original.hex()))
-        sites = [(fn, i, ins) for fn in program.functions.values() for i, ins in enumerate(fn.instructions)
-                 if ins.size and ins.address <= address < ins.address + ins.size]
-        if not sites:
-            sys.exit('mod switch 0x%x: no generated instruction holds it' % address)
-        for fn, i, ins in sites:
-            offset = address - ins.address
-            data = image.read(ins.address, ins.size)
-            data = data[:offset] + patched + data[offset + len(patched):]
-            mod = next(cs.disasm(data, ins.address), None)
-            if mod is None or mod.size != ins.size or mod.mnemonic != ins.mnemonic or fn.exits[i] or \
-                    mnemonic_is_control(ins):
-                sys.exit('mod switch 0x%x: %s %s -> %s, only same-length operand edits of plain instructions'
-                         % (address, ins.mnemonic, ins.op_str, mod and '%s %s' % (mod.mnemonic, mod.op_str)))
-            effects = []
-            for candidate in (ins, mod):
-                ctx = C.Ctx(fn, {}, record=True)
-                ctx.begin(i)
-                ctx.ins = candidate
-                codegen.generate(ctx, candidate)
-                effects.append(tuple(getattr(ctx.effects, k) for k in C.Effects.__slots__))
-            if effects[0] != effects[1]:
-                sys.exit('mod switch 0x%x: the mod\'s instruction reads or writes other registers or flags' % address)
-            switches[ins.address] = (mod, flag)
-    return switches
-
-
-def mnemonic_is_control(ins):
-    return ins.mnemonic.split()[-1] in ('call', 'ret', 'jmp', 'loop', 'loope', 'loopne', 'jecxz') or \
-        ins.mnemonic.startswith('j')
+    """GAME.MOD_SWITCHES as modswitch.Switch objects (disasm/modswitch.py)."""
+    from disasm import modswitch
+    return modswitch.build(image, cs, program, getattr(GAME, 'MOD_SWITCHES', []))
 
 
 def simd_range(address):

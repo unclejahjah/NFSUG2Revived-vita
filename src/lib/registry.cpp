@@ -1,6 +1,7 @@
 #include <lib/registry.h>
 #include <lib/guest.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/log.h>
 #include <platform/sync.h>
 #include <algorithm>
@@ -18,6 +19,10 @@ struct Value
     std::string             name;
     x86::reg32              type;
     std::vector<x86::reg8>  data;
+    bool                    temporary = false;      // set for this run only: the file keeps kept, if there is one
+    bool                    keptExists = false;
+    x86::reg32              keptType = 0;
+    std::vector<x86::reg8>  kept;
 };
 
 struct Key
@@ -54,6 +59,7 @@ const size_t s_rootCount = sizeof(s_rootNames) / sizeof(s_rootNames[0]);
 Key s_roots[s_rootCount];
 pf::LwMutex s_mutex("registry", true);
 std::string s_path;
+bool s_existed = false;                 // registry.txt was there at load
 
 Key* child(Key* parent, const std::string& name, bool create)
 {
@@ -94,8 +100,10 @@ void writeKey(FILE* file, const Key* key)
         fprintf(file, "[%s]\n", pathOf(key).c_str());
         for (const Value& v : key->values)
         {
-            fprintf(file, "%s\t%u\t", v.name.c_str(), unsigned(v.type));
-            for (x86::reg8 b : v.data)
+            if (v.temporary && !v.keptExists)
+                continue;
+            fprintf(file, "%s\t%u\t", v.name.c_str(), unsigned(v.temporary ? v.keptType : v.type));
+            for (x86::reg8 b : v.temporary ? v.kept : v.data)
                 fprintf(file, "%02x", b);
             fputc('\n', file);
         }
@@ -124,10 +132,11 @@ void store(Key* key, const std::string& name, x86::reg32 type, const void* data,
     Value* v = findValue(key, name);
     if (!v)
     {
-        key->values.push_back(Value{name, type, {}});
+        key->values.push_back(Value{name, type, {}, false, false, 0, {}});
         v = &key->values.back();
     }
     v->type = type;
+    v->temporary = false;
     const x86::reg8* bytes = static_cast<const x86::reg8*>(data);
     v->data.assign(bytes, bytes + size);
 }
@@ -145,7 +154,7 @@ struct Setting
     x86::reg32  value;
 };
 
-// Graphics options of SPEED2.EXE (read at 0x5BEA20), set when the cfg preset changes.
+// Graphics options of SPEED2.EXE (read at 0x5BEA20), set on first launch.
 const Setting s_settings[] = {
     { "VERSION", 1 },
     { "SIZE", 0x78 },
@@ -178,7 +187,7 @@ const Setting s_settings[] = {
     { "g_VSyncOn", 0 },
 };
 
-// gfx_preset=vita without gfx_level: the defaults a new install starts with.
+// The defaults a new install starts with (without gfx_level).
 const Setting s_vitaSettings[] = {
     { "g_CarEnvironmentMapEnable", 2 },
     { "g_CarEnvironmentMapUpdateData", 1 },
@@ -195,32 +204,6 @@ const Setting s_vitaSettings[] = {
     { "g_PerformanceLevel", 2 },
     { "g_RoadReflectionEnable", 1 },
     { "g_WorldLodLevel", 2 },
-};
-
-// gfx_preset=max: the highest values of preset 0x5BE870 and caps 0x5BE200; clamp 0x5BE690 may lower them.
-const Setting s_maxSettings[] = {
-    { "g_CarEnvironmentMapEnable", 3 },
-    { "g_CarEnvironmentMapUpdateData", 1 },
-    { "g_CarShadowEnable", 2 },
-    { "g_CarHeadlightEnable", 1 },
-    { "g_CarLightingEnable", 1 },
-    { "g_CarDamageEnable", 1 },
-    { "g_CrowdEnable", 1 },                     // boot_crowd overrides it in a boot race
-    { "g_RoadReflectionEnable", 3 },
-    { "g_MotionBlurEnable", 1 },
-    { "g_LightStreaksEnable", 1 },
-    { "g_LightGlowEnable", 1 },
-    { "g_ParticleSystemEnable", 1 },
-    { "g_DepthOfFieldEnable", 1 },
-    { "g_WorldLodLevel", 3 },                   // 2 and 3 are the same detail (0x5BE1C0, 0x5D28F9)
-    { "g_CarLodLevel", 1 },                     // high-detail car models
-    { "g_OverBrightEnable", 1 },
-    { "g_BleachByPassEnable", 1 },
-    { "g_TintingEnable", 1 },
-    { "g_FSAALevel", 4 },                       // clamped to the cap 2 (4x), as the game's top Level of Detail
-    { "g_HorizonFogEnable", 1 },
-    { "g_TextureFiltering", 2 },                // anisotropic where the caps allow
-    { "g_PerformanceLevel", 5 },
 };
 
 // gfx_level=1..5 (measurement): the game's preset 0x5BE870 for that Level of Detail; the last match at or below wins.
@@ -244,7 +227,7 @@ const LevelSetting s_levelSettings[] = {
     { "g_TextureFiltering", 5, 2 }, { "g_CarEnvironmentMapEnable", 5, 3 },
 };
 
-// gfx_set=name:value,...: development overrides on top of the preset.
+// gfx_set=name:value,...: development overrides on top of the Vita values.
 bool overrideValue(const char* list, const char* name, x86::reg32* value)
 {
     const size_t length = strlen(name);
@@ -263,7 +246,7 @@ bool overrideValue(const char* list, const char* name, x86::reg32* value)
     return false;
 }
 
-x86::reg32 settingValue(const Setting& s, bool max, int level, const char* overrides)
+x86::reg32 settingValue(const Setting& s, int level, const char* overrides)
 {
     x86::reg32 value = s.value;
     if (overrideValue(overrides, s.name, &value))
@@ -273,10 +256,6 @@ x86::reg32 settingValue(const Setting& s, bool max, int level, const char* overr
     for (const LevelSetting& l : s_levelSettings)
         if (l.from <= level && strcmp(l.name, s.name) == 0)
             value = l.value;
-    if (max)
-        for (const Setting& m : s_maxSettings)
-            if (strcmp(m.name, s.name) == 0)
-                return m.value;
     if (!level)
         for (const Setting& v : s_vitaSettings)
             if (strcmp(v.name, s.name) == 0)
@@ -286,10 +265,10 @@ x86::reg32 settingValue(const Setting& s, bool max, int level, const char* overr
 
 }
 
-// The cfg preset last applied, "<preset>;<gfx_set>"; the game ignores unknown values.
+// The values last applied, "vita<level>;<gfx_set>"; the game ignores unknown values.
 const char PresetMarker[] = "NFSU2VITA graphics preset";
 
-// Install values the game reads; the cfg preset replaces saved settings only when it changes.
+// Install values the game reads; the Vita graphics values go in only on first launch.
 static void seedDefaults()
 {
     Key* game = find(root(HKEY_LOCAL_MACHINE), "Software\\EA Games\\Need for Speed Underground 2", true);
@@ -300,27 +279,30 @@ static void seedDefaults()
     // Without NotFirstTime the game replaces the settings with its detected preset (0x5CEC90).
     const x86::reg32 notFirstTime = 1;
     setDefault(game, "NotFirstTime", REG_DWORD, &notFirstTime, sizeof(notFirstTime));
-    const char* preset = pf::Config::getString("gfx_preset", "vita");
-    const bool max = strcmp(preset, "max") == 0;
-    if (!max && strcmp(preset, "vita") != 0)
-        pf::logError("registry: gfx_preset %s unknown, using vita", preset);
-    const char* overrides = pf::Config::getString("gfx_set", "");
-    const int level = max ? 0 : std::min(5, std::max(0, pf::Config::getInt("gfx_level", 0)));
-    const std::string applied = std::string(max ? "max" : "vita") + (level ? std::to_string(level) : "") + ";" + overrides;
+    const char* overrides = NFSU_DEV_STRING("gfx_set", "");
+    const int level = std::min(5, std::max(0, NFSU_DEV_INT("gfx_level", 0)));
+    const std::string tail = (level ? std::to_string(level) : "") + ";" + overrides;
+    const std::string applied = "vita" + tail;
     {
         pf::LwLockGuard guard(s_mutex);
         const Value* last = findValue(game, PresetMarker);
-        const bool same = last && std::string(last->data.begin(), last->data.end()) == applied + '\0';
+        const std::string saved = last ? std::string(last->data.begin(), last->data.end()) : std::string();
+        const size_t name = saved.find_first_not_of("abcdefghijklmnopqrstuvwxyz");
+        const bool changed = last && name != std::string::npos && saved.substr(name) != tail + '\0';
+        const bool firstLaunch = !s_existed || !findValue(game, "VERSION");
+        const bool apply = firstLaunch || changed;
         for (const Setting& s : s_settings)
         {
-            const x86::reg32 value = settingValue(s, max, level, overrides);
-            if (!same || !findValue(game, s.name))
+            const x86::reg32 value = settingValue(s, level, overrides);
+            if (apply || !findValue(game, s.name))
                 store(game, s.name, REG_DWORD, &value, sizeof(value));
         }
-        store(game, PresetMarker, REG_SZ, applied.c_str(), x86::reg32(applied.size() + 1));
+        if (apply || !last)
+            store(game, PresetMarker, REG_SZ, applied.c_str(), x86::reg32(applied.size() + 1));
         save();
-        pf::logInfo("registry: graphics preset %s, level %d (gfx_level)%s%s: %s", max ? "max" : "vita", level,
-                    *overrides ? ", overrides " : "", overrides, same ? "unchanged, the saved settings (Display menu) kept" : "applied over the saved settings");
+        pf::logInfo("registry: graphics level %d (gfx_level)%s%s: %s", level, *overrides ? ", overrides " : "", overrides,
+                    apply ? (firstLaunch ? "Vita values written, first launch" : "applied over the saved settings")
+                          : "the saved settings (Display menu) kept");
     }
     // ~MHz spares the EA clock (0x6F5E41) its one-second busy-wait measurement.
     const x86::reg32 mhz = x86::TimestampMhz;
@@ -344,6 +326,7 @@ static void loadFile(const char* path)
     }
     s_path = path;
     FILE* file = fopen(path, "r");
+    s_existed = file != nullptr;
     if (!file)
         return;
     Key* key = nullptr;
@@ -415,6 +398,27 @@ void setValue(Key* key, const std::string& name, x86::reg32 type, const void* da
     pf::LwLockGuard guard(s_mutex);
     store(key, name, type, data, size);
     save();
+}
+
+void setOverride(Key* key, const std::string& name, x86::reg32 type, const void* data, x86::reg32 size)
+{
+    pf::LwLockGuard guard(s_mutex);
+    Value* v = findValue(key, name);
+    if (!v)
+    {
+        key->values.push_back(Value{name, type, {}, false, false, 0, {}});
+        v = &key->values.back();
+    }
+    else if (!v->temporary)
+    {
+        v->kept = v->data;
+        v->keptType = v->type;
+        v->keptExists = true;
+    }
+    v->temporary = true;
+    v->type = type;
+    const x86::reg8* bytes = static_cast<const x86::reg8*>(data);
+    v->data.assign(bytes, bytes + size);
 }
 
 void setDefault(Key* key, const std::string& name, x86::reg32 type, const void* data, x86::reg32 size)

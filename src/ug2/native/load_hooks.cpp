@@ -7,6 +7,7 @@
 #include <textures.h>
 
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/gxm.h>
 #include <platform/perf.h>
 #include <recomp.h>
@@ -32,7 +33,7 @@ void sub_574670(win32::WinApplication* app, x86::CPU& cpu)
 // Texture creation of a texture record (thiscall).
 void sub_5ce170(win32::WinApplication* app, x86::CPU& cpu)
 {
-    static const bool batch = pf::Config::getBool("texture_batch", true);
+    static const bool batch = NFSU_DEV_BOOL("texture_batch", true);
     textures::creating();
     if (batch)
         pf::gxm::Device::get().beginUploads();

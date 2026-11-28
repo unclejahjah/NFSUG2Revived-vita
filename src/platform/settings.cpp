@@ -16,10 +16,12 @@ const unsigned DS = SettingNeedsDevSettings, DT = SettingNeedsDevTools, OFF = Se
                HOST = SettingHostOnly, SHADOWBUILD = SettingNeedsShadowBuild,
                SECRET = SettingSecret;
 
-#define BOOL(key, grp, def, desc, flags) { key, T::Bool, G::grp, def, 0, 1, 1, nullptr, desc, flags }
-#define INT(key, grp, def, lo, hi, step, desc, flags) { key, T::Int, G::grp, def, lo, hi, step, nullptr, desc, flags }
-#define ENUM(key, grp, def, names, desc, flags) { key, T::Enum, G::grp, def, 0, 0, 0, names, desc, flags }
-#define STR(key, grp, def, desc, flags) { key, T::String, G::grp, 0, 0, 0, 0, def, desc, flags }
+// Every Developer setting is read only in a DEV_SETTINGS build; a release build ignores it.
+#define DEVONLY(group) ((group) == G::Developer ? SettingNeedsDevSettings : 0u)
+#define BOOL(key, grp, def, desc, flags) { key, T::Bool, G::grp, def, 0, 1, 1, nullptr, desc, flags | DEVONLY(G::grp) }
+#define INT(key, grp, def, lo, hi, step, desc, flags) { key, T::Int, G::grp, def, lo, hi, step, nullptr, desc, flags | DEVONLY(G::grp) }
+#define ENUM(key, grp, def, names, desc, flags) { key, T::Enum, G::grp, def, 0, 0, 0, names, desc, flags | DEVONLY(G::grp) }
+#define STR(key, grp, def, desc, flags) { key, T::String, G::grp, 0, 0, 0, 0, def, desc, flags | DEVONLY(G::grp) }
 #define NATIVE(key, what) BOOL(key, Developer, 1, "Native version of " what "; off runs the translated original.", DS)
 #define NATIVE_ALWAYS(key, what) BOOL(key, Developer, 1, "Native version of " what "; off runs the translated original.", 0)
 #define FAST(key, what) BOOL(key, Developer, 1, "Fast path for " what "; off uses the plain one.", DS)
@@ -28,6 +30,7 @@ const Setting s_table[] =
 {
     // ---- General ----
     BOOL("show_configurator_on_boot", General, 1, "Show the start-up screen (press START to configure) before the game boots.", 0),
+    ENUM("language", General, 0, "default|french|german|italian|spanish|dutch|swedish|danish|korean|chinese|japanese", "The game's language, kept in registry.txt; default is the game's own. Missing files fall back to it.", SettingRegistry),
     BOOL("log_info", General, 0, "Write a detailed log to NeedForSpeedUnderground2.log. Errors are logged either way.", 0),
     BOOL("fast_travel", General, 1, "On the World Map, No on the GPS question puts the car at the chosen place (NFSU2FastTravel).", 0),
     BOOL("options_menu", General, 1, "The Vita Settings icon in the game's menus (main menu and Options), and Select + Up opens it.", 0),
@@ -39,9 +42,12 @@ const Setting s_table[] =
     STR("revived_passphrase", General, "", "Your nfsu2.xyz passphrase, to play under the name it claimed. Never shown or logged.", SECRET),
     STR("online_server", General, "eahub.eu", "network=direct: the community server the Online menu uses, or off.", 0),
 
+    // ---- General: crash and freeze reports (src/platform/crashlog.cpp, src/platform/stall.cpp) ----
+    BOOL("crash_report", General, 1, "Write a crash report to the crashes folder when the game crashes (needs kubridge.skprx for registers).", 0),
+    INT("stall_seconds", General, 8, 1, 600, 1, "Seconds without a frame before a stall is reported.", 0),
+
     // ---- Display ----
     ENUM("frame_rate", Display, 0, "30|60|0", "30 locks to 30 fps for steady pacing; 60 shows each frame for one vblank; 0 unlocks.", 0),
-    ENUM("gfx_preset", Display, 0, "vita|max", "Graphics the port is tuned for, or everything on (much slower). The Display menu changes them.", 0),
     ENUM("skip_intro_movies", Display, 0, "off|logos|opening", "Skip the start-up movies: off plays them; logos skips EA, THX and the notice; opening skips the opening movie too.", 0),
     ENUM("movies", Display, 0, "vp6preferred|vp6only", "vp6preferred: converted .mp4 if present, else native VP6; vp6only: always native VP6.", 0),
 
@@ -69,12 +75,12 @@ const Setting s_table[] =
 
     // ---- Performance ----
     BOOL("optimised_particles", Performance, 1, "Cheaper tyre smoke and particles, close to the original picture; off is as the original.", 0),
-    INT("dev_world_lod_pixels", Performance, 0, 0, 100000, 16, "Scenery narrower than this many pixels uses its simpler model. 0 is off; 128 is faster.", 0),
-    INT("dev_world_lod_min_tris", Performance, 24, 0, 100000, 4, "Models with fewer triangles keep their full detail under dev_world_lod_pixels.", 0),
+    INT("dev_world_lod_pixels", Performance, 64, 0, 100000, 16, "Scenery narrower than this many pixels uses its simpler model. 0 is off; 64 by default.", 0),
+    INT("dev_world_lod_min_tris", Performance, 48, 0, 100000, 4, "Models with fewer triangles keep their full detail under dev_world_lod_pixels.", 0),
     INT("dev_world_lod_max_percent", Performance, 75, 0, 100, 5, "Most of a model's triangles its simpler model may keep, in percent.", 0),
-    INT("dev_world_lod_min_width", Performance, 0, 0, 10000, 10, "Scenery types narrower than this many metres keep their full model.", 0),
-    BOOL("dev_world_lod_signs", Performance, 1, "Signs (XS_ models) also use the simpler model; off keeps every sign at full detail.", 0),
-    INT("dev_world_min_pixels", Performance, 0, 0, 64, 1, "Scenery smaller than this many pixels is not drawn. 0 is off, 64 the most; more pop-in.", 0),
+    INT("dev_world_lod_min_width", Performance, 10, 0, 10000, 10, "Scenery types narrower than this many metres keep their full model.", 0),
+    BOOL("dev_world_lod_signs", Performance, 0, "Signs (XS_ models) also use the simpler model; off keeps every sign at full detail.", 0),
+    INT("dev_world_min_pixels", Performance, 12, 0, 64, 1, "Scenery smaller than this many pixels is not drawn. 0 is off, 64 the most; 12 by default; more pop-in.", 0),
     BOOL("dev_world_min_pixels_lights", Performance, 1, "Models with light markers are never culled by dev_world_min_pixels; off culls them too.", 0),
     INT("dev_reflection_min_pixels", Performance, 0, 0, 64, 1, "dev_world_min_pixels for the reflection and other views; auto uses the world value.", AUTO),
     BOOL("use_core3", Performance, 1, "Use the Vita's third CPU core when it can be unlocked.", 0),
@@ -86,8 +92,8 @@ const Setting s_table[] =
     BOOL("ui_log", Developer, 0, "Log the user interface positions the game sets.", 0),
     BOOL("ps2_prompts", Developer, 1, "PS2-style prompts: button icons in every menu text and Help on Triangle; off is the PC menus.", 0),
     BOOL("pad_log", Developer, 0, "Log the pad bindings and the buttons pressed.", 0),
-    INT("free_look_swing", Developer, 180, 0, 2000, 10, "Free look: degrees a second the camera swings to aims less than 90 from ahead; 0 snaps.", 0),
-    BOOL("free_look_release_swing", Developer, 0, "Free look: letting go swings back to the chase view instead of snapping.", 0),
+    INT("free_look_swing", Controls, 180, 0, 2000, 10, "Free look: degrees a second the camera swings to aims less than 90 from ahead; 0 snaps.", SettingCfgOnly),
+    BOOL("free_look_release_swing", Controls, 0, "Free look: letting go swings back to the chase view instead of snapping.", SettingCfgOnly),
     STR("pad_script", Developer, "", "Scripted pad input for tests.", 0),
     BOOL("boot_race", Developer, 0, "Skip the menus and start a test race.", 0),
     ENUM("boot_mode", Developer, 0, "race|url|drag|drift|freeroam", "Kind of race boot_race starts.", 0),
@@ -124,8 +130,8 @@ const Setting s_table[] =
     INT("fe_scan_every", Developer, 0, 0, 100000, 100, "Frames between fe_scan_file scans.", 0),
     STR("fe_gfx_apply", Developer, "", "A live Display menu change: name:value,...", 0),
     INT("fe_gfx_apply_delay", Developer, 300, 0, 10000, 100, "Frames before fe_gfx_apply is applied.", 0),
-    STR("movies_skip", Developer, "0", "Movies to skip, by number.", 0),
-    STR("movies_dir", Developer, "", "Folder of the converted movies; empty uses the default.", 0),
+    STR("movies_skip", Display, "0", "Ends each movie after this many seconds; 0 plays them whole.", SettingCfgOnly),
+    STR("movies_dir", Display, "", "Folder of the converted movies; empty uses the default.", SettingCfgOnly),
     STR("movies_selftest", Developer, "", "Self-test of the movie decoder on this file.", 0),
     STR("movies_vp6_selftest", Developer, "", "Self-test of the native VP6 decoder on this file.", 0),
     BOOL("movies_vp6_worker", Developer, 1, "Decode VP6 movies ahead on a worker thread; off decodes on the game thread.", DS),
@@ -142,13 +148,12 @@ const Setting s_table[] =
     INT("promote_hi", Developer, -1, -1, 0x7fffffff, 1, "Last function whose slots stay in locals; -1 is no limit.", 0),
 
     // ---- Developer: logs, timing, stalls ----
-    BOOL("crash_report", Developer, 1, "Write a crash report to the crashes folder when the game crashes (needs kubridge.skprx for registers).", 0),
     BOOL("console_log", Developer, 0, "Also print the log to the console.", 0),
     BOOL("log_async", Developer, 1, "Write the log on another thread.", 0),
     BOOL("memory_log", Developer, 0, "Log memory use.", 0),
     INT("memory_log_seconds", Developer, 10, 1, 600, 1, "Seconds between memory log lines.", 0),
-    BOOL("timing_log", Developer, 0, "Log frame timing.", 0),
-    INT("timing_interval", Developer, 5000, 250, 60000, 250, "Milliseconds between timing log lines.", 0),
+    BOOL("timing_log", General, 0, "Log frame timing.", SettingCfgOnly),
+    INT("timing_interval", General, 5000, 250, 60000, 250, "Milliseconds between timing log lines.", SettingCfgOnly),
     BOOL("hitch_log", Developer, 0, "Log frames that take much longer than the average.", DT),
     BOOL("scene_log", Developer, 0, "Log the scenery drawn.", DT),
     INT("scene_log_frames", Developer, 0, 0, 100000, 10, "Frames between scene log reports; 0 reports every frame.", DT),
@@ -156,7 +161,6 @@ const Setting s_table[] =
     BOOL("dev_cull_stats", Developer, 0, "Count the silent voices skipped and report it.", 0),
     BOOL("dev_snd_watch", Developer, 0, "Watch how long the game's sound lock is held.", 0),
     BOOL("stall_report", Developer, 1, "Report when the game stops presenting frames.", 0),
-    INT("stall_seconds", Developer, 8, 1, 600, 1, "Seconds without a frame before a stall is reported.", 0),
     BOOL("stall_direct", Developer, 0, "Stall reports bypass the log lock.", 0),
     INT("stall_heartbeat", Developer, 0, 0, 600, 1, "Seconds between heartbeat lines; 0 is off.", 0),
     INT("stall_priority", Developer, 0, 0, 255, 1, "Priority of the stall watcher thread.", AUTO),
@@ -165,11 +169,11 @@ const Setting s_table[] =
     BOOL("stall_power_tick", Developer, 0, "Keep the system from idling into standby.", 0),
     BOOL("limiter_log", Developer, 0, "Log the frame limiter's timing.", 0),
     BOOL("wait_probe", Developer, 0, "Log long waits in the Windows wait functions.", 0),
-    BOOL("sampler", Developer, 0, "Record a sampling profile.", 0),
-    INT("sampler_interval_us", Developer, 1000, 200, 100000, 100, "Microseconds between samples.", 0),
-    BOOL("sampler_copies", Developer, 0, "Copy the sampled stacks.", 0),
-    ENUM("sampler_thread", Developer, 0, "game|mixer|io", "Thread the sampler watches.", 0),
-    BOOL("sampler_from_race", Developer, 0, "Start sampling when a race starts.", 0),
+    BOOL("sampler", General, 0, "Record a sampling profile.", SettingCfgOnly),
+    INT("sampler_interval_us", General, 1000, 200, 100000, 100, "Microseconds between samples.", SettingCfgOnly),
+    BOOL("sampler_copies", General, 0, "Copy the sampled stacks.", SettingCfgOnly),
+    ENUM("sampler_thread", General, 0, "game|mixer|io", "Thread the sampler watches.", SettingCfgOnly),
+    BOOL("sampler_from_race", General, 0, "Start sampling when a race starts.", SettingCfgOnly),
 
     // ---- Developer: benchmark ----
     BOOL("benchmark_exit", Developer, 0, "Quit when the benchmark ends.", DT),
@@ -352,7 +356,7 @@ const Setting s_table[] =
 
 // Keys that no longer exist: a cfg line for one is skipped without a message.
 const char* const s_retired[] = { "front_touch", "widescreen", "control_type", "custom_binds", "left_stick_mode", "right_stick_mode",
-                                  "dpad_mode", "free_look",
+                                  "dpad_mode", "free_look", "gfx_preset",
                                   "left_stick_deadzone", "left_stick_saturation", "left_stick_sensitivity", "right_stick_deadzone",
                                   "right_stick_saturation", "right_stick_sensitivity",
                                   // the fork's own, replaced by 0.9.0's stick rows (stick_deadzone and

@@ -5,6 +5,7 @@
 
 #include <lib/memmap.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/log.h>
 #include <recomp.h>
 #include <x86.h>
@@ -51,7 +52,7 @@ struct Spec
     reg32       block;      // bytes from the argument the function may write (bank_lib_check compares them)
 };
 
-bool s_check = false;
+NFSU_DEV_VARC(bool, s_check, false, false);
 win32::WinApplication* s_app = nullptr;
 
 inline reg32 argument(reg32 esp)
@@ -522,7 +523,7 @@ inline reg32 run(x86::CPU& cpu, reg32 eax, reg32& ecx, reg32& edx, reg32 esp)
 void configure(win32::WinApplication* app)
 {
     s_app = app;
-    s_check = pf::Config::getBool("bank_lib_check", false);
+    NFSU_DEV_SET(s_check, NFSU_DEV_BOOL("bank_lib_check", false));
     if (s_check)
         pf::logInfo("bank_lib_check: %d native library functions compared with their translations", SpecCount);
 }

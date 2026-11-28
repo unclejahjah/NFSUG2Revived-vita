@@ -7,6 +7,7 @@
 
 #include <lib/memmap.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/log.h>
 #include <recomp.h>
 
@@ -103,7 +104,7 @@ bool devLog()
 #ifdef DEV_TOOLS
     return true;
 #else
-    return pf::Config::getBool("pad_log", false);
+    return NFSU_DEV_BOOL("pad_log", false);
 #endif
 }
 
@@ -288,7 +289,7 @@ void showInGame(win32::WinApplication* app, x86::CPU& cpu, reg32 package)
 
 void install()
 {
-    if (!pf::Config::getBool("ps2_prompts", true))
+    if (!NFSU_DEV_BOOL("ps2_prompts", true))
         return;
     ownscreens::addReplacement(Bar, [](fepackage::Package& bar)
     {
@@ -341,7 +342,7 @@ void install()
 
 void beforeFill(win32::WinApplication* app, x86::CPU& cpu)
 {
-    static const bool enabled = pf::Config::getBool("ps2_prompts", true);
+    static const bool enabled = NFSU_DEV_BOOL("ps2_prompts", true);
     if (!enabled)
         return;
     const reg32 flags = rc::ld32(cpu.esp + 4), screenName = rc::ld32(cpu.esp + 8);
@@ -385,7 +386,7 @@ void beforeFill(win32::WinApplication* app, x86::CPU& cpu)
 
 void afterFill(win32::WinApplication* app, x86::CPU& cpu, reg32 bar)
 {
-    static const bool enabled = pf::Config::getBool("ps2_prompts", true);
+    static const bool enabled = NFSU_DEV_BOOL("ps2_prompts", true);
     if (!enabled)
         return;
     const reg32 package = rc::ld32(bar + 4);
@@ -449,7 +450,7 @@ void afterFill(win32::WinApplication* app, x86::CPU& cpu, reg32 bar)
 
 void visibility(win32::WinApplication* app, x86::CPU& cpu, reg32 bar, bool show)
 {
-    static const bool enabled = pf::Config::getBool("ps2_prompts", true);
+    static const bool enabled = NFSU_DEV_BOOL("ps2_prompts", true);
     if (!enabled)
         return;
     const reg32 package = rc::ld32(bar + 4);
@@ -474,7 +475,8 @@ void visibility(win32::WinApplication* app, x86::CPU& cpu, reg32 bar, bool show)
 
 void frame(win32::WinApplication* app, x86::CPU& cpu)
 {
-    static const bool enabled = pf::Config::getBool("ps2_prompts", true);
+    // A boot race allocates the bar (0xAA filled) but never constructs it; FindObject on it faults.
+    static const bool enabled = NFSU_DEV_BOOL("ps2_prompts", true) && !NFSU_DEV_BOOL("boot_race", false);
     const reg32 bar = enabled ? rc::ld32(BarObject) : 0;
     if (!bar || !rc::ld32(bar + 4))
         return;

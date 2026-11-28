@@ -1,5 +1,6 @@
 #include <platform/cores.h>
 #include <platform/config.h>
+#include <platform/switches.h>
 #include <platform/gxm.h>
 #include <platform/ime.h>
 #include <platform/log.h>
@@ -202,7 +203,7 @@ void displayCallback(const void* data)
     frameBuffer.width = DisplayWidth;
     frameBuffer.height = DisplayHeight;
     sceDisplaySetFrameBuf(&frameBuffer, SCE_DISPLAY_SETBUF_NEXTFRAME);
-    static const bool s_vblankWait = Config::getBool("display_vblank_wait", true);
+    static const bool s_vblankWait = NFSU_DEV_BOOL("display_vblank_wait", true);
     if (s_vblankWait)
         sceDisplayWaitVblankStartMulti(display->vblanks ? display->vblanks : 1);
     stall::bump(stall::g_gxm.flips);
@@ -890,7 +891,7 @@ static bool usesDepth(const render::Frame& frame)
 // that shows the offscreen back buffer in its window rectangle or black.
 bool Device::Impl::planCheckDue(const render::Frame& frame)
 {
-    static const int every = Config::getInt("debug_plan_check", 0);
+    static const int every = NFSU_DEV_INT("debug_plan_check", 0);
     return every > 0 && frame.index % uint32_t(every) == 0 && frame.sceneCount >= 8 && planCheck.checks < 200
         && frame.width == DisplayWidth && frame.height == DisplayHeight;
 }

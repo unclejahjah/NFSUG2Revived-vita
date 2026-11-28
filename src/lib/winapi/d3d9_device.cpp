@@ -65,7 +65,7 @@ std::atomic<uint32_t> s_msaaSamples{1};     // bridge::setMsaaSamples, taken whe
 
 bool dumpThisFrame(uint32_t index)
 {
-    static const bool on = pf::Config::getBool("debug_frame_dump", false);
+    static const bool on = NFSU_DEV_BOOL("debug_frame_dump", false);
     static uint32_t dumped = 0;
     if (!on || dumped >= 40 || index % 150 != 1)
         return false;
