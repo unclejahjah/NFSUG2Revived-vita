@@ -16,6 +16,8 @@
 // free roam's sounds (src/lib/winapi/revived/roam/roam_vita.cpp): added to each block of the mix; weak, for builds
 // without free roam
 extern "C" void roam_vita_audio_mix(int32_t* acc, unsigned frames, unsigned rate) __attribute__((weak));
+// ...and 1 while a race trip's cover hides the LAN menus: the mix fades out until it goes
+extern "C" int roam_vita_audio_muted(void) __attribute__((weak));
 
 namespace win32
 {
@@ -323,6 +325,23 @@ void AudioDevice::run()
         // free roam's horns and the other players' engines, nitrous and hydraulics over the game's sound
         if (roam_vita_audio_mix)
             roam_vita_audio_mix(reinterpret_cast<int32_t*>(m_accumulator), m_grain, m_rate);
+        // the trip's cover over the LAN menus: silent, faded over about 50 ms each way so that it does not click
+        {
+            const float target = roam_vita_audio_muted && roam_vita_audio_muted() ? 0.f : 1.f;
+            if (target != m_coverGain || target < 1.f)
+            {
+                const float step = float(m_grain) / (0.05f * float(m_rate ? m_rate : 48000));
+                float g = m_coverGain;
+                for (x86::reg32 f = 0; f < m_grain; ++f)
+                {
+                    const float d = step / float(m_grain);
+                    g = target < g ? std::max(target, g - d) : std::min(target, g + d);
+                    for (x86::reg32 ch = 0; ch < s_channelCount; ++ch)
+                        m_accumulator[f * s_channelCount + ch] = x86::sreg32(float(m_accumulator[f * s_channelCount + ch]) * g);
+                }
+                m_coverGain = g;
+            }
+        }
         for (x86::reg32 i = 0; i < samples; ++i)
         {
             x86::sreg32 v = m_accumulator[i];

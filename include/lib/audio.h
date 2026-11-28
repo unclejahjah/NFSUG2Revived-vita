@@ -64,6 +64,7 @@ private:
     pf::Mutex                   m_mutex;
     std::vector<AudioBuffer*>   m_playingBuffers;
     x86::sreg32                 m_masterGain[s_channelCount];   // primary buffer volume and pan
+    float                       m_coverGain = 1.f;              // the mix's fade while a race trip's cover is up (run)
     x86::reg32                  m_rate;                         // port rate (audio thread, and m_mutex)
     x86::reg32                  m_grain;                        // frames per block (audio thread)
     std::atomic<x86::reg32>     m_requestedRate;

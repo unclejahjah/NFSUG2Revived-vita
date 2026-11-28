@@ -1004,9 +1004,19 @@ void roam_vita_host_room_release(void)
 }
 
 // the trip's cover over the game's menus (roam_game.c mp_cover)
+static int s_coverMuted = 0;
 void roam_vita_cover(const char* lines)
 {
     ug2::tripcover::set(lines);
+    // the LAN menus' sounds and music under it stay quiet: the way in to a race's lobby and the way back to free roam
+    // (Jah, 2026-11-28); src/lib/audio.cpp fades the mix out and in again (roam_vita_audio_muted)
+    __atomic_store_n(&s_coverMuted, lines && *lines ? 1 : 0, __ATOMIC_RELAXED);
+}
+
+// src/lib/audio.cpp, on the output thread: 1 while the trip's cover is up, the whole mix silent
+int roam_vita_audio_muted(void)
+{
+    return __atomic_load_n(&s_coverMuted, __ATOMIC_RELAXED);
 }
 
 // mod packs (runtime/modpacks.c): none on the Vita, every part is the game's own
