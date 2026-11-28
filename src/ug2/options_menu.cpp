@@ -276,9 +276,6 @@ const Item Social[] = {
     { "Quick chat", Ini, "QuickChat", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "Say a set phrase to the players near you: hold the quick chat button and press a phrase button. Theirs show "
       "after their names, in every player's own language on nfsu2.xyz." },
-    { "Quick chat button", Cfg, "quick_chat_button", Choice, OPTIONS(ChatButtons), "triangle", 0, nullptr,
-      "Hold it, then: Up phrase 1, Left 2, Right 3, Cross 4, Circle 5, Square 6 (Down takes Up's place when Up is "
-      "the button). Select: Select + Down, Left, Right, Cross, Circle, Square. A short tap still does its usual job." },
     { "Phrase 1", Ini, "Say1", Choice, OPTIONS(Phrases), "0", 0, nullptr,
       "The quick chat phrase in slot 1 (see Quick chat button for its button)." },
     { "Phrase 2", Ini, "Say2", Choice, OPTIONS(Phrases), "2", 0, nullptr,
@@ -337,14 +334,6 @@ const Item FreeRoamExtras[] = {
       "no car, name, quick chat, outrun or race lobby. Takes effect the next time you go online." },
     { "Horn", Ini, "Horn", Choice, OPTIONS(Horns), "dual", 0, nullptr,
       "Your horn in free roam: the players near you hear it from your car. Off: you have none, theirs still sound." },
-    { "Horn button", Cfg, "horn_button", Choice, OPTIONS(HornButtons), "off", 0, nullptr,
-      "Hold it to honk in free roam (the HORN touch button above the N2O meter honks too). A short D-pad press is still the game's (World Map)." },
-    { "Horn on screen", Cfg, "horn_touch_button", Choice, OPTIONS(OnOff), "on", 0, nullptr,
-      "The red horn button on the screen's right edge, above the N2O meter: touch and hold it to honk. Off: it is "
-      "hidden and touches there do nothing." },
-    { "Drift button", Cfg, "drift_button", Choice, OPTIONS(DriftButtons), "dpad_right", 0, nullptr,
-      "Hold it in free roam to switch drift mode on or off (a short D-pad press is still Read SMS): the drift "
-      "events' handling, camera and points while you drive around. With it on, a challenge is a drift battle: most points in 90 seconds wins $100." },
     { "Other players' car sounds", Ini, "CarSounds", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "Hear the other players' engines, nitrous and hydraulics from their cars, with the game's own sounds." },
     { "Show-off", Ini, "ShowOff", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
@@ -425,6 +414,18 @@ const Item Controller[] = {
       "full lock and back when released, as on a keyboard." },
     { "Hidden camera modes", Extra, "Gameplay.EnableHiddenCameraModes", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
       "The game's unused camera views join Change Camera's list (Extra Options). Read at start-up." },
+    // free roam's buttons: Options > Controls > Customize's rows and Controls' Horn on screen (not in Vita Settings)
+    { "Quick chat button", Cfg, "quick_chat_button", Choice, OPTIONS(ChatButtons), "triangle", 0, nullptr,
+      "Hold it, then: Up phrase 1, Left 2, Right 3, Cross 4, Circle 5, Square 6 (Down takes Up's place when Up is "
+      "the button). Select: Select + Down, Left, Right, Cross, Circle, Square. A short tap still does its usual job." },
+    { "Horn button", Cfg, "horn_button", Choice, OPTIONS(HornButtons), "off", 0, nullptr,
+      "Hold it to honk in free roam (the HORN touch button above the N2O meter honks too). A short D-pad press is still the game's (World Map)." },
+    { "Horn on screen (free roam)", Cfg, "horn_touch_button", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "The red horn button on the screen's right edge, above the N2O meter: touch and hold it to honk. Off: it is "
+      "hidden and touches there do nothing." },
+    { "Drift button", Cfg, "drift_button", Choice, OPTIONS(DriftButtons), "dpad_right", 0, nullptr,
+      "Hold it in free roam to switch drift mode on or off (a short D-pad press is still Read SMS): the drift "
+      "events' handling, camera and points while you drive around. With it on, a challenge is a drift battle: most points in 90 seconds wins $100." },
     // Customize's Hold/Press switches (Options > Controls > Customize; not shown in Vita Settings)
     { "Horn button mode", Cfg, "horn_button_mode", Choice, OPTIONS(HoldPress), "hold", 0, nullptr,
       "Hold: held a quarter of a second it honks and a tap is still the button's; Press: the button only honks." },

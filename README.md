@@ -115,16 +115,16 @@ The rear touch pad is split into four quadrants: L2 and R2 at the top, L3 and R3
 
 ![Rear touch pad quadrants](images/controls/readme_rear_pad.png)
 
-Extra buttons in this fork (free roam online, and Vita Settings):
+Extra buttons in this fork (free roam online, and Vita Settings). Horn, Drift Mode and Quick Chat are set in Options > Controls > Customize, with Hold or Press:
 
 | Button | Action |
 |--------|--------|
 | Select + Up | Vita Settings |
 | Right stick (while the Control Type leaves it free) | Free look: aims the race camera; let go under 120 degrees round and it eases back (`free_look_ease_back`) |
-| Hold D-pad Down + Up, Left, Right, Cross, Circle or Square | Online free roam: quick chat (see [Quick chat](#quick-chat)) |
-| Hold D-pad Down + Triangle | Online free roam: ask the player nose to nose with you to be friends |
-| Hold D-pad Left | Online free roam: horn (`horn_button`) |
-| Hold D-pad Right | Online free roam: drift mode on or off (`drift_button`) |
+| Hold Triangle + Up, Left, Right, Cross, Circle or Square | Online free roam: quick chat (see [Quick chat](#quick-chat)) |
+| Hold the quick chat button + Triangle's slot | Online free roam: ask the player nose to nose with you to be friends |
+| Red HORN button on screen, or the Horn button set in Customize (off by default) | Online free roam: horn (`horn_button`) |
+| Hold D-pad Right (Customize: Drift Mode) | Online free roam: drift mode on or off (`drift_button`) |
 | D-pad Left, then No to the GPS question | Fast travel to the place picked on the World Map (`fast_travel`) |
 
 A short press of a D-pad direction still does what the Control Type gives it (Change Camera, World Map, Read SMS);

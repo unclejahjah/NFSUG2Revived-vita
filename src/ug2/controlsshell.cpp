@@ -127,11 +127,11 @@ const int VitaButtonCount = int(sizeof(VitaButtons) / sizeof(VitaButtons[0]));
 // Settings did, labels and values from options_menu.cpp. The first TopSettingCount are on Controls (after Joypad and
 // Sticks), the rest on Sticks after the six stick shape rows. The game's UI_Options list has 13 row slots.
 const char* const ControlsSettings[] = {
-    "steering", "rear_touch", "Gameplay.EnableHiddenCameraModes",
+    "steering", "rear_touch", "Gameplay.EnableHiddenCameraModes", "horn_touch_button",
     "free_look_ease_back", "free_look_swing", "camera_stick", "camera_stick_speed", "garage_stick", "garage_stick_deadzone",
 };
 const int ControlsSettingCount = int(sizeof(ControlsSettings) / sizeof(ControlsSettings[0]));
-const int TopSettingCount = 3;
+const int TopSettingCount = 4;
 const int TopRowCount = 2 + TopSettingCount;                              // Joypad, Sticks, the settings
 const int SticksRowCount = 6 + ControlsSettingCount - TopSettingCount;    // the stick rows, the settings
 static_assert(TopRowCount <= 13 && SticksRowCount <= 13, "the Controls lists show 13 rows");
