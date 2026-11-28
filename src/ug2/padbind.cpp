@@ -197,9 +197,10 @@ void headlightsFrame()
         held = !(mask & (1ull << controlsdata::Headlights));
         break;
     }
-    // Free roam keeps D-pad Down for its own (a race lobby's hold for Friends only, quick_chat_button=dpad_down):
-    // there the Headlights action does not come from it.
-    if (held && controls::freeRoam() && (controls::heldInputs() & controls::bit(controls::DpadDown)))
+    // While free roam's lobby panel offers D-pad Down (hold for Friends only), a held Down is the panel's, not the
+    // Headlights action's. Everywhere else Down switches the lights as the Control Type binds it.
+    if (held && controls::freeRoam() && controls::lobbyDownOffered()
+        && (controls::heldInputs() & controls::bit(controls::DpadDown)))
         held = false;
     headlights::frame(win32::g_guestBase, held, rc::ld32(GameState));
 }

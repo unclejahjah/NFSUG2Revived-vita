@@ -224,6 +224,12 @@ static std::atomic<uint64_t> s_lobbyLiveUs{0};
 static std::atomic<int> s_lobbyOffer{0};       // bit 0 Up, bit 1 Down, bit 2 Left
 static std::atomic<int> s_lobbyPresses{0};
 static std::atomic<uint64_t> s_lobbyDownHeld{0};
+static std::atomic<bool> s_lobbyDownOffered{false};   // the panel offers Down (Friends only) now: Mapper::update
+
+bool lobbyDownOffered()
+{
+    return s_lobbyDownOffered.load(std::memory_order_relaxed);
+}
 
 void setLobbyKeys(uint64_t nowUs, bool up, bool down, bool left)
 {
@@ -1007,6 +1013,7 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
     // a tap reaches the game after it, as Engage: join or open), Down held switches Friends only; on quick chat's button, held on past LobbyDownUs with no phrase picked
     const uint64_t lobbyAt = s_lobbyLiveUs.load(std::memory_order_relaxed);
     const int lobbyOffer = lobbyAt && nowUs - lobbyAt < 250000 ? s_lobbyOffer.load(std::memory_order_relaxed) : 0;
+    s_lobbyDownOffered.store((lobbyOffer & 2) != 0, std::memory_order_relaxed);
     uint32_t lobbyHidden = 0;
     if ((lobbyOffer & 1) && !chatHeld && chatButton != DpadUp && !(m_chorded & bit(DpadUp)))
     {

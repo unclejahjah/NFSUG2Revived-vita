@@ -289,6 +289,8 @@ void setDriftLive(uint64_t nowUs);
 void setLobbyKeys(uint64_t nowUs, bool up, bool down, bool left);
 int takeLobbyPresses();
 uint64_t lobbyDownHeldUs();
+// The lobby panel offers D-pad Down (Friends only) this frame.
+bool lobbyDownOffered();
 extern const uint64_t LobbyDownUs;
 
 // Radial dead zone and response curve of one stick.
