@@ -3,6 +3,7 @@
 
 #include "options_menu.h"
 #include "exopts.h"
+#include "novisrep.h"
 #include <platform/cfgfile.h>
 #include <platform/cloud_saves.h>
 #include <platform/config.h>
@@ -36,7 +37,10 @@ namespace
 
 // NeedForSpeedUnderground2.cfg, scripts/NFSU2FreeRoam.ini's [FreeRoam], Extra Options' [Gameplay], or the Car Shop's
 // Stance page's car (stance_vita.c's stance_menu_*: kept per car in the profile's MODPARTS.DAT when the page closes)
-enum Store { Cfg, Ini, Extra, Car };
+// Extra: Extra Options' settings file; its keys are "Section.Key" (a bare key is in [Gameplay]); a value of "" means
+// the key's line is removed, which leaves the game vanilla for it (as the start-up screen's Mods tab writes it).
+// Rep: the Visual Reputation Remover's own file (scripts/NFSU2VitaNoVisualRep.ini, [NFSU2]).
+enum Store { Cfg, Ini, Extra, Car, Rep };
 // Action: a row that does something (the cloud saves'). Heading: a group's name inside a page, a row that sets nothing.
 enum Kind { Choice, Text, Secret, Action, Heading };
 
@@ -64,6 +68,7 @@ struct Item
 
 const Option OnOff[] = { { "on", "On" }, { "off", "Off" } };
 const Option IniOnOff[] = { { "1", "On" }, { "0", "Off" } };
+const Option VisualRep[] = { { "0", "Shown" }, { "1", "Removed" } };
 const Option Network[] = { { "revived", "On" }, { "direct", "Local Wi-Fi only" }, { "off", "Off" } };
 const Option Movies[] = { { "vp6preferred", "Converted, else VP6" }, { "vp6only", "VP6 only" } };
 const Option Core3Tasks[] = { { "helpers", "Helper threads" }, { "jobs", "Job workers" } };
@@ -144,6 +149,19 @@ const Item Mods[] = {
       "Meet other players in the city (NFSU2 Revived's free-roam mod, scripts/NFSU2FreeRoam.ini)." },
     { "EU Car Content", Extra, "UnlockRegionalCars", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
       "Drive the Peugeot 106 and Vauxhall Corsa in the US game (NFSU2 Extra Options). Needs their car folders." },
+    { "Extra Options", Cfg, "", Heading, nullptr, 0, "", 0, nullptr, nullptr },
+    { "Outrun in Quick Race", Extra, "Menu.ShowOutrun", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Outrun as a Quick Race type (Extra Options). Read at start-up." },
+    { "Outrun track select", Extra, "Menu.OutrunTrackSelect", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Pick the track for an outrun in Quick Race (Extra Options)." },
+    { "Subtitles", Extra, "Menu.ShowSubs", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "The Subtitles option in the game's Options (Extra Options)." },
+    { "Special vinyls", Extra, "Menu.ShowSpecialVinyls", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "List the special vinyls in the vinyl shop (Extra Options)." },
+    { "Remove race barriers", Extra, "Gameplay.RemoveRaceBarriers", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "No barriers closing the side roads in races (Extra Options). Read at start-up." },
+    { "Remove locked-area barriers", Extra, "Gameplay.RemoveLockedAreaBarriers", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Drive into areas the career has not opened yet (Extra Options). Read at start-up." },
     { "Stance", Ini, "Stance", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
       "Camber, offset and tire width per car (Stance Mod by Archie, as on nfsu2.xyz), set in Customize's Body Shop "
       "(Stance, after Rims). Only the look changes; players near you in free roam see it." },
@@ -224,6 +242,18 @@ const Option ChatButtons[] = { { "dpad_down", "Hold D-pad Down" }, { "dpad_up", 
                                { "l", "Hold L" }, { "r", "Hold R" }, { "rear_l2", "Hold rear upper left" },
                                { "rear_r2", "Hold rear upper right" }, { "rear_l3", "Hold rear lower left" },
                                { "rear_r3", "Hold rear lower right" } };
+
+// NFSU2 Extra Options 5.1.0.1340's settings (danos's Mods tab rows, src/ug2/mods_require.cpp): "" is Vanilla
+const Option LapMins[] = { { "", "Vanilla" }, { "1", "1" }, { "2", "2" }, { "3", "3" }, { "5", "5" }, { "10", "10" } };
+const Option LapMaxes[] = { { "10", "10 (the game's)" }, { "15", "15" }, { "20", "20" }, { "30", "30" }, { "50", "50" },
+                            { "127", "127" }, { "0", "Unlimited" } };
+const Option DriftMultipliers[] = { { "", "Vanilla (x5)" }, { "1", "x1" }, { "2", "x2" }, { "3", "x3" }, { "4", "x4" },
+                                    { "5", "x5" }, { "6", "x6" }, { "7", "x7" }, { "8", "x8" }, { "9", "x9" } };
+const Option StartingCash[] = { { "", "Vanilla" }, { "10000", "$10,000" }, { "50000", "$50,000" }, { "100000", "$100,000" },
+                                { "250000", "$250,000" }, { "500000", "$500,000" }, { "1000000", "$1,000,000" },
+                                { "9999000", "$9,999,000" } };
+const Option NeonLevels[] = { { "1", "1.0 (the game's)" }, { "0", "Off" }, { "0.5", "0.5" }, { "1.5", "1.5" }, { "2", "2.0" },
+                              { "3", "3.0" }, { "5", "5.0" } };
 
 // Options > Controls > Customize's Hold/Press switch of a button (controlsshell.cpp)
 const Option HoldPress[] = { { "hold", "Hold" }, { "press", "Press" } };
@@ -320,6 +350,15 @@ const Item FreeRoamExtras[] = {
     { "Show-off", Ini, "ShowOff", Choice, OPTIONS(IniOnOff), "1", 0, nullptr,
       "With the car standing, Select + L opens the hood, then the trunk, the doors, all, and closes them. Players "
       "near you see them open, and you see theirs." },
+    // NFSU2 Extra Options' drift settings (every drift, not only free roam's; read at start-up)
+    { "Drift multiplier limit", Extra, "Drift.MaximumMultiplier", Choice, OPTIONS(DriftMultipliers), "", 0, nullptr,
+      "Highest drift multiplier, x1 to x9 (Extra Options). Heights drift races' set scores are scaled to match." },
+    { "Drift plus sign", Extra, "Drift.PlusSign", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "A + before the drift points you are building, as +1500 (Extra Options). Only the look changes." },
+    { "Drift points as AxB", Extra, "Drift.ShowWithoutMultiplying", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Show the drift points as base times multiplier, as 500x3, not the total (Extra Options)." },
+    { "Hide drift messages", Extra, "Drift.HideNiftyDriftMessages", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "No Good Drift!, Perfect Drift! and the like while drifting (Extra Options)." },
 };
 
 
@@ -345,6 +384,10 @@ const Item AudioVideo[] = {
       "How the game's movies play: the converted .mp4 files where they are there, else the original VP6 ones." },
     { "Optimised particles", Cfg, "optimised_particles", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "Cheaper tyre smoke and other particles, close to the original picture. Off is exactly as the original." },
+    { "Neon brightness", Extra, "Gameplay.NeonBrightness", Choice, OPTIONS(NeonLevels), "1", 0, nullptr,
+      "How bright the cars' neon glows (Extra Options). Read at start-up." },
+    { "Visual rating", Rep, "RemoveVisualRep", Choice, OPTIONS(VisualRep), "0", 0, nullptr,
+      "Off removes the visual rating stars and bar from the customisation screens (Visual Reputation Remover)." },
 };
 
 // Performance, a page of its own (System had 17 rows, and the game's list drew none past the 13th)
@@ -380,6 +423,8 @@ const Item Controller[] = {
     { "Steering", Cfg, "steering", Choice, OPTIONS(Steering), "analog", 0, nullptr,
       "Analog steers as far as the left stick is pushed. Digital: pushed past halfway, the stick turns smoothly to "
       "full lock and back when released, as on a keyboard." },
+    { "Hidden camera modes", Extra, "Gameplay.EnableHiddenCameraModes", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "The game's unused camera views join Change Camera's list (Extra Options). Read at start-up." },
     // Customize's Hold/Press switches (Options > Controls > Customize; not shown in Vita Settings)
     { "Horn button mode", Cfg, "horn_button_mode", Choice, OPTIONS(HoldPress), "hold", 0, nullptr,
       "Hold: held a quarter of a second it honks and a tap is still the button's; Press: the button only honks." },
@@ -402,6 +447,21 @@ const Item Game[] = {
       "The screen before the game starts, where START opens the settings manager." },
     { "Detailed log", Cfg, "log_info", Choice, OPTIONS(OnOff), "off", 0, nullptr,
       "Write a detailed log to NeedForSpeedUnderground2.log, useful when reporting a problem." },
+    // NFSU2 Extra Options (read at start-up): 13 rows, the most the game's list shows
+    { "Starting cash", Extra, "Gameplay.StartingCash", Choice, OPTIONS(StartingCash), "", 0, nullptr,
+      "Cash a new career starts with (Extra Options). Vanilla is the game's own." },
+    { "Unlock all things", Extra, "Gameplay.UnlockAllThings", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Every car, part, vinyl and track unlocked (Extra Options). Read at start-up." },
+    { "Any track in any mode", Extra, "Menu.AnyTrackInAnyRaceMode", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Quick Race lists every track for every race type (Extra Options). Read at start-up." },
+    { "Minimum laps", Extra, "LapControllers.Minimum", Choice, OPTIONS(LapMins), "", 0, nullptr,
+      "Fewest laps in Quick Race and LAN options (Extra Options)." },
+    { "Maximum laps", Extra, "LapControllers.Maximum", Choice, OPTIONS(LapMaxes), "10", 0, nullptr,
+      "Most laps in Quick Race and LAN options (Extra Options). Unlimited races never end on laps." },
+    { "Percent on 1-lap races", Extra, "Gameplay.ShowPercentOn1LapRaces", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Show how far through the race you are on one-lap races (Extra Options)." },
+    { "Free Run track select", Extra, "Menu.FreeRunTrackSelect", Choice, OPTIONS(IniOnOff), "0", 0, nullptr,
+      "Pick the track for Free Run in Quick Race (Extra Options)." },
 };
 
 struct Page
@@ -718,7 +778,7 @@ int optionIndex(const Item& item, const std::string& value)
 
 // ---- The settings now --------------------------------------------------------------------------------------------------
 
-std::string s_cfgPath, s_iniPath, s_extraPath;
+std::string s_cfgPath, s_iniPath, s_extraPath, s_repPath;
 const Item* s_lastAction = nullptr;       // the cloud saves row used last
 bool s_enabled = false, s_loaded = false;
 // Per page and item: the value in the file (or the default) and the value now.
@@ -737,6 +797,7 @@ void configure(const char* settingsPath, const char* gameFolder)
     s_cfgPath = settingsPath;
     s_iniPath = std::string(gameFolder) + "/scripts/NFSU2FreeRoam.ini";
     s_extraPath = std::string(gameFolder) + "/" + exopts::IniPath;
+    s_repPath = std::string(gameFolder) + "/" + novisrep::IniPath;
     pf::cloud::configure(gameFolder);
     pf::logInfo("options menu: %s", s_enabled ? "the main menu's Vita Settings" : "off (options_menu=off)");
 }
@@ -746,13 +807,32 @@ bool enabled()
     return s_enabled;
 }
 
+// An Extra key's section and key ("Drift.PlusSign"; a bare key is in Extra Options' [Gameplay]).
+void extraKey(const char* key, std::string* section, std::string* name)
+{
+    const char* dot = strchr(key, '.');
+    *section = dot ? std::string(key, size_t(dot - key)) : std::string(exopts::RegionSection);
+    *name = dot ? std::string(dot + 1) : std::string(key);
+}
+
+void iniRemove(Lines& lines, const char* section, const char* key)
+{
+    size_t begin, end;
+    if (!iniSection(lines, section, &begin, &end))
+        return;
+    for (size_t i = end; i-- > begin;)
+        if (lineSets(lines[i], key, false, nullptr))
+            lines.erase(lines.begin() + long(i));
+}
+
 void load()
 {
     std::string cfg;
     pf::cfgfile::readFile(s_cfgPath.c_str(), &cfg);
-    Lines ini, extra;
+    Lines ini, extra, rep;
     const bool iniExists = readLines(s_iniPath, &ini);
     const bool extraExists = readLines(s_extraPath, &extra);
+    const bool repExists = readLines(s_repPath, &rep);
     s_saved.assign(PageCount, {});
     for (int p = 0; p < PageCount; ++p)
         for (int i = 0; i < Pages[p].count; ++i)
@@ -786,10 +866,16 @@ void load()
             }
             else if (it.store == Extra)
             {
-                // As the mods tab reads it: no file is off, a file without the key is on.
-                v = extraExists ? "1" : "0";
+                // As the Mods tab reads it (0.9.1): no file, or no key, leaves the game vanilla
+                std::string section, name;
+                extraKey(it.key, &section, &name);
                 if (extraExists)
-                    iniGet(extra, exopts::RegionSection, it.key, &v);
+                    iniGet(extra, section.c_str(), name.c_str(), &v);
+            }
+            else if (it.store == Rep)
+            {
+                if (repExists)
+                    iniGet(rep, novisrep::Section, it.key, &v);
             }
             else
                 iniGet(ini, FreeRoamSection, it.key, &v);
@@ -813,9 +899,10 @@ bool save()
     std::vector<pf::cfgfile::Change> changes;
     Lines ini;
     const bool haveIni = readLines(s_iniPath, &ini);
-    bool iniChanged = false, extraChanged = false;
-    Lines extra;
+    bool iniChanged = false, extraChanged = false, repChanged = false;
+    Lines extra, rep;
     const bool haveExtra = readLines(s_extraPath, &extra);
+    const bool haveRep = readLines(s_repPath, &rep);
     for (int p = 0; p < PageCount; ++p)
         for (int i = 0; i < Pages[p].count; ++i)
         {
@@ -843,11 +930,24 @@ bool save()
                 stance_menu_set(it.key, s_values[p][i].c_str());   // the car drawn with it at once
             else if (it.store == Extra)
             {
-                // No file and off stays no file; the mod's own settings file is written when a mod is turned on.
-                if (!haveExtra && s_values[p][i] == "0")
+                // No file and vanilla stays no file; the mod's settings file is written when a setting leaves vanilla.
+                // "" (Vanilla) removes the key's line.
+                if (!haveExtra && !extraChanged && s_values[p][i] == it.def)
                     continue;
-                iniSet(extra, exopts::RegionSection, it.key, s_values[p][i]);
+                std::string section, name;
+                extraKey(it.key, &section, &name);
+                if (s_values[p][i].empty())
+                    iniRemove(extra, section.c_str(), name.c_str());
+                else
+                    iniSet(extra, section.c_str(), name.c_str(), s_values[p][i]);
                 extraChanged = true;
+            }
+            else if (it.store == Rep)
+            {
+                if (!haveRep && !repChanged && s_values[p][i] == it.def)
+                    continue;
+                iniSet(rep, novisrep::Section, it.key, s_values[p][i]);
+                repChanged = true;
             }
             else
             {
@@ -873,9 +973,16 @@ bool save()
             ok = false;
         }
     }
+    if (extraChanged || repChanged)
+        mkdir(s_extraPath.substr(0, s_extraPath.rfind('/')).c_str(), 0777);
     if (extraChanged && !writeLines(s_extraPath, extra))
     {
         pf::logError("options menu: %s could not be written", s_extraPath.c_str());
+        ok = false;
+    }
+    if (repChanged && !writeLines(s_repPath, rep))
+    {
+        pf::logError("options menu: %s could not be written", s_repPath.c_str());
         ok = false;
     }
     if (ok)
@@ -1120,7 +1227,7 @@ static bool findCfg(const char* key, int* g, int* i)
         for (int k = 0; k < Pages[p].count; ++k)
         {
             const Item& it = Pages[p].items[k];
-            if (it.kind != Heading && it.store == Cfg && !strcmp(it.key, key))
+            if (it.kind != Heading && it.key[0] && !strcmp(it.key, key))
             {
                 *g = p;
                 *i = k;

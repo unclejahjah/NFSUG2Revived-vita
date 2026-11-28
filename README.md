@@ -172,6 +172,12 @@ holding Select does that for the whole tab.
 
 The settings files are under the game folder, `ux0:data/NeedForSpeedUnderground2/`, and can be edited by hand.
 
+The same settings are also in the game, in the pages they belong with (each takes effect at the next start):
+Vita Settings > Game (starting cash, unlock all things, any track in any mode, minimum and maximum laps, percent on
+1-lap races, Free Run track select), Free Roam extras (the four drift settings), System (neon brightness, visual
+rating), Mods (outrun in Quick Race, outrun track select, subtitles, special vinyls, the two barrier removals, EU Car
+Content), and Options > Controls (hidden camera modes). Vanilla removes the key from the file, as the Mods tab does.
+
 | Entry | Settings file | Needs |
 |-------|---------------|-------|
 | ExtraOptions 5.1.0.1340 by ExOpts Team: EU Car Content | `scripts/NFSU2ExtraOptionsSettings.ini`, `UnlockRegionalCars = 1` in `[Gameplay]` | `CARS/CORSA` and `CARS/PEUGOT106`, each with `GEOMETRY.BIN`, `TEXTURES.BIN`, `VINYLS.BIN` and `PARTS_ANIMATIONS.bin`, copied from a European PC copy of the game |
