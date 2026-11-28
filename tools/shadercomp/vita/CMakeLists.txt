@@ -23,7 +23,7 @@ target_link_libraries(shadercomp.elf
 vita_create_self(eboot.bin shadercomp.elf UNSAFE)
 set(NFSU_VERSION "0.1")
 configure_file(${REPO}/sce_sys/livearea/contents/template.xml.in ${CMAKE_BINARY_DIR}/livearea/template.xml @ONLY)
-vita_create_vpk(NFSU2VITA.vpk NFSU2VITA eboot.bin
+vita_create_vpk(NFSU2VITA.vpk NFSU2REVD eboot.bin
   VERSION 00.01
   NAME "NFS Underground 2"
   FILE ${REPO}/sce_sys/icon0.png sce_sys/icon0.png

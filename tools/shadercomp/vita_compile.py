@@ -3,7 +3,7 @@
 vita_compile.py --ip IP [--list FILE] [--out DIR] [--compare DIR] [--option KEY=VALUE ...]
 
 Without --list, the programs are the ones cmake/shaders.cmake builds. Uploads shaders/*.cg and the manifest to
-ux0:data/NeedForSpeedUnderground2/shaders/, launches NFSU2VITA, waits for compile.log to end, downloads out/<name>.gxp into --out.
+ux0:data/NeedForSpeedUnderground2/shaders/, launches the app (title ID NFSU2REVD), waits for compile.log to end, downloads out/<name>.gxp into --out.
 --compare DIR reports, per program, whether DIR/<name>.gxp is identical (apart from the source-name hash, header
 bytes 16-19).
 """
@@ -17,7 +17,7 @@ import sys
 import time
 
 REPO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
-TITLE = 'NFSU2VITA'
+TITLE = 'NFSU2REVD'  # the Vita title ID (CMakeLists.txt VITA_TITLEID)
 REMOTE = '/ux0:/data/NeedForSpeedUnderground2/shaders'
 
 

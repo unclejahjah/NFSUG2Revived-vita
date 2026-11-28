@@ -61,6 +61,11 @@ If the game closes right away, `ux0:data/NeedForSpeedUnderground2/NeedForSpeedUn
 
 Your career is saved in `ux0:data/NeedForSpeedUnderground2/save/`. Copy that folder to back it up.
 
+The app's title ID is `NFSU2REVD` (it installs to `ux0:app/NFSU2REVD`). Builds before 0.9.0 used `NFSU2VITA`, so
+they install as a separate app: both share the game folder above, with its saves and settings, so nothing needs
+copying. Delete the old `NFSU2VITA` app in VitaShell once the new one works, and move any per-game plugin entries
+(a `*NFSU2VITA` section in `ur0:tai/config.txt`, a PSVshell profile) over to `NFSU2REVD`.
+
 ### Icon and LiveArea images
 
 The downloadable VPK has the game's logo on its icon and LiveArea start button. The images in this repository are
