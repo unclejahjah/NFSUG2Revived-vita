@@ -256,7 +256,7 @@ private:
 
     void updateTaps(const PadSample& pad, uint64_t nowUs);
     bool held(Hold& hold, Input input, uint32_t inputs, uint32_t pressed, uint64_t nowUs, uint32_t* hidden,
-              uint32_t* pulse);
+              uint32_t* pulse, bool press = false);
 };
 
 // Free roam's quick chat (quick_chat_button): the button held to pick a phrase (an Input, or -1 for Select, whose

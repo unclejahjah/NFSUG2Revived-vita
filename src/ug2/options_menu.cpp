@@ -203,22 +203,30 @@ const Option Horns[] = { { "dual", "Dual tone" }, { "single", "Single tone" }, {
                          { "clown", "Clown horn" }, { "trombone", "Sad trombone" }, { "sputter", "Dying horn" },
                          { "off", "Off" } };
 
-const Option HornButtons[] = { { "dpad_left", "Hold D-pad Left" }, { "dpad_right", "Hold D-pad Right" },
+const Option HornButtons[] = { { "dpad_left", "D-pad Left" }, { "dpad_right", "D-pad Right" },
                                { "rear_l3", "Rear touch, lower left" }, { "rear_r3", "Rear touch, lower right" },
-                               { "dpad_up", "Hold D-pad Up" }, { "dpad_down", "Hold D-pad Down" },
-                               { "triangle", "Hold Triangle" }, { "circle", "Hold Circle" }, { "square", "Hold Square" },
-                               { "cross", "Hold Cross" }, { "l", "Hold L" }, { "r", "Hold R" },
+                               { "dpad_up", "D-pad Up" }, { "dpad_down", "D-pad Down" },
+                               { "triangle", "Triangle" }, { "circle", "Circle" }, { "square", "Square" },
+                               { "cross", "Cross" }, { "l", "L" }, { "r", "R" },
                                { "rear_l2", "Rear touch, upper left" }, { "rear_r2", "Rear touch, upper right" }, { "off", "Off" } };
 
-const Option DriftButtons[] = { { "dpad_right", "Hold D-pad Right" }, { "dpad_left", "Hold D-pad Left" },
+const Option DriftButtons[] = { { "dpad_right", "D-pad Right" }, { "dpad_left", "D-pad Left" },
                                 { "rear_r3", "Rear touch, lower right" }, { "rear_l3", "Rear touch, lower left" },
-                                { "dpad_up", "Hold D-pad Up" }, { "dpad_down", "Hold D-pad Down" },
-                                { "triangle", "Hold Triangle" }, { "circle", "Hold Circle" }, { "square", "Hold Square" },
-                                { "cross", "Hold Cross" }, { "l", "Hold L" }, { "r", "Hold R" },
+                                { "dpad_up", "D-pad Up" }, { "dpad_down", "D-pad Down" },
+                                { "triangle", "Triangle" }, { "circle", "Circle" }, { "square", "Square" },
+                                { "cross", "Cross" }, { "l", "L" }, { "r", "R" },
                                 { "rear_l2", "Rear touch, upper left" }, { "rear_r2", "Rear touch, upper right" }, { "off", "Off" } };
 
 const Option ChatButtons[] = { { "dpad_down", "Hold D-pad Down" }, { "dpad_up", "Hold D-pad Up" },
-                               { "triangle", "Hold Triangle" }, { "select", "Select chords" } };
+                               { "triangle", "Hold Triangle" }, { "select", "Select chords" },
+                               { "dpad_left", "Hold D-pad Left" }, { "dpad_right", "Hold D-pad Right" },
+                               { "circle", "Hold Circle" }, { "square", "Hold Square" }, { "cross", "Hold Cross" },
+                               { "l", "Hold L" }, { "r", "Hold R" }, { "rear_l2", "Hold rear upper left" },
+                               { "rear_r2", "Hold rear upper right" }, { "rear_l3", "Hold rear lower left" },
+                               { "rear_r3", "Hold rear lower right" } };
+
+// Options > Controls > Customize's Hold/Press switch of a button (controlsshell.cpp)
+const Option HoldPress[] = { { "hold", "Hold" }, { "press", "Press" } };
 
 // Quick chat's phrases (nfsu2.xyz's, src/lib/winapi/revived/roam/phrases.h) by their numbers: the common ones.
 const Option Phrases[] = { { "0", "Hey!" }, { "1", "Nice car!" }, { "2", "Thanks!" }, { "3", "Bye!" }, { "4", "Yes" }, { "5", "No" }, { "6", "Sorry!" }, { "7", "lol" }, { "8", "Follow me!" }, { "9", "Wait up!" }, { "10", "Let's go!" }, { "11", "Nice!" }, { "12", "Race?" }, { "13", "Join my race!" }, { "14", "gg" }, { "15", "One more?" }, { "16", "Yo!" }, { "17", "Hi all!" }, { "18", "Welcome!" }, { "19", "Welcome back!" }, { "20", "Long time no see!" }, { "21", "Good luck!" }, { "22", "Have fun!" }, { "23", "Gotta go!" }, { "24", "See you around!" }, { "25", "Good night!" }, { "26", "brb" }, { "27", "Back!" }, { "28", "Sure!" }, { "29", "Maybe" }, { "30", "Okay" }, { "31", "Nope" }, { "33", "On my way!" }, { "41", "ty" }, { "42", "np" }, { "44", "My bad!" } };
@@ -372,6 +380,13 @@ const Item Controller[] = {
     { "Steering", Cfg, "steering", Choice, OPTIONS(Steering), "analog", 0, nullptr,
       "Analog steers as far as the left stick is pushed. Digital: pushed past halfway, the stick turns smoothly to "
       "full lock and back when released, as on a keyboard." },
+    // Customize's Hold/Press switches (Options > Controls > Customize; not shown in Vita Settings)
+    { "Horn button mode", Cfg, "horn_button_mode", Choice, OPTIONS(HoldPress), "hold", 0, nullptr,
+      "Hold: held a quarter of a second it honks and a tap is still the button's; Press: the button only honks." },
+    { "Drift button mode", Cfg, "drift_button_mode", Choice, OPTIONS(HoldPress), "hold", 0, nullptr,
+      "Hold: held a quarter of a second it switches drift mode and a tap is still the button's; Press: at once." },
+    { "Headlights mode", Cfg, "headlights_mode", Choice, OPTIONS(HoldPress), "press", 0, nullptr,
+      "Press: each press switches the lights; Hold: only a press held a quarter of a second does." },
 };
 
 const Item Game[] = {
@@ -1066,7 +1081,8 @@ bool applyLive(int g, int i)
     static const char* const Live[] = { "log_info", "garage_stick", "garage_stick_deadzone", "steering", "fast_travel",
                                         "free_look_ease_back", "free_look_swing", "camera_stick", "camera_stick_speed",
                                         "quick_chat_button",
-                                        "horn_button", "horn_touch_button", "drift_button" };
+                                        "horn_button", "horn_touch_button", "drift_button",
+                                        "horn_button_mode", "drift_button_mode", "headlights_mode" };
     const Item& it = item(g, i);
     // The stance's switch: stance_vita.c reads the .ini again at the next car it draws.
     static const char* const StanceKeys[] = { "Stance" };
@@ -1112,6 +1128,30 @@ static bool findCfg(const char* key, int* g, int* i)
             }
         }
     return false;
+}
+
+std::string cfgRaw(const char* key)
+{
+    int g, i;
+    if (!findCfg(key, &g, &i))
+        return std::string();
+    if (!s_loaded)
+        load();
+    return s_values[g][i];
+}
+
+bool cfgSet(const char* key, const char* value)
+{
+    int g, i;
+    if (!findCfg(key, &g, &i))
+        return false;
+    if (!s_loaded)
+        load();
+    s_values[g][i] = value;
+    shareValue(g, i);
+    const bool saved = save();
+    applyLive(g, i);
+    return saved;
 }
 
 std::string cfgLabel(const char* key)

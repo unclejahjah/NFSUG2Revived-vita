@@ -105,15 +105,22 @@ enum Kind { KindJoypad, KindStick, KindControlType, KindCustomize, KindEntry, Ki
 
 // Customize's rows after the game's actions: free roam's held buttons (src/lib/controls.cpp), cfg settings that
 // Left and Right step through as Vita Settings does (options_menu.cpp), not binds in registry.txt.
+// Cross then a button binds it (our own wait, not the PC capture: these are cfg keys, not registry binds); Left and
+// Right switch the row's mode key between Hold and Press; Square sets the button off where off is allowed.
 struct VitaButton
 {
     const char* label;
     const char* key;
+    const char* modeKey;    // hold|press, nullptr: none (quick chat is held by its nature)
+    bool removable;         // Square sets it off
 };
 const VitaButton VitaButtons[] = {
-    { "Horn (free roam)", "horn_button" },
-    { "Drift Mode (free roam)", "drift_button" },
+    { "Horn (free roam)", "horn_button", "horn_button_mode", true },
+    { "Drift Mode (free roam)", "drift_button", "drift_button_mode", true },
+    { "Quick Chat (free roam)", "quick_chat_button", nullptr, false },
 };
+// The game's own Headlights entry gets the same Hold/Press switch (padbind.cpp headlightsFrame reads it).
+const char* const HeadlightsModeKey = "headlights_mode";
 const int VitaButtonCount = int(sizeof(VitaButtons) / sizeof(VitaButtons[0]));
 
 // The port's own controller settings (they were Vita Settings' Controller page): Left and Right step them as Vita
@@ -209,6 +216,8 @@ struct Wait
     reg32 slot = 0, value = 0;                  // the pad slot, the row's value object
     int frames = 0, rearms = 0;
     int finds[3] = {};                          // our capture natives reached since the last arm: button, axis, hat
+    int own = -1;                               // a VitaButtons row waiting for its button (our wait, no PC capture)
+    uint32_t ownPrevious = 0;                   // inputs last frame: held at the start do not bind until pressed again
 };
 Wait s_wait;
 
@@ -315,9 +324,56 @@ void fitLabel(win32::WinApplication* app, x86::CPU& cpu, reg32 label, const Text
         setPlain(app, cpu, label, fitted);
 }
 
-bool hasArrows(Kind kind)
+bool hasArrows(Kind kind, int index)
 {
-    return kind == KindStick || kind == KindControlType || kind == KindVitaButton || kind == KindSetting;
+    return kind == KindStick || kind == KindControlType || kind == KindSetting ||
+           (kind == KindVitaButton && VitaButtons[index].modeKey) ||
+           (kind == KindEntry && index == controlsdata::EntryHeadlights);
+}
+
+// A cfg button value as the Customize glyph tokens (customize.cpp's), or a plain name.
+std::string buttonToken(const std::string& v)
+{
+    static const struct { const char* value; const char* token; } Map[] = {
+        { "triangle", "$BIND_TRIANGLE$" }, { "circle", "$BIND_CIRCLE$" }, { "cross", "$BIND_CROSS$" }, { "square", "$BIND_SQUARE$" },
+        { "l", "$BIND_L$" }, { "r", "$BIND_R$" }, { "dpad_up", "$BIND_DPAD_UP$" }, { "dpad_down", "$BIND_DPAD_DOWN$" },
+        { "dpad_left", "$BIND_DPAD_LEFT$" }, { "dpad_right", "$BIND_DPAD_RIGHT$" }, { "rear_l2", "$BIND_REAR_UL$" },
+        { "rear_r2", "$BIND_REAR_UR$" }, { "rear_l3", "$BIND_REAR_LL$" }, { "rear_r3", "$BIND_REAR_LR$" }, { "select", "Select" },
+    };
+    for (const auto& m : Map)
+        if (v == m.value)
+            return m.token;
+    return std::string();
+}
+
+// The cfg value a pressed Vita input binds (empty: it does not bind; Start cancels before this).
+const char* inputValue(int input, bool selectAllowed)
+{
+    namespace c = win32::controls;
+    switch (input)
+    {
+    case c::Cross: return "cross";
+    case c::Circle: return "circle";
+    case c::Square: return "square";
+    case c::Triangle: return "triangle";
+    case c::L: return "l";
+    case c::R: return "r";
+    case c::Select: return selectAllowed ? "select" : "";
+    case c::DpadUp: return "dpad_up";
+    case c::DpadDown: return "dpad_down";
+    case c::DpadLeft: return "dpad_left";
+    case c::DpadRight: return "dpad_right";
+    case c::RearL2: return "rear_l2";
+    case c::RearR2: return "rear_r2";
+    case c::RearL3: return "rear_l3";
+    case c::RearR3: return "rear_r3";
+    default: return "";
+    }
+}
+
+std::string modeText(const char* modeKey)
+{
+    return options::cfgRaw(modeKey) == "press" ? "Press" : "Hold";
 }
 
 void hideArrows(win32::WinApplication* app, x86::CPU& cpu, reg32 row)
@@ -360,7 +416,8 @@ void rowTexts(win32::WinApplication* app, x86::CPU& cpu, const Row& r)
         setText(app, cpu, label, Entries[r.index]);
         fitLabel(app, cpu, label, Entries[r.index]);
         if (!shown.empty())
-            setPlain(app, cpu, value, translations::translate(shown.c_str()));
+            setPlain(app, cpu, value, translations::translate(shown.c_str()) +
+                     (r.index == controlsdata::EntryHeadlights ? "  " + modeText(HeadlightsModeKey) : std::string()));
         else
             setHash(app, cpu, value, TextNone);
         break;
@@ -370,7 +427,15 @@ void rowTexts(win32::WinApplication* app, x86::CPU& cpu, const Row& r)
         const Text text = { 0, VitaButtons[r.index].label };
         setText(app, cpu, label, text);
         fitLabel(app, cpu, label, text);
-        setPlain(app, cpu, value, options::cfgValue(VitaButtons[r.index].key));
+        const VitaButton& b = VitaButtons[r.index];
+        const std::string token = buttonToken(options::cfgRaw(b.key));
+        std::string shown = token.empty() ? std::string() : translations::translate(token.c_str());
+        if (!shown.empty() && b.modeKey)
+            shown += "  " + modeText(b.modeKey);
+        if (shown.empty())
+            setHash(app, cpu, value, TextNone);
+        else
+            setPlain(app, cpu, value, shown);
         break;
     }
     case KindSticks:
@@ -488,6 +553,56 @@ void startWait(win32::WinApplication* app, x86::CPU& cpu, const Row& r)
              customize::watchesSticks(s_wait.data.entry) ? ", sticks watched by us" : ", takes no stick", customize::inputNames(inputs).c_str());
 }
 
+// Cross on one of our button rows: the next button pressed is its button (Start cancels). The game's menu input is
+// masked meanwhile, as for the PC capture, and comes back once every control is released.
+void startOwnWait(win32::WinApplication* app, x86::CPU& cpu, const Row& r)
+{
+    uint32_t inputs;
+    float sticks[4];
+    win32::Gamepad::getPad(&inputs, sticks);
+    s_wait = Wait();
+    s_wait.phase = WaitArmed;
+    s_wait.own = r.index;
+    s_wait.ownPrevious = inputs;
+    s_wait.value = rc::ld32(r.row + ValueObject);
+    padMasks(app, cpu, 0);
+    if (s_wait.value)
+        call(app, cpu, SetScript, 0, { s_wait.value, ScriptPulse, 1 });
+    setInstruction(app, cpu, controlsbake::TextPressButton);
+    BIND_LOG("controlsshell: bind wait for %s starts (cfg %s)", VitaButtons[r.index].label, VitaButtons[r.index].key);
+}
+
+void ownWaitFrame(win32::WinApplication* app, x86::CPU& cpu, uint32_t inputs)
+{
+    namespace c = win32::controls;
+    ++s_wait.frames;
+    const uint32_t pressed = inputs & ~s_wait.ownPrevious;
+    s_wait.ownPrevious = inputs;
+    if (!pressed)
+        return;
+    const VitaButton& b = VitaButtons[s_wait.own];
+    if (pressed & c::bit(c::Start))
+        BIND_LOG("controlsshell: bind wait for %s cancelled by Start", b.label);
+    else
+    {
+        const char* value = "";
+        for (int i = 0; i < c::InputCount && !*value; ++i)
+            if (pressed & c::bit(c::Input(i)))
+                value = inputValue(i, !b.modeKey);
+        if (!*value)
+            return;     // (Select where it does not bind): keep waiting
+        if (!options::cfgSet(b.key, value))
+            pf::logError("controlsshell: %s=%s not saved", b.key, value);
+        BIND_LOG("controlsshell: bind %s to %s (frame %d)", b.label, value, s_wait.frames);
+    }
+    if (s_wait.value)
+        call(app, cpu, SetScript, 0, { s_wait.value, ScriptHighlight, 1 });
+    setInstruction(app, cpu, controlsbake::TextConfigure);
+    refreshRows(app, cpu);
+    s_wait.own = -1;
+    s_wait.phase = WaitGuard;
+}
+
 // The capture's result written, the flash stopped, then the release guard.
 void finishWait(win32::WinApplication* app, x86::CPU& cpu)
 {
@@ -534,6 +649,11 @@ void waitFrame(win32::WinApplication* app, x86::CPU& cpu)
             s_wait.phase = WaitNone;
             BIND_LOG("controlsshell: every control released, input back");
         }
+        return;
+    }
+    if (s_wait.own >= 0)
+    {
+        ownWaitFrame(app, cpu, inputs);
         return;
     }
     ++s_wait.frames;
@@ -599,6 +719,14 @@ void changeStick(int index, int direction)
 void removeHighlighted(win32::WinApplication* app, x86::CPU& cpu)
 {
     const Row* r = rowOf(rc::ld32(s_screenObject + HighlightedRow));
+    if (r && r->kind == KindVitaButton && VitaButtons[r->index].removable)
+    {
+        if (!options::cfgSet(VitaButtons[r->index].key, "off"))
+            pf::logError("controlsshell: %s=off not saved", VitaButtons[r->index].key);
+        BIND_LOG("controlsshell: remove %s", VitaButtons[r->index].label);
+        refreshRows(app, cpu);
+        return;
+    }
     if (!r || r->kind != KindEntry)
         return;
     controlstore::Backend& store = controlslink::backend();
@@ -895,7 +1023,7 @@ void addRow(win32::WinApplication* app, x86::CPU& cpu, reg32 screen, Kind kind, 
     if (!row)
         return;
     call(app, cpu, RowConstructor, row, { screen + 0xfc, screen + 0x10c, screen + 0x114, screen + 0x11c, 1 });
-    rc::st32(row, rowTable(hasArrows(kind)));
+    rc::st32(row, rowTable(hasArrows(kind, index)));
     s_rows.push_back({ row, kind, index });
     call(app, cpu, AddRow, screen, { row, 1 });
 }
@@ -950,7 +1078,7 @@ void buildRows(win32::WinApplication* app, x86::CPU& cpu, reg32 screen)
     call(app, cpu, FinishRows, screen, { 0 });
     for (const Row& r : s_rows)
     {
-        if (!hasArrows(r.kind))
+        if (!hasArrows(r.kind, r.index))
             hideArrows(app, cpu, r.row);
     }
     takeValueReference();
@@ -1150,14 +1278,17 @@ void rowMessage(win32::WinApplication* app, x86::CPU& cpu)
         open(app, cpu, ScreenSticks);
     else if (r && message == MessageAccept && r->kind == KindEntry && s_wait.phase == WaitNone)
         startWait(app, cpu, *r);
-    else if (r && hasArrows(r->kind) && (message == MessageLeft || message == MessageRight) && s_wait.phase == WaitNone)
+    else if (r && message == MessageAccept && r->kind == KindVitaButton && s_wait.phase == WaitNone)
+        startOwnWait(app, cpu, *r);
+    else if (r && hasArrows(r->kind, r->index) && (message == MessageLeft || message == MessageRight) && s_wait.phase == WaitNone)
     {
         const int direction = message == MessageLeft ? -1 : 1;
         if (r->kind == KindControlType)
             changeType(direction);
-        else if (r->kind == KindVitaButton || r->kind == KindSetting)
+        else if (r->kind == KindVitaButton || r->kind == KindSetting || r->kind == KindEntry)
         {
-            const char* key = r->kind == KindVitaButton ? VitaButtons[r->index].key : ControlsSettings[r->index];
+            const char* key = r->kind == KindVitaButton ? VitaButtons[r->index].modeKey :
+                              r->kind == KindEntry ? HeadlightsModeKey : ControlsSettings[r->index];
             if (!options::cfgCycle(key, direction))
                 pf::logError("controlsshell: %s not saved", key);
         }
@@ -1319,7 +1450,7 @@ void frame(win32::WinApplication* app, x86::CPU& cpu)
     }
     for (const Row& r : s_rows)
     {
-        if (!hasArrows(r.kind))
+        if (!hasArrows(r.kind, r.index))
             hideArrows(app, cpu, r.row);
     }
     centreValues(app, cpu);

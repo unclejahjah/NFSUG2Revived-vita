@@ -55,6 +55,9 @@ bool applyLive(int g, int i);
 // saved and applied at once.
 // The Vita Settings row label of a cfg key (the key itself when no row has it).
 std::string cfgLabel(const char* key);
+// A cfg key's stored value as written in the settings file, and setting it (saved and applied as a row change is).
+std::string cfgRaw(const char* key);
+bool cfgSet(const char* key, const char* value);
 std::string cfgValue(const char* key);
 bool cfgCycle(const char* key, int delta);
 

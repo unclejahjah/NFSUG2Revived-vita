@@ -19,6 +19,7 @@
 #include <platform/config.h>
 #include <platform/switches.h>
 #include <platform/log.h>
+#include <platform/time.h>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -202,6 +203,19 @@ void headlightsFrame()
     if (held && controls::freeRoam() && controls::lobbyDownOffered()
         && (controls::heldInputs() & controls::bit(controls::DpadDown)))
         held = false;
+    // headlights_mode=hold (Customize's Hold): the action counts only once held a quarter of a second, so a tap does
+    // nothing; press (the default) is Extra Options' way, each press.
+    static const char* const Modes[] = { "hold", "press" };
+    static uint64_t s_heldSince = 0;
+    if (pf::Config::getChoice("headlights_mode", Modes, 2, 1) == 0)
+    {
+        const uint64_t now = pf::ticksUs();
+        if (!held)
+            s_heldSince = 0;
+        else if (!s_heldSince)
+            s_heldSince = now ? now : 1;
+        held = held && now - s_heldSince >= 250000;
+    }
     headlights::frame(win32::g_guestBase, held, rc::ld32(GameState));
 }
 

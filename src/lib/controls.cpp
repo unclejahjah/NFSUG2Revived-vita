@@ -158,9 +158,11 @@ int quickChatButton()
     const unsigned generation = pf::Config::generation();
     if (s_generation.load(std::memory_order_acquire) != generation)
     {
-        static const char* const Names[] = { "dpad_down", "dpad_up", "triangle", "select" };
-        static const int Buttons[] = { DpadDown, DpadUp, Triangle, -1 };
-        s_button.store(Buttons[pf::Config::getChoice("quick_chat_button", Names, 4, 2)], std::memory_order_relaxed);
+        static const char* const Names[] = { "dpad_down", "dpad_up", "triangle", "select", "dpad_left", "dpad_right", "circle",
+                                             "square", "cross", "l", "r", "rear_l2", "rear_r2", "rear_l3", "rear_r3" };
+        static const int Buttons[] = { DpadDown, DpadUp, Triangle, -1, DpadLeft, DpadRight, Circle, Square, Cross, L, R,
+                                       RearL2, RearR2, RearL3, RearR3 };
+        s_button.store(Buttons[pf::Config::getChoice("quick_chat_button", Names, 15, 2)], std::memory_order_relaxed);
         s_generation.store(generation, std::memory_order_release);
     }
     return s_button.load(std::memory_order_relaxed);
@@ -897,6 +899,26 @@ void Mapper::updateTaps(const PadSample& pad, uint64_t nowUs)
     }
 }
 
+// horn_button_mode, drift_button_mode: press (the button is ours from the press, never the game's) or hold.
+static bool pressMode(const char* key)
+{
+    static const char* const Names[] = { "hold", "press" };
+    return pf::Config::getChoice(key, Names, 2, 0) == 1;
+}
+
+static bool modeIsPress(int which)  // 0 horn, 1 drift
+{
+    static std::atomic<unsigned> s_generation{~0u};
+    static std::atomic<int> s_bits{0};
+    const unsigned generation = pf::Config::generation();
+    if (s_generation.load(std::memory_order_acquire) != generation)
+    {
+        s_bits.store((pressMode("horn_button_mode") ? 1 : 0) | (pressMode("drift_button_mode") ? 2 : 0), std::memory_order_relaxed);
+        s_generation.store(generation, std::memory_order_release);
+    }
+    return (s_bits.load(std::memory_order_relaxed) >> which) & 1;
+}
+
 static float clampUnit(float v)
 {
     return std::fmax(-1.0f, std::fmin(1.0f, v));
@@ -909,14 +931,15 @@ static float clampUnit(float v)
 static const uint64_t HoldUs = 250000;
 
 bool Mapper::held(Hold& hold, Input input, uint32_t inputs, uint32_t pressed, uint64_t nowUs, uint32_t* hidden,
-                  uint32_t* pulse)
+                  uint32_t* pulse, bool press)
 {
     const uint32_t key = bit(input);
     const bool dpad = input == DpadUp || input == DpadDown || input == DpadLeft || input == DpadRight;
     const bool rear = input == RearL2 || input == RearR2 || input == RearL3 || input == RearR3;
-    const bool shared = !dpad && !rear;
+    // press (Customize's Press): ours from the press and never the game's, whatever the button
+    const bool shared = !dpad && !rear && !press;
     if (pressed & key)
-        hold = { nowUs ? nowUs : 1, rear, 0 };
+        hold = { nowUs ? nowUs : 1, rear || press, 0 };
     if (inputs & key)
     {
         if (hold.sinceUs && !hold.fired && nowUs - hold.sinceUs >= HoldUs)
@@ -1071,7 +1094,7 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
     uint32_t hornHidden = 0, holdPulse = 0;
     bool horn = false;
     if (hornOn)
-        horn = held(m_hold[0], Input(hornBtn), inputs, pressed, nowUs, &hornHidden, &holdPulse);
+        horn = held(m_hold[0], Input(hornBtn), inputs, pressed, nowUs, &hornHidden, &holdPulse, modeIsPress(0));
     else
         m_hold[0] = {};
     // the HORN touch button above the N2O meter, on the screen's right edge (roam_game.c hb_draw draws it there):
@@ -1093,7 +1116,7 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
         && !((lobbyOffer & 2) && driftBtn == DpadDown) && !(m_chorded & bit(Input(driftBtn))))
     {
         const bool wasFired = m_hold[1].fired;
-        if (held(m_hold[1], Input(driftBtn), inputs, pressed, nowUs, &driftHidden, &holdPulse) && !wasFired)
+        if (held(m_hold[1], Input(driftBtn), inputs, pressed, nowUs, &driftHidden, &holdPulse, modeIsPress(1)) && !wasFired)
             s_driftPresses.fetch_add(1, std::memory_order_relaxed);
     }
     else

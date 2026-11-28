@@ -225,7 +225,12 @@ Delete the file to get a fresh copy on the next start.
 | `free_look_ease_back` | `on` (default), `off` | Free look: let go under 120 degrees round and the camera eases back; further round it cuts back |
 | `horn_button` | `off` (default: the red horn button on screen), `dpad_left` (held), `dpad_right`, `rear_l3`, `rear_r3` | Free roam's horn |
 | `drift_button` | `dpad_right` (default, held), `dpad_left`, `rear_r3`, `rear_l3`, `off` | Free roam's drift mode switch |
-| `quick_chat_button` | `triangle` (default), `dpad_down`, `dpad_up`, `select` | The button held for free roam's quick chat |
+| `quick_chat_button` | `triangle` (default), any button name as for `horn_button`, `select` | The button held for free roam's quick chat |
+| `horn_button_mode`, `drift_button_mode` | `hold` (default), `press` | Hold: the button works once held a quarter of a second and a tap is still its own; press: it is only the horn or drift switch |
+| `headlights_mode` | `press` (default), `hold` | Headlights switch at each press, or only once the button is held a quarter of a second |
+
+Horn, Drift Mode and Quick Chat are also rows at the end of Options > Controls > Customize: Cross then a button binds
+them, Left and Right switch Hold and Press (Headlights too), Square sets Horn or Drift Mode off.
 | `crash_report` | `on` (default), `off` | Write a crash report when the game crashes (see [Crash reports](#crash-reports)) |
 | `stall_seconds` | `8` (default), seconds | How long without a frame before a freeze report is written |
 
