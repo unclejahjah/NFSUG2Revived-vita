@@ -53,6 +53,8 @@ void setText(int g, int i, const std::string& text);
 bool applyLive(int g, int i);
 // A cfg setting from another screen (Controls > Customize): its value as Vita Settings shows it, and a step of it,
 // saved and applied at once.
+// The Vita Settings row label of a cfg key (the key itself when no row has it).
+std::string cfgLabel(const char* key);
 std::string cfgValue(const char* key);
 bool cfgCycle(const char* key, int delta);
 

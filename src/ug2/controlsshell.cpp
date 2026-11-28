@@ -96,7 +96,7 @@ const char* const ScreenSources[ScreenCount] = { "", "UI_Options.fng", "UI_Optio
 const reg32 ScreenTitles[ScreenCount] = { 0, TextControls, TextJoypad, TextCustomize };
 const Screen ScreenParents[ScreenCount] = { ScreenNone, ScreenNone, ScreenTop, ScreenJoypad };
 
-enum Kind { KindJoypad, KindStick, KindControlType, KindCustomize, KindEntry, KindVitaButton };
+enum Kind { KindJoypad, KindStick, KindControlType, KindCustomize, KindEntry, KindVitaButton, KindSetting };
 
 // Customize's rows after the game's actions: free roam's held buttons (src/lib/controls.cpp), cfg settings that
 // Left and Right step through as Vita Settings does (options_menu.cpp), not binds in registry.txt.
@@ -110,6 +110,16 @@ const VitaButton VitaButtons[] = {
     { "Drift Mode (free roam)", "drift_button" },
 };
 const int VitaButtonCount = int(sizeof(VitaButtons) / sizeof(VitaButtons[0]));
+
+// The port's own controller settings, on the Controls screen after the stick rows (they were Vita Settings'
+// Controller page): Left and Right step them as Vita Settings did, labels and values from options_menu.cpp.
+// The game's UI_Options list has 13 row slots (Customize's copy grows its own): Joypad, 6 stick rows and these 6.
+const char* const ControlsSettings[] = {
+    "steering", "rear_touch", "free_look_ease_back", "free_look_swing", "garage_stick", "garage_stick_deadzone",
+};
+const int ControlsSettingCount = int(sizeof(ControlsSettings) / sizeof(ControlsSettings[0]));
+const int TopRowCount = 1 + 6 + ControlsSettingCount;     // Joypad, the stick rows, the settings
+static_assert(TopRowCount <= 13, "the Controls list shows 13 rows");
 
 struct Text
 {
@@ -144,6 +154,7 @@ const Text Entries[] =
 };
 const int EntryCount = int(sizeof(Entries) / sizeof(Entries[0]));
 static_assert(EntryCount == controlsdata::EntryCount, "one row per controlsdata::Entry");
+const int CustomizeRowCount = EntryCount + VitaButtonCount;
 
 struct Row
 {
@@ -298,7 +309,7 @@ void fitLabel(win32::WinApplication* app, x86::CPU& cpu, reg32 label, const Text
 
 bool hasArrows(Kind kind)
 {
-    return kind == KindStick || kind == KindControlType || kind == KindVitaButton;
+    return kind == KindStick || kind == KindControlType || kind == KindVitaButton || kind == KindSetting;
 }
 
 void hideArrows(win32::WinApplication* app, x86::CPU& cpu, reg32 row)
@@ -352,6 +363,15 @@ void rowTexts(win32::WinApplication* app, x86::CPU& cpu, const Row& r)
         setText(app, cpu, label, text);
         fitLabel(app, cpu, label, text);
         setPlain(app, cpu, value, options::cfgValue(VitaButtons[r.index].key));
+        break;
+    }
+    case KindSetting:
+    {
+        const std::string plain = options::cfgLabel(ControlsSettings[r.index]);
+        const Text text = { 0, plain.c_str() };
+        setText(app, cpu, label, text);
+        fitLabel(app, cpu, label, text);
+        setPlain(app, cpu, value, options::cfgValue(ControlsSettings[r.index]));
         break;
     }
     }
@@ -871,17 +891,24 @@ void buildRows(win32::WinApplication* app, x86::CPU& cpu, reg32 screen)
     switch (s_screen)
     {
     case ScreenTop:
+    {
         addRow(app, cpu, screen, KindJoypad, 0);
         for (int i = 0; i < 6; ++i)
             addRow(app, cpu, screen, KindStick, i);
+        const int room = s_slots[ScreenTop] - 7;
+        if (room < ControlsSettingCount)
+            pf::logError("controlsshell: Controls has %d row slots for %d rows", s_slots[ScreenTop], TopRowCount);
+        for (int i = 0; i < ControlsSettingCount && i < room; ++i)
+            addRow(app, cpu, screen, KindSetting, i);
         break;
+    }
     case ScreenJoypad:
         addRow(app, cpu, screen, KindControlType, 0);
         addRow(app, cpu, screen, KindCustomize, 0);
         break;
     case ScreenCustomize:
     {
-        const int rows = EntryCount + VitaButtonCount;
+        const int rows = CustomizeRowCount;
         const int shown = s_slots[ScreenCustomize] < rows ? s_slots[ScreenCustomize] : rows;
         if (shown < rows)
             pf::logError("controlsshell: Customize has %d row slots for %d entries", s_slots[ScreenCustomize], rows);
@@ -1101,10 +1128,11 @@ void rowMessage(win32::WinApplication* app, x86::CPU& cpu)
         const int direction = message == MessageLeft ? -1 : 1;
         if (r->kind == KindControlType)
             changeType(direction);
-        else if (r->kind == KindVitaButton)
+        else if (r->kind == KindVitaButton || r->kind == KindSetting)
         {
-            if (!options::cfgCycle(VitaButtons[r->index].key, direction))
-                pf::logError("controlsshell: %s not saved", VitaButtons[r->index].key);
+            const char* key = r->kind == KindVitaButton ? VitaButtons[r->index].key : ControlsSettings[r->index];
+            if (!options::cfgCycle(key, direction))
+                pf::logError("controlsshell: %s not saved", key);
         }
         else
             changeStick(r->index, direction);
@@ -1185,7 +1213,7 @@ void configure(win32::WinApplication& app)
             fepackage::Package donor;
             const bool haveDonor = which == ScreenCustomize && ownscreens::loadPackage(controlsbake::InstructionDonor, &donor);
             const controlsbake::Result r = which == ScreenJoypad ? controlsbake::joypad(p, ScreenTitles[which]) :
-                controlsbake::options(p, ScreenTitles[which], which == ScreenCustomize, EntryCount + VitaButtonCount, haveDonor ? &donor : nullptr);
+                controlsbake::options(p, ScreenTitles[which], which == ScreenCustomize, CustomizeRowCount, haveDonor ? &donor : nullptr);
             if (which == ScreenCustomize && r.instruction < 0)
                 pf::logError("controlsshell: no instruction line: %s", r.error.c_str());
             s_slots[which] = r.slots;
