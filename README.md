@@ -235,14 +235,14 @@ Settings that start with `dev_` are experiments that may change or go away. Thei
 `dev_smoke_fade`, `dev_smoke_near`, `dev_smoke_mip`); the names without `dev_` are still read and the log notes the
 new name.
 
-The stick dead zone, outer limit and sensitivity are per stick in Options > Controls (saved in `registry.txt`); the
+The stick dead zone, outer limit and sensitivity are per stick in Options > Controls > Sticks (saved in `registry.txt`); the
 old `stick_deadzone` and `stick_response` keys are read once to fill them in.
 
 ### Quality of life options
 
-All of these are in Vita Settings (Controller and Game) and in the settings file:
+All of these are in the settings file, and in the game: Steering and the rear touch pad in Options > Controls, the stick and camera settings in Options > Controls > Sticks, the rest in Vita Settings > Game:
 
-- **Sticks:** dead zone, outer limit and sensitivity per stick are in Options > Controls (Danos's 0.9.0 rows).
+- **Sticks:** dead zone, outer limit and sensitivity per stick are in Options > Controls > Sticks (Danos's 0.9.0 rows).
 - **Digital steering:** `steering=digital` turns the left stick into a keyboard-style steer: pushed past half way it
   ramps to full lock in a quarter of a second and back when let go. The D-pad is not used.
 - **Free look:** 0.9.0's free look (the right stick aims the race camera while the Control Type leaves it free), with

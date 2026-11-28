@@ -87,16 +87,21 @@ const float ValueCentreShift = 48.0f;
 
 // Fake guest addresses of our native methods.
 const reg32 FakeBase = 0x2000;
-const reg32 FakeConstructor = FakeBase, FakeDestructor = FakeBase + 0x40, FakeMessage = FakeBase + 0x50, FakeRows = FakeBase + 0x60,
+// constructors at FakeConstructor + 0x10 * Screen, clear of the others (ScreenCount up to 16)
+const reg32 FakeConstructor = FakeBase + 0x200, FakeDestructor = FakeBase + 0x40, FakeMessage = FakeBase + 0x50, FakeRows = FakeBase + 0x60,
             FakeRowMessage = FakeBase + 0x70, FakeRowUpdate = FakeBase + 0x80, FakeArrowless = FakeBase + 0x100;
 
-enum Screen { ScreenNone, ScreenTop, ScreenJoypad, ScreenCustomize, ScreenCount };
-const char* const ScreenNames[ScreenCount] = { "", "UI_Controls.fng", "UI_ControlsJoypad.fng", "UI_ControlsCustomize.fng" };
-const char* const ScreenSources[ScreenCount] = { "", "UI_Options.fng", "UI_OptionsController.fng", "UI_Options.fng" };
-const reg32 ScreenTitles[ScreenCount] = { 0, TextControls, TextJoypad, TextCustomize };
-const Screen ScreenParents[ScreenCount] = { ScreenNone, ScreenNone, ScreenTop, ScreenJoypad };
+// Sticks: the stick shape rows and the port's stick settings, a screen of its own under Controls.
+enum Screen { ScreenNone, ScreenTop, ScreenJoypad, ScreenCustomize, ScreenSticks, ScreenCount };
+const char* const ScreenNames[ScreenCount] = { "", "UI_Controls.fng", "UI_ControlsJoypad.fng", "UI_ControlsCustomize.fng",
+                                               "UI_ControlsSticks.fng" };
+const char* const ScreenSources[ScreenCount] = { "", "UI_Options.fng", "UI_OptionsController.fng", "UI_Options.fng", "UI_Options.fng" };
+// Sticks has no game text: its title is put in as plain text (checkTitle, SticksTitle)
+const reg32 ScreenTitles[ScreenCount] = { 0, TextControls, TextJoypad, TextCustomize, TextControls };
+const Screen ScreenParents[ScreenCount] = { ScreenNone, ScreenNone, ScreenTop, ScreenJoypad, ScreenTop };
+const char* const SticksTitle = "Sticks";
 
-enum Kind { KindJoypad, KindStick, KindControlType, KindCustomize, KindEntry, KindVitaButton, KindSetting };
+enum Kind { KindJoypad, KindStick, KindControlType, KindCustomize, KindEntry, KindVitaButton, KindSetting, KindSticks };
 
 // Customize's rows after the game's actions: free roam's held buttons (src/lib/controls.cpp), cfg settings that
 // Left and Right step through as Vita Settings does (options_menu.cpp), not binds in registry.txt.
@@ -111,15 +116,18 @@ const VitaButton VitaButtons[] = {
 };
 const int VitaButtonCount = int(sizeof(VitaButtons) / sizeof(VitaButtons[0]));
 
-// The port's own controller settings, on the Controls screen after the stick rows (they were Vita Settings'
-// Controller page): Left and Right step them as Vita Settings did, labels and values from options_menu.cpp.
-// The game's UI_Options list has 13 row slots (Customize's copy grows its own): Joypad, 6 stick rows and these 6.
+// The port's own controller settings (they were Vita Settings' Controller page): Left and Right step them as Vita
+// Settings did, labels and values from options_menu.cpp. The first TopSettingCount are on Controls (after Joypad and
+// Sticks), the rest on Sticks after the six stick shape rows. The game's UI_Options list has 13 row slots.
 const char* const ControlsSettings[] = {
-    "steering", "rear_touch", "free_look_ease_back", "free_look_swing", "garage_stick", "garage_stick_deadzone",
+    "steering", "rear_touch",
+    "free_look_ease_back", "free_look_swing", "camera_stick", "camera_stick_speed", "garage_stick", "garage_stick_deadzone",
 };
 const int ControlsSettingCount = int(sizeof(ControlsSettings) / sizeof(ControlsSettings[0]));
-const int TopRowCount = 1 + 6 + ControlsSettingCount;     // Joypad, the stick rows, the settings
-static_assert(TopRowCount <= 13, "the Controls list shows 13 rows");
+const int TopSettingCount = 2;
+const int TopRowCount = 2 + TopSettingCount;                              // Joypad, Sticks, the settings
+const int SticksRowCount = 6 + ControlsSettingCount - TopSettingCount;    // the stick rows, the settings
+static_assert(TopRowCount <= 13 && SticksRowCount <= 13, "the Controls lists show 13 rows");
 
 struct Text
 {
@@ -363,6 +371,14 @@ void rowTexts(win32::WinApplication* app, x86::CPU& cpu, const Row& r)
         setText(app, cpu, label, text);
         fitLabel(app, cpu, label, text);
         setPlain(app, cpu, value, options::cfgValue(VitaButtons[r.index].key));
+        break;
+    }
+    case KindSticks:
+    {
+        const Text text = { 0, SticksTitle };
+        setText(app, cpu, label, text);
+        fitLabel(app, cpu, label, text);
+        setPlain(app, cpu, value, "");
         break;
     }
     case KindSetting:
@@ -893,12 +909,19 @@ void buildRows(win32::WinApplication* app, x86::CPU& cpu, reg32 screen)
     case ScreenTop:
     {
         addRow(app, cpu, screen, KindJoypad, 0);
+        addRow(app, cpu, screen, KindSticks, 0);
+        for (int i = 0; i < TopSettingCount; ++i)
+            addRow(app, cpu, screen, KindSetting, i);
+        break;
+    }
+    case ScreenSticks:
+    {
         for (int i = 0; i < 6; ++i)
             addRow(app, cpu, screen, KindStick, i);
-        const int room = s_slots[ScreenTop] - 7;
-        if (room < ControlsSettingCount)
-            pf::logError("controlsshell: Controls has %d row slots for %d rows", s_slots[ScreenTop], TopRowCount);
-        for (int i = 0; i < ControlsSettingCount && i < room; ++i)
+        const int room = s_slots[ScreenSticks] - 6;
+        if (room < ControlsSettingCount - TopSettingCount)
+            pf::logError("controlsshell: Sticks has %d row slots for %d rows", s_slots[ScreenSticks], SticksRowCount);
+        for (int i = TopSettingCount; i < ControlsSettingCount && i - TopSettingCount < room; ++i)
             addRow(app, cpu, screen, KindSetting, i);
         break;
     }
@@ -975,7 +998,9 @@ void checkTitle(win32::WinApplication* app, x86::CPU& cpu)
 {
     const reg32 title = findObject(app, cpu, TitleObject);
     const reg32 have = title ? rc::ld32(title + ObjectTextHash) : 0, want = ScreenTitles[s_screen];
-    if (title && have != want)
+    if (title && s_screen == ScreenSticks)
+        setPlain(app, cpu, title, translations::translate(SticksTitle));
+    else if (title && have != want)
         setHash(app, cpu, title, want);
     pf::logInfo("controlsshell: title object %08x text %08x from the package, %08x wanted%s", unsigned(title), unsigned(have),
                 unsigned(want), title && have != want ? ", set" : "");
@@ -1121,6 +1146,8 @@ void rowMessage(win32::WinApplication* app, x86::CPU& cpu)
         open(app, cpu, ScreenJoypad);
     else if (r && message == MessageAccept && r->kind == KindCustomize)
         open(app, cpu, ScreenCustomize);
+    else if (r && message == MessageAccept && r->kind == KindSticks)
+        open(app, cpu, ScreenSticks);
     else if (r && message == MessageAccept && r->kind == KindEntry && s_wait.phase == WaitNone)
         startWait(app, cpu, *r);
     else if (r && hasArrows(r->kind) && (message == MessageLeft || message == MessageRight) && s_wait.phase == WaitNone)
@@ -1192,6 +1219,7 @@ void configure(win32::WinApplication& app)
     app.registerMethod(FakeConstructor + 0x10 * ScreenTop, { "controls screen", constructScreen<ScreenTop> });
     app.registerMethod(FakeConstructor + 0x10 * ScreenJoypad, { "joypad configuration screen", constructScreen<ScreenJoypad> });
     app.registerMethod(FakeConstructor + 0x10 * ScreenCustomize, { "customize screen", constructScreen<ScreenCustomize> });
+    app.registerMethod(FakeConstructor + 0x10 * ScreenSticks, { "sticks screen", constructScreen<ScreenSticks> });
     app.registerMethod(FakeDestructor, { "controls screen destructor", screenDestructor });
     app.registerMethod(FakeMessage, { "controls screen message", screenMessage });
     app.registerMethod(FakeRows, { "controls screen rows", screenRows });

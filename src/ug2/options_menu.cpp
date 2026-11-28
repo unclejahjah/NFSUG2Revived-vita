@@ -358,9 +358,15 @@ const Item Controller[] = {
       "The right stick turns the car in the garage and the customisation menus." },
     { "Camera stick dead zone", Cfg, "garage_stick_deadzone", Choice, OPTIONS(DeadZone), "30", 0, nullptr,
       "How far the right stick moves before the garage camera turns." },
+    { "Right stick camera", Cfg, "camera_stick", Choice, OPTIONS(OnOff), "on", 0, nullptr,
+      "While driving, the right stick turns the chase camera round the car and it comes back when released. In the "
+      "hood and bumper views pushing it down looks back. Off: 0.9.0's free look instead." },
+    { "Camera stick speed", Cfg, "camera_stick_speed", Choice, OPTIONS(CameraSpeed), "4", 0, nullptr,
+      "How fast the right stick camera swings round to where the stick points, and back when released. "
+      "1 is the slowest, 10 the fastest." },
     { "Free look ease back", Cfg, "free_look_ease_back", Choice, OPTIONS(OnOff), "on", 0, nullptr,
       "Free look (the right stick, where the Control Type leaves it free): let go less than 120 degrees round and the "
-      "camera eases back behind the car; further round it cuts straight back. Stick rows are in Options > Controls." },
+      "camera eases back behind the car; further round it cuts straight back. The stick shape rows are beside it, in Options > Controls > Sticks." },
     { "Free look speed", Cfg, "free_look_swing", Choice, OPTIONS(FreeLookSpeed), "180", 0, nullptr,
       "How fast free look swings round to where the stick points, and back when it eases back." },
     { "Steering", Cfg, "steering", Choice, OPTIONS(Steering), "analog", 0, nullptr,
@@ -369,12 +375,6 @@ const Item Controller[] = {
 };
 
 const Item Game[] = {
-    { "Right stick camera", Cfg, "camera_stick", Choice, OPTIONS(OnOff), "on", 0, nullptr,
-      "While driving, the right stick turns the chase camera round the car and it comes back when released. In the "
-      "hood and bumper views pushing it down looks back. Off: 0.9.0's free look instead." },
-    { "Camera stick speed", Cfg, "camera_stick_speed", Choice, OPTIONS(CameraSpeed), "4", 0, nullptr,
-      "How fast the right stick camera swings round to where the stick points, and back when released. "
-      "1 is the slowest, 10 the fastest." },
     { "Frame rate", Cfg, "frame_rate", Choice, OPTIONS(FrameRate), "30", 0, nullptr,
       "30 locks the game to 30 frames a second for steady pacing; unlocked runs as fast as it can." },
     { "Fast travel", Cfg, "fast_travel", Choice, OPTIONS(OnOff), "on", 0, nullptr,
@@ -409,7 +409,7 @@ const Page Pages[] = {
     { "Saves", OPTIONS(Saves) },
     { "Mods", OPTIONS(Mods) },
     // Pages past Vita Settings' own (groupCount leaves them out), edited from the game's own screens:
-    { "Controller", OPTIONS(Controller) },   // rows on Options > Controls (controlsshell.cpp ControlsSettings)
+    { "Controller", OPTIONS(Controller) },   // rows on Options > Controls and its Sticks screen (controlsshell.cpp ControlsSettings)
     { "Stance", OPTIONS(StanceShop) },   // the Car Shop's page, last
 };
 const int PageCount = int(sizeof(Pages) / sizeof(Pages[0]));
