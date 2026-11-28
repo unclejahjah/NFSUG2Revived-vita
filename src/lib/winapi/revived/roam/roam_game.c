@@ -5863,7 +5863,7 @@ static void ui_panel(CPU *c, int k, uint32_t pkg, float x, float y, float w, flo
  * round over the rest), sized so its round is the panel's (6/16 of r); the sides plain lines between them */
 #define UI_OUTLINE_N    8
 static void ui_hide_imgs(CPU *c, int k, int n);
-static void ui_outline(CPU *c, int k, uint32_t pkg, float x, float y, float w, float h, float r, uint32_t rgb, uint8_t a, float z){
+static __attribute__((unused)) void ui_outline(CPU *c, int k, uint32_t pkg, float x, float y, float w, float h, float r, uint32_t rgb, uint8_t a, float z){
 #if FLAGS
     static int8_t have;
     if (!have) have = ui_tex_loaded(c, UI_HL_CORNER) && ui_tex_loaded(c, UI_BOX_W) ? 1 : -1;
@@ -5948,13 +5948,19 @@ static int ui_prompt(const char *in, char *out, int n){
  * in the pause menu's look (ui_panel), its title over a lit rule and a row a choice, the button's glyph and the
  * phrase, and a hint under them.  1 when drawn */
 int roam_host_chat_menu(const char **keys, const char **texts, int max);
-#define QC_X            448.f         /* the panel: its left, HUD units (640 x 480) */
-#define QC_W            180.f
-#define QC_TOP          150.f
-#define QC_HEAD         24.f          /* the title's band */
-#define QC_LINE         17.f          /* a row */
-#define QC_SC           0.78f         /* the rows' text */
-#define QC_GL           13.f          /* a glyph's size */
+#define QC_X            428.f         /* the box: its left, HUD units (640 x 480), the drift box's column on the right */
+#define QC_W            176.f
+#define QC_BOTTOM       256.f         /* its bottom: above the horn's disc and the rev gauge's N2O meter; it grows upwards
+                                       * (Jah, 2026-11-28: it sat on them) */
+#define QC_PAD          5.f
+#define QC_HEAD         17.f          /* the title's line, as the lobby's */
+#define QC_LINE         13.f          /* a row */
+#define QC_HINT         12.f
+#define QC_SC           0.68f         /* the rows' text */
+#define QC_GL           11.f          /* a glyph's size */
+#define QC_BOX_A        140           /* drift mode's and the lobby's look: black at about a third, no outline */
+#define QC_LIME         0xcaf48au
+#define QC_GREY         0xc0c0c0u
 static int g_qc_drawn;
 static void qc_hide(CPU *c){
     for (int i = 0; i < TAG_QCN; i++) tag_hide(c, TAG_QC0 + i);
@@ -5970,28 +5976,32 @@ static int qc_panel(CPU *c, uint32_t pkg){
      * (controls.cpp setLobbyKeys), its bar under the phrases fills meanwhile */
     extern float roam_host_lobby_hold(void);
     float hold = roam_host_lobby_hold();
-    float h = QC_HEAD + QC_LINE * (float)n + 22.f + (hold >= 0.f ? 8.f : 0.f);
-    ui_panel(c, FL_QC, pkg, QC_X, QC_TOP, QC_W, h, 0, 0xffffffu, 255, UI_Z);
-    ui_outline(c, FL_QC + 15, pkg, QC_X, QC_TOP, QC_W, h, UI_R, UI_LIME, 255, 0.41f);
-    ui_rect(c, FL_QC + UI_PANEL_N, pkg, UI_BOX_W, QC_X + 8.f, QC_TOP + QC_HEAD - 2.f, QC_W - 16.f, 1.5f, UI_LIME, 255, 0.41f);
-    ui_text(c, TAG_QC0, pkg, "QUICK CHAT", UI_LIME, QC_X + 10.f, QC_TOP + QC_HEAD * 0.5f - 1.f, 0.95f, 0);
+    float h = QC_PAD + QC_HEAD + 4.f + QC_LINE * (float)n + 3.f + QC_HINT + (hold >= 0.f ? 5.f : 0.f) + QC_PAD;
+    float top = QC_BOTTOM - h, cy = top + QC_PAD + QC_HEAD * 0.5f;
+    ui_panel(c, FL_QC, pkg, QC_X, top, QC_W, h, 0, 0xffffffu, QC_BOX_A, 0.42f);
+    ui_hide_imgs(c, FL_QC + 15, 8);               /* (the lime outline it had) */
+    ui_text(c, TAG_QC0, pkg, "QUICK CHAT", QC_LIME, QC_X + 8.f, cy, 0.78f, 0);
+    cy += QC_HEAD * 0.5f + 1.f;
+    ui_rect(c, FL_QC + UI_PANEL_N, pkg, UI_BOX_W, QC_X + 8.f, cy, QC_W - 16.f, 1.f, 0xffffffu, 70, 0.41f);
+    cy += 3.f;
     for (int i = 0; i < n; i++){
-        float y = QC_TOP + QC_HEAD + 4.f + QC_LINE * ((float)i + 0.5f);
+        float y = cy + QC_LINE * ((float)i + 0.5f);
         int g = ui_glyph_of(keys[i]);
         char tx[TAG_DUEL_MAX];
         if (ui_glyph(c, FL_QC + UI_PANEL_N + 1 + i, pkg, g, QC_X + 10.f + QC_GL * 0.5f, y, QC_GL)) snprintf(tx, sizeof tx, "%s", texts[i]);
         else snprintf(tx, sizeof tx, "%s  %s", keys[i], texts[i]);
-        ui_text(c, TAG_QC0 + 1 + i, pkg, tx, UI_TEXT, QC_X + 16.f + QC_GL, y, QC_SC, 0);
+        ui_text(c, TAG_QC0 + 1 + i, pkg, tx, i == n - 1 && !strcmp(texts[i], "Add friend") ? QC_GREY : UI_TEXT, QC_X + 14.f + QC_GL, y, QC_SC, 0);
     }
     for (int i = n; i < TAG_QCN - 2; i++){ tag_hide(c, TAG_QC0 + 1 + i); ui_hide_imgs(c, FL_QC + UI_PANEL_N + 1 + i, 1); }
+    cy += QC_LINE * (float)n + 3.f;
     if (hold >= 0.f){
-        float bw = QC_W - 20.f, f = hold > 1.f ? 1.f : hold;
-        ui_text(c, TAG_QC0 + TAG_QCN - 1, pkg, "Keep holding: Friends only", UI_GOLD, QC_X + 10.f, QC_TOP + h - 18.f, 0.62f, 0);
-        ui_rect(c, FL_QC + 23, pkg, UI_BOX_W, QC_X + 10.f, QC_TOP + h - 9.f, bw, 3.f, 0xffffffu, 50, 0.41f);
-        ui_rect(c, FL_QC + 24, pkg, UI_BOX_W, QC_X + 10.f, QC_TOP + h - 9.f, bw * f, 3.f, UI_GOLD, 255, 0.405f);
+        float bw = QC_W - 16.f, f = hold > 1.f ? 1.f : hold;
+        ui_text(c, TAG_QC0 + TAG_QCN - 1, pkg, "Keep holding: Friends only", UI_GOLD, QC_X + 8.f, cy + QC_HINT * 0.5f, 0.6f, 0);
+        ui_rect(c, FL_QC + 23, pkg, UI_BOX_W, QC_X + 8.f, cy + QC_HINT + 1.f, bw, 2.f, 0xffffffu, 50, 0.41f);
+        ui_rect(c, FL_QC + 24, pkg, UI_BOX_W, QC_X + 8.f, cy + QC_HINT + 1.f, bw * f, 2.f, UI_GOLD, 255, 0.405f);
     } else {
         ui_hide_imgs(c, FL_QC + 23, 2);
-        ui_text(c, TAG_QC0 + TAG_QCN - 1, pkg, "Let go to close", UI_LIME, QC_X + 10.f, QC_TOP + h - 10.f, 0.62f, 0);
+        ui_text(c, TAG_QC0 + TAG_QCN - 1, pkg, "Let go to close", QC_GREY, QC_X + 8.f, cy + QC_HINT * 0.5f, 0.6f, 0);
     }
     g_qc_drawn = 1;
     return 1;
@@ -6258,11 +6268,12 @@ static void du_hud(CPU *c, int64_t host){
     float tw = tag_width(line) * sc, gs = 15.f, pad = 10.f;
     int glyph = g >= 0 && ui_glyph_ok(c, g);
     if (g >= 0 && !glyph){ char t[TAG_DUEL_MAX]; snprintf(t, sizeof t, "%s  %s", GL_SAY[g], line); snprintf(line, sizeof line, "%s", t); tw = tag_width(line) * sc; }
-    float w = tw + pad * 2.f + (glyph ? gs + 6.f : 0.f), x = 320.f - w * 0.5f, y = 8.f, h = 24.f;
+    float w = tw + pad * 2.f + (glyph ? gs + 6.f : 0.f), x = 320.f - w * 0.5f, y = 8.f, h = 22.f;
     g_ui_place = 0;
-    ui_panel(c, FL_TOP, pkg, x, y, w, h, 0, 0xffffffu, 255, UI_Z);
+    /* drift mode's and the lobby's look (Jah, 2026-11-28): black at about a third, no lime outline */
+    ui_panel(c, FL_TOP, pkg, x, y, w, h, 0, 0xffffffu, 140, UI_Z);
     ui_hide_imgs(c, FL_TOP + UI_PANEL_N, 1);
-    ui_outline(c, FL_TOP + 9, pkg, x, y, w, h, UI_R, UI_LIME, 255, 0.41f);
+    ui_hide_imgs(c, FL_TOP + 9, 8);
     if (glyph) ui_glyph(c, FL_TOP + UI_PANEL_N + 1, pkg, g, x + pad + gs * 0.5f, y + h * 0.5f, gs);
     else ui_hide_imgs(c, FL_TOP + UI_PANEL_N + 1, 1);
     ui_text(c, TAG_DUEL, pkg, line, 0xffffffu, x + pad + (glyph ? gs + 6.f : 0.f), y + h * 0.5f, sc, 0);
